@@ -66,19 +66,46 @@ def long_with_id(df: pd.DataFrame, date_cols: list[str]) -> pd.DataFrame:
     
 
 # Clean and normalize numeric data (handles missing values and outliers)
+# def auto_clean_data(df):
+#     df = df.copy()
+#     numeric_cols = df.select_dtypes(include=[np.number]).columns
+#     print("auto clean col:",numeric_cols)
+#     for col in numeric_cols:
+#         mean = df[col].mean()
+#         std = df[col].std()
+#         df[col] = df[col].fillna(mean)
+#         df[col] = np.where((df[col] > mean + 3 * std) | (df[col] < mean - 3 * std), mean, df[col])
+
+#     # Normalize all numeric columns
+#     scaler = MinMaxScaler()
+#     df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+#     return df
+from sklearn.preprocessing import StandardScaler
+
 def auto_clean_data(df):
     df = df.copy()
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
 
+    # Ensure all column names are strings
+    df.columns = df.columns.map(str)
+
+    # Identify numeric columns (after renaming)
+    numeric_cols = df.select_dtypes(include='number').columns.tolist()
+
+    # Optional: Coerce to numeric and drop rows with NaNs (just in case)
     for col in numeric_cols:
-        mean = df[col].mean()
-        std = df[col].std()
-        df[col] = df[col].fillna(mean)
-        df[col] = np.where((df[col] > mean + 3 * std) | (df[col] < mean - 3 * std), mean, df[col])
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=numeric_cols)
 
-    # Normalize all numeric columns
-    scaler = MinMaxScaler()
-    df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+    # Apply scaling
+    scaler = StandardScaler()
+    try:
+        df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+    except Exception as e:
+        print(f"[ERROR] Scaling failed: {e}")
+        print(f"[DEBUG] Columns attempted to scale: {numeric_cols}")
+        print(df[numeric_cols].dtypes)
+        raise
+
     return df
 
 # Detect frequency from datetime-like column headers using pandas + dateutil
@@ -118,6 +145,7 @@ def validate_time_series(df, date_cols):
         df = df.copy()
         df.columns = pd.to_datetime(df.columns, errors='coerce')
         df = df.reindex(columns=full_range, fill_value=0)
+        print("valid trimesewries")
         return df, full_range.strftime("%Y-%m-%d").tolist()
     except Exception as e:
         print(f"[ERROR] Failed to validate time series: {e}")
@@ -135,28 +163,29 @@ def validate_time_series(df, date_cols):
 #         return pd.DataFrame()
 
 # ================= MAIN =================
-# def main():
-#     print("[INFO] Starting Data Preprocessing Pipeline...")
-#     df = upload_dataset()
-#     print(preview_dataset(df))
+def main():
+    file_path=r"Data\Auto Parts - Historic Data.xlsx"
+    print("[INFO] Starting Data Preprocessing Pipeline...")
+    df = upload_dataset(file_path)
+    print(preview_dataset(df))
 
-#     date_cols = extract_datetime_columns(df)
-#     if not date_cols:
-#         print("[ERROR] No datetime-like columns found.")
-#         return
+    date_cols = extract_datetime_columns(df)
+    if not date_cols:
+        print("[ERROR] No datetime-like columns found.")
+        return
 
-#     df_date_only = df[date_cols].copy()
-#     df_validated, validated_date_cols = validate_time_series(df_date_only, date_cols)
-#     df_cleaned = auto_clean_data(df_validated)
-#     frequency = detect_frequency_from_columns(validated_date_cols)
+    df_date_only = df[date_cols].copy()
+    df_validated, validated_date_cols = validate_time_series(df_date_only, date_cols)
+    df_cleaned = auto_clean_data(df_validated)
+    frequency = detect_frequency_from_columns(validated_date_cols)
 
-#     print(f"\n[INFO] Detected Frequency: {frequency}")
-#     print("\n[INFO] Processed Data Sample:")
-#     print(preview_dataset(df_cleaned))
+    print(f"\n[INFO] Detected Frequency: {frequency}")
+    print("\n[INFO] Processed Data Sample:")
+    print(preview_dataset(df_cleaned))
 
-#     print("\n[INFO] Generating cumulative sum table...")
-#     cumulative_df = get_cumulative_sum(df_cleaned, validated_date_cols)
-#     print(cumulative_df)
+    print("\n[INFO] Generating cumulative sum table...")
+    # cumulative_df = get_cumulative_sum(df_cleaned, validated_date_cols)
+    # print(cumulative_df)
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

@@ -118,7 +118,11 @@ if __name__ == "__main__":
     df_long = long_with_id(data, date_cols)
     print(df_long)
 
-    
+
+    clean=auto_clean_data(data)
+    print("clena")
+    frequency=detect_frequency_from_columns(date_cols)
+    print(frequency)
     prompt, prompt_sum = generate_column_detection_prompt(df_long)
     
     role_detect = llm_column_role_detector(prompt)
