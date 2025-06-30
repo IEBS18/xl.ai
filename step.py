@@ -84,14 +84,8 @@ from sklearn.preprocessing import StandardScaler
 
 def auto_clean_data(df):
     df = df.copy()
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
 
-    # Ensure all column names are strings
-    df.columns = df.columns.map(str)
-
-    # Identify numeric columns (after renaming)
-    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-
-    # Optional: Coerce to numeric and drop rows with NaNs (just in case)
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     df = df.dropna(subset=numeric_cols)
@@ -113,7 +107,7 @@ def detect_frequency_from_columns(date_cols):
     try:
         dates = pd.to_datetime(date_cols)
         dates = dates.sort_values()
-        deltas = dates.to_series().diff().dropna()
+        deltas = dates.diff().dropna()
         mode_delta = deltas.mode()[0]
         seconds = mode_delta.total_seconds()
 
@@ -151,16 +145,6 @@ def validate_time_series(df, date_cols):
         print(f"[ERROR] Failed to validate time series: {e}")
         return df, date_cols
 
-# def get_cumulative_sum(df, date_cols):
-#     try:
-#         df_sum = df[date_cols].copy()
-#         df_sum.columns = pd.to_datetime(df_sum.columns).date
-#         cumulative = df_sum.sum(axis=0).cumsum()
-#         result_df = pd.DataFrame({"Date": cumulative.index, "Cumulative Value": cumulative.values})
-#         return result_df
-#     except Exception as e:
-#         print(f"[ERROR] Could not compute cumulative sum: {e}")
-#         return pd.DataFrame()
 
 # ================= MAIN =================
 def main():

@@ -11,7 +11,6 @@ from step import (
     upload_dataset,
     preview_dataset,
     extract_datetime_columns,
-    validate_time_series,
     auto_clean_data,
     detect_frequency_from_columns,
     long_with_id
@@ -97,10 +96,34 @@ def llm_generate_schema_explanation(data, prompt):
     
     return response.choices[0].message.content.strip()
 
-def allow_manual_column_override(column_name, role, llm_schema):
-    pass
+def allow_manual_column_override(column, role, llm_schema):
     
+    # normalize string inputs
+    if (
+        column is None 
+        or role is None
+        or (isinstance(column, str) and column.strip().lower() == "none")
+        or (isinstance(role,   str) and role.strip().lower()   == "none")
+    ):
+        return llm_schema
+
+    
+    if column not in llm_schema['column'].values:
+        raise KeyError(f"No column name exists as {column}")
+    if role not in llm_schema['role'].values:
+        raise KeyError(f"No role could be found with {role}")
+    
+    df = llm_schema.copy()
+    
+    mask = df['column'] == column
+    df.loc[mask, 'role'] = role
+    df.loc[mask, 'reason'] =(
+        "User-overridden role: required by the user for forecasting."
+    )
+    
+    return df  
         
+     
 
 if __name__ == "__main__":
     
@@ -117,13 +140,13 @@ if __name__ == "__main__":
        
     df_long = long_with_id(data, date_cols)
     print(df_long)
+    
+    df_clean = auto_clean_data(df_long)
+    
+    print(df_clean.columns)
 
-
-    clean=auto_clean_data(data)
-    print("clena")
-    frequency=detect_frequency_from_columns(date_cols)
-    print(frequency)
-    prompt, prompt_sum = generate_column_detection_prompt(df_long)
+    
+    prompt, prompt_sum = generate_column_detection_prompt(df_clean)
     
     role_detect = llm_column_role_detector(prompt)
     
@@ -142,6 +165,9 @@ if __name__ == "__main__":
 
     # 3) Build your DataFrame
     df_role = pd.DataFrame(role_list)
+    
+    column_name = df_role['column'].to_list()
+    # print(column_name)
 
     print(df_role)
     
@@ -150,11 +176,18 @@ if __name__ == "__main__":
     
     print({"summary for schema": summary})
     
-    column_name = input("Enter the column name you want to override:")
+    column = input(f"Select the column whose role you wanna change from {column_name}:")    
+    # column_name = input("Enter the column name you want to override:")
     role = input("Enter the role you want to override:")
     
-    allow_manual_column_override(column_name, role, df_role)
+    df_manual = allow_manual_column_override(column, role, df_role)
     
+    print(f"Manual Change role: {df_manual}")
+    
+    freq = detect_frequency_from_columns(df_clean['Date'])
+    
+    print(f"frequency of the Date column is: {freq}")
+
     
     
     
