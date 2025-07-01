@@ -1,10 +1,11 @@
 import pandas as pd
+from pathlib import Path
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from dateutil.parser import parser as _parse_date
 from pandas.api.types import (
     is_datetime64_any_dtype,
-    is_numeric_dtype,
+    is_numeric_dtype
 )
 import os
 from step import (
@@ -15,6 +16,9 @@ from step import (
     detect_frequency_from_columns,
     long_with_id
     ) 
+from Data_transform import (
+    grouping_data
+)
 import json
 
 load_dotenv()
@@ -27,6 +31,16 @@ openai_client = AzureOpenAI(
 )
 
 MODEL = "gpt-4o-mini"
+
+def check_total_col(df):
+    
+    total_col = 'Total'
+    
+    df= df.copy()
+    if total_col not in df.columns:
+        df[total_col] = 'Total'
+    
+    return df
 
 def generate_column_detection_prompt(data):
     sample = data.head(5).to_dict(orient = 'records')
@@ -129,6 +143,7 @@ def Standardize_Headers(data):
     ###dict of all the columns 
     
     synonym_map = {"total_products": ["quantity", "qty", "units", "total", "no of products", "number of products", "count"],
+    "location": ["warehouse", "region", "based at", "area", "zone", "territory", "store location", "distribution center", "branch", "facility", "delivery location", "shipping point", "geo location", "market", "sales region", "sales area", "country", "state", "province", "district", "city", "locality", "place", "hub", "center", "business unit location", "plant location", "retail outlet", "channel location", "fulfillment center", "inventory location", "site", "geography"],
     "category": ["type", "product type", "product category", "item group", "group", "class", "variable name"],
     "sku" : ["product code", "item code", "sku id", "stock keeping unit", "code", "product id", "sku number"],
     "description": ["product name", "item name", "name", "product description", "details", "desc"],
@@ -160,16 +175,20 @@ if __name__ == "__main__":
     
     file_path = input("Enter the file you want to upload:")
     
+    file_name = Path(file_path).stem
+    
     data = upload_dataset(file_path)
     
-    print({"Dataset":preview_dataset(data)})
-    date_cols = extract_datetime_columns(data)
+    data_n = check_total_col(data)
+    
+    print(f"Dataset:{preview_dataset(data_n).drop(columns=['Total'])}")
+    date_cols = extract_datetime_columns(data_n)
     # print(date_cols)
     if not date_cols:
         print("[ERROR] No datetime-like columns found.")
         
        
-    df_long = long_with_id(data, date_cols)
+    df_long = long_with_id(data_n, date_cols)
     print(df_long)
         
     df_clean = auto_clean_data(df_long)
@@ -221,6 +240,15 @@ if __name__ == "__main__":
     
     df_standard = Standardize_Headers(df_clean)
     print(f"Standardize columns data: \n {df_standard}")
+    # df_standard.to_excel("Data/New_file_formated.xlsx", index=False)
+    
+    col = df_standard.select_dtypes(include=['object']).columns
+    column = input(f"Enter the column of your choice to group for {col}:")
+    
+    df_group = grouping_data(df_standard, column , freq )
+    
+    print(df_group)
+    # df_group.to_excel(f"Data\\Groupby_{column}_{file_name}.xlsx", index=False)
     
     
     
