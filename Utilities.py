@@ -123,7 +123,38 @@ def allow_manual_column_override(column, role, llm_schema):
     
     return df  
         
-     
+
+def Standardize_Headers(data):
+    
+    ###dict of all the columns 
+    
+    synonym_map = {"total_products": ["quantity", "qty", "units", "total", "no of products", "number of products", "count"],
+    "category": ["type", "product type", "product category", "item group", "group", "class", "variable name"],
+    "sku" : ["product code", "item code", "sku id", "stock keeping unit", "code", "product id", "sku number"],
+    "description": ["product name", "item name", "name", "product description", "details", "desc"],
+    "date": ["order date", "invoice date", "transaction date", "created at", "date of sale", "sale date"],
+    "value": ["amount", "total price", "price", "sale value", "cost", "revenue", "value (INR)"]}
+    
+    
+    # invert to variant -> canonical
+    variant_to_key = {
+        variant.lower() : key
+        for key, variants in synonym_map.items()
+        for variant in variants
+    }
+    
+    ##build a rename dict 
+    rename_dict = {}
+    
+    for col in data.columns:
+        lookup = col.strip().lower()
+        if lookup in variant_to_key:
+            rename_dict[col] = variant_to_key[lookup]
+        else:
+            continue
+        
+    return data.rename(columns = rename_dict)
+             
 
 if __name__ == "__main__":
     
@@ -132,15 +163,15 @@ if __name__ == "__main__":
     data = upload_dataset(file_path)
     
     print({"Dataset":preview_dataset(data)})
-    
     date_cols = extract_datetime_columns(data)
     # print(date_cols)
     if not date_cols:
         print("[ERROR] No datetime-like columns found.")
+        
        
     df_long = long_with_id(data, date_cols)
     print(df_long)
-    
+        
     df_clean = auto_clean_data(df_long)
     
     print(df_clean.columns)
@@ -176,18 +207,20 @@ if __name__ == "__main__":
     
     print({"summary for schema": summary})
     
+    
     column = input(f"Select the column whose role you wanna change from {column_name}:")    
     # column_name = input("Enter the column name you want to override:")
     role = input("Enter the role you want to override:")
-    
     df_manual = allow_manual_column_override(column, role, df_role)
     
-    print(f"Manual Change role: {df_manual}")
+    print(f"Manual Change role: \n{df_manual}")
     
     freq = detect_frequency_from_columns(df_clean['Date'])
     
     print(f"frequency of the Date column is: {freq}")
-
+    
+    df_standard = Standardize_Headers(df_clean)
+    print(f"Standardize columns data: \n {df_standard}")
     
     
     

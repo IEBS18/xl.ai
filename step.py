@@ -106,8 +106,9 @@ def auto_clean_data(df):
 def detect_frequency_from_columns(date_cols):
     try:
         dates = pd.to_datetime(date_cols)
-        dates = dates.sort_values()
-        deltas = dates.diff().dropna()
+        # dates = dates.sort_values()
+        unique_dates = dates.drop_duplicates().sort_values()
+        deltas = unique_dates.diff().dropna()
         mode_delta = deltas.mode()[0]
         seconds = mode_delta.total_seconds()
 
@@ -128,48 +129,50 @@ def detect_frequency_from_columns(date_cols):
     except Exception as e:
         print(f"[WARNING] Could not detect frequency: {e}")
         return "unknown"
+    
+    
 
-# Validate time series: reindex for continuity, detect missing, fill with 0
-def validate_time_series(df, date_cols):
-    try:
-        dates = pd.to_datetime(date_cols)
-        inferred_freq = pd.infer_freq(dates.sort_values()) or 'MS'
-        full_range = pd.date_range(start=min(dates), end=max(dates), freq=inferred_freq)
+# # Validate time series: reindex for continuity, detect missing, fill with 0
+# def validate_time_series(df, date_cols):
+#     try:
+#         dates = pd.to_datetime(date_cols)
+#         inferred_freq = pd.infer_freq(dates.sort_values()) or 'MS'
+#         full_range = pd.date_range(start=min(dates), end=max(dates), freq=inferred_freq)
 
-        df = df.copy()
-        df.columns = pd.to_datetime(df.columns, errors='coerce')
-        df = df.reindex(columns=full_range, fill_value=0)
-        print("valid trimesewries")
-        return df, full_range.strftime("%Y-%m-%d").tolist()
-    except Exception as e:
-        print(f"[ERROR] Failed to validate time series: {e}")
-        return df, date_cols
+#         df = df.copy()
+#         df.columns = pd.to_datetime(df.columns, errors='coerce')
+#         df = df.reindex(columns=full_range, fill_value=0)
+#         print("valid trimesewries")
+#         return df, full_range.strftime("%Y-%m-%d").tolist()
+#     except Exception as e:
+#         print(f"[ERROR] Failed to validate time series: {e}")
+#         return df, date_cols
 
 
 # ================= MAIN =================
-def main():
-    file_path=r"Data\Auto Parts - Historic Data.xlsx"
-    print("[INFO] Starting Data Preprocessing Pipeline...")
-    df = upload_dataset(file_path)
-    print(preview_dataset(df))
+# def main():
+#     file_path=r"Data\Auto Parts - Historic Data.xlsx"
+#     print("[INFO] Starting Data Preprocessing Pipeline...")
+#     df = upload_dataset(file_path)
+#     print(preview_dataset(df))
 
-    date_cols = extract_datetime_columns(df)
-    if not date_cols:
-        print("[ERROR] No datetime-like columns found.")
-        return
+#     date_cols = extract_datetime_columns(df)
+#     if not date_cols:
+#         print("[ERROR] No datetime-like columns found.")
+#         return
 
-    df_date_only = df[date_cols].copy()
-    df_validated, validated_date_cols = validate_time_series(df_date_only, date_cols)
-    df_cleaned = auto_clean_data(df_validated)
-    frequency = detect_frequency_from_columns(validated_date_cols)
+#     df_date_only = df[date_cols].copy()
+#     # df_validated, validated_date_cols = validate_time_series(df_date_only, date_cols)
+#     df_cleaned = auto_clean_data(df_validated)
+#     frequency = detect_frequency_from_columns(validated_date_cols)
 
-    print(f"\n[INFO] Detected Frequency: {frequency}")
-    print("\n[INFO] Processed Data Sample:")
-    print(preview_dataset(df_cleaned))
+#     print(f"\n[INFO] Detected Frequency: {frequency}")
+#     print("\n[INFO] Processed Data Sample:")
+#     print(preview_dataset(df_cleaned))
 
-    print("\n[INFO] Generating cumulative sum table...")
-    # cumulative_df = get_cumulative_sum(df_cleaned, validated_date_cols)
-    # print(cumulative_df)
+#     print("\n[INFO] Generating cumulative sum table...")
+#     # cumulative_df = get_cumulative_sum(df_cleaned, validated_date_cols)
+#     # print(cumulative_df)
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
