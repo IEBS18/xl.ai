@@ -72,11 +72,15 @@ summary = llm_generate_schema_explanation(df_role, prompt_sum)
 print({"summary for schema": summary})
 
 # Manual override
-column = input(f"Select the column whose role you wanna change from {column_name}:")    
-# column_name = input("Enter the column name you want to override:")
-role = input("Enter the role you want to override:")
-df_manual = allow_manual_column_override(column, role, df_role)
-print(f"Manual Change role: \n{df_manual}")
+user_input = input("Choose to override column's role yes/no:")
+
+if user_input == 'yes':
+    column = input(f"Select the column whose role you wanna change from {column_name}:")    
+    # column_name = input("Enter the column name you want to override:")
+    role = input("Enter the role you want to override:")
+    df_manual = allow_manual_column_override(column, role, df_role)
+    print(f"Manual Change role: \n{df_manual}")
+else: pass
 
 # Detect frequency
 freq = detect_frequency_from_columns(df_clean['Date'])
@@ -90,24 +94,39 @@ print(f"Standardize columns data: \n {df_standard}")
 #Group By
 col = df_standard.select_dtypes(include=['object']).columns
 column = input(f"Enter the column of your choice to group for {col}:")
-df_group = grouping_data(df_standard, column , freq )
+df_grp = grouping_data(df_standard, column , freq )
+df_group = df_grp.set_index('Date')
 print(df_group)
 # df_group.to_excel(f"Data\\Groupby_{column}_{file_name}.xlsx", index=False)
 
 # manage the data 
 category = df_group.select_dtypes(include='object').columns
 # print(category.nunique())
-if category.nunique() == 0:
-    unique_values = {'Total': ['Total']}
+if len(category) == 0:
+    sum_df = (
+        df_group
+        .groupby('Date', as_index=True)['Value']
+        .sum()
+        .sort_index()
+    )
+    subsets = [('Total', sum_df)]
 else:
-    unique_values = {col: df_group[col].unique().tolist() for col in category}
+    # unique_values = {col: df_group[col].unique().tolist() for col in category}
     # print(unique_values)
+    grp_cat = category[0]
+    # print(grp_cat)
+    subsets = [
+        (val, 
+         df_group[df_group[grp_cat] == val][['Date','Value']].dropna().copy()
+        )
+        for val in df_group[grp_cat].unique()
+    ]
 
 
 # Parallel model function
 def run_all_models(subset, val):
-    subset = subset[['Date', 'Value']].dropna()
-    subset = subset.copy()
+    # subset = subset[['Date', 'Value']].dropna()
+    # subset = subset.copy()
 
     model1 = ProphetTimeSeriesModel(data=subset, freq='ME')
     model1.preprocess_data()
@@ -139,10 +158,11 @@ def run_all_models(subset, val):
 # Run models in parallel
 with ThreadPoolExecutor(max_workers=3) as executor:
     futures = []
-    for col, vals in unique_values.items():
-        for val in vals:
-            subset = df_group[df_group[col] == val].copy()
-            futures.append(executor.submit(run_all_models, subset, val))
+    # for col, vals in unique_values.items():
+    #     for val in vals:
+    #         subset = df_group[df_group[col] == val].copy()
+    for label, subset in subsets:
+        futures.append(executor.submit(run_all_models, subset, label))
 
     for future in futures:
         val, m1, f1, m2, f2, m3, f3 = future.result()
