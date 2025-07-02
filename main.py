@@ -117,17 +117,32 @@ for col, vals in unique_values.items():
         subset = subset[['Date','Value']].dropna()
         # print(subset)
         model1 = ProphetTimeSeriesModel(data=subset, freq='ME')
-        model2 = XGBoostTimeSeries (subset)
-        model3 = ExponentialSmoothingTimeSeries (data=subset, seasonal_periods=12, trend='add', seasonal='add', damped_trend=True)
         model1.preprocess_data()
-
         model1.train_model()
+        model2 = XGBoostTimeSeries (subset)
+        model2.preprocess_data()
+        model2.train_model()
+        model3 = ExponentialSmoothingTimeSeries (data=subset, seasonal_periods=12, trend='add', seasonal='add', damped_trend=True)
+        model3.preprocess_data()
+        model3.train_model()
 
-        metrices = model1.evaluate_model()
-        print(f"Metrics for {val}:\n", metrices)
+        
 
-        future = model1.predict_future(3)
-        print(f"Forecast for {val}:\n", future, "\n")
+        metrices1 = model1.evaluate_model()
+        print(f"Metrics for {val}:\n", metrices1)
+        metrices2 = model2.evaluate_model()
+        print(f"Metrics for {val}:\n", metrices2)
+        metrices3 = model3.evaluate_model()
+        print(f"Metrics for {val}:\n", metrices3)
+        
+
+        future1 = model1.predict_future(3)
+        print(f"Forecast for {val}:\n", future1, "\n")
+        end_date =subset.index[-1] + pd.DateOffset(months=12)
+        future2 = model2.predict_future(end_date)
+        print(f"Forecast for {val}:\n", future2, "\n")
+        future3 = model3.predict_future(steps=12)
+        print(f"Forecast for {val}:\n", future3, "\n")
         
 
 
