@@ -171,7 +171,7 @@ def Standardize_Headers(data):
     return data.rename(columns = rename_dict)
              
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
     file_path = input("Enter the file you want to upload:")
     

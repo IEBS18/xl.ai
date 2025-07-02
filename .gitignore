@@ -3,7 +3,7 @@
 
 ## ignoring the raw(practise)python file 
 ingest_prep_util.py
-
-
+general_prophet.py
+rough.py
 
 Data/*
