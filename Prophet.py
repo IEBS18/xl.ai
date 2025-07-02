@@ -66,23 +66,6 @@ class ProphetTimeSeriesModel:
         forecast = self.model.predict(future)
         return forecast[['ds','yhat', 'yhat_lower', 'yhat_upper']].iloc[-periods:]
     
-    def plot_components(self):
-        """
-        Returns Prophet's forecast component plots.
-        """
-        if self.forecast is not None:
-            return self.model.plot_components(self.forecast)
-        else:
-            return None
-
-    def plot_forecast(self):
-        """
-        Returns Prophet's forecast plot.
-        """
-        if self.forecast is not None:
-            return self.model.plot(self.forecast)
-        else:
-            return None
 
         
         
