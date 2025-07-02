@@ -19,6 +19,8 @@ from Data_transform import (
     grouping_data
 )
 from Prophet import ProphetTimeSeriesModel
+from XGB import XGBoostTimeSeries
+from ema import ExponentialSmoothingTimeSeries
 import pandas as pd 
 from pathlib import Path
 import json
@@ -114,16 +116,17 @@ for col, vals in unique_values.items():
         subset = df_group[df_group[col] == val].copy()
         subset = subset[['Date','Value']].dropna()
         # print(subset)
-        model = ProphetTimeSeriesModel(data=subset, freq='ME')
+        model1 = ProphetTimeSeriesModel(data=subset, freq='ME')
+        model2 = XGBoostTimeSeries (subset)
+        model3 = ExponentialSmoothingTimeSeries (data=subset, seasonal_periods=12, trend='add', seasonal='add', damped_trend=True)
+        model1.preprocess_data()
 
-        model.preprocess_data()
+        model1.train_model()
 
-        model.train_model()
-
-        metrices = model.evaluate_model()
+        metrices = model1.evaluate_model()
         print(f"Metrics for {val}:\n", metrices)
 
-        future = model.predict_future(3)
+        future = model1.predict_future(3)
         print(f"Forecast for {val}:\n", future, "\n")
         
 
