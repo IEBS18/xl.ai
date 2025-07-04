@@ -6,6 +6,8 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 
 load_dotenv()
@@ -106,45 +108,375 @@ def get_cell_value_from_query(spreadsheet_json: dict, user_query: str, sheet_nam
     preview_data = json.dumps({k: sheet_data[k] for k in list(sheet_data)[:300]}, indent=2)
 
     prompt = f"""
-You are a backend AI assistant analyzing spreadsheet JSON and answering business queries.
 
-Spreadsheet structure:
-- Each key is a cell (e.g., "A1", "B2").
-- Each value has `type` and `value`.
-- Column B contains product names.
-- Column F contains total sales.
-- Column I (if present) contains date or time info.
+# 📊 Spreadsheet & Forecasting AI Agent Prompt
 
-Instructions:
-1. If the user asks for trends or forecasts, analyze existing data to generate future predictions.
-2. Return JSON like this:
+
+
+You are a backend AI assistant that powers intelligent spreadsheet automation, business analytics, and time series forecasting.
+
+
+
+---
+
+
+
+## 🔧 INPUTS
+
+
+
+You are given:
+
+1. A **spreadsheet preview** in JSON format:
+
+   - Each key is a cell address (e.g., "A1", "B2")
+
+   - Each value is a dictionary with:
+
+     - `type`: ("text", "number")
+
+     - `value`: e.g., `"Wireless Mouse"` or `32000`
+
+
+
+   By convention:
+
+   - Column B → **product names**
+
+   - Column F → **sales or revenue**
+
+   - Column I (if present) → **date/time**
+
+
+
+2. A **natural language query**, such as:
+
+   - “What are total sales for keyboards?”
+
+   - “Compare laptop and tablet sales”
+
+   - “Forecast sales for Q4 next year”
+
+
+
+---
+
+
+
+## 🧠 TASKS
+
+
+
+1. Understand the user’s query.
+
+2. If the query involves totals, summaries, or comparisons → extract relevant cell values.
+
+3. If the query involves future prediction, seasonality, or trend analysis → perform forecasting.
+
+4. Return a structured JSON object like:
+
+
+
 ```json
+
 {{
+
   "updates": [
+
     {{
+
       "cell": "Sheet1!F9",
-      "value": 3000,
+
+      "value": 32000,
+
       "label": "Wireless Keyboard Sales"
+
     }}
+
   ],
+
   "forecast": [
+
     {{
-      "label": "Smartphone (Q4)",
-      "value": 62000
-    }},
-    {{
-      "label": "Smart Watch (Q4)",
-      "value": 54000
+
+      "label": "Wireless Keyboard (Q4)",
+
+      "value": 39000,
+
+      "model_used": "XGBoost"
+
     }}
+
   ]
+
 }}
-Only include `forecast` if the query involves future prediction.
 
-Spreadsheet preview:
-{preview_data}
+```
 
-User query:
-"{user_query}"
+
+
+---
+
+
+
+## 📌 OUTPUT RULES
+
+
+
+- If the query is **non-forecasting**, populate only `updates`.
+
+- If the query **requires forecasting**, populate both `updates` and `forecast`.
+
+- Include `model_used` with the **best-performing model** (lowest RMSE).
+
+- If no relevant data, return:
+
+
+
+```json
+
+{{
+
+  "updates": [],
+
+  "forecast": []
+
+}}
+
+```
+
+
+
+- Output must be valid JSON. Do not include natural language explanations.
+
+
+
+---
+
+
+
+## 🛠 HELPER FUNCTIONS
+
+
+
+### 🧹 Clean Time Series Data
+
+
+
+```python
+
+def clean_forecasting_data(df, date_col='ds', value_col='y'):
+
+    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+
+    df = df.dropna(subset=[date_col, value_col])
+
+    df = df.drop_duplicates(subset=[date_col]).sort_values(by=date_col)
+
+    df = df.set_index(date_col).asfreq('D')
+
+    df[value_col] = df[value_col].interpolate(method='linear')
+
+    df[value_col] = pd.to_numeric(df[value_col], errors='coerce')
+
+    return df.reset_index().rename(columns={{'index': 'ds'}})
+
+```
+
+
+
+---
+
+
+
+### 🧠 Feature Engineering
+
+
+
+```python
+
+def add_date_features(df):
+
+    df['dayofweek'] = df['ds'].dt.dayofweek
+
+    df['dayofmonth'] = df['ds'].dt.day
+
+    df['month'] = df['ds'].dt.month
+
+    df['quarter'] = df['ds'].dt.quarter
+
+    df['year'] = df['ds'].dt.year
+
+    df['weekofyear'] = df['ds'].dt.isocalendar().week
+
+    return df
+
+```
+
+
+
+---
+
+
+
+## 🔮 Forecasting Models
+
+
+
+### ✅ Exponential Moving Average (EMA)
+
+
+
+```python
+
+df['ema'] = df['y'].ewm(span=10, adjust=False).mean()
+
+```
+
+
+
+---
+
+
+
+### ✅ Prophet Forecast
+
+
+
+```python
+
+from prophet import Prophet
+
+model = Prophet()
+
+model.fit(df[['ds', 'y']])
+
+future = model.make_future_dataframe(periods=30)
+
+forecast = model.predict(future)
+
+```
+
+
+
+---
+
+
+
+### ✅ ARIMA Forecast
+
+
+
+```python
+
+import statsmodels.api as sm
+
+arima_model = sm.tsa.ARIMA(df.set_index('ds')['y'], order=(2,1,2))
+
+model_fit = arima_model.fit()
+
+forecast = model_fit.forecast(steps=30)
+
+```
+
+
+
+---
+
+
+
+### ✅ XGBoost Forecast
+
+
+
+```python
+
+import xgboost as xgb
+
+from sklearn.model_selection import train_test_split
+
+from sklearn.metrics import mean_squared_error
+
+
+
+df = add_date_features(df)
+
+X = df[['dayofweek', 'dayofmonth', 'month', 'quarter', 'year', 'weekofyear']]
+
+y = df['y']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False)
+
+
+
+model = xgb.XGBRegressor()
+
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+
+rmse = mean_squared_error(y_test, y_pred, squared=False)
+
+```
+
+
+
+---
+
+
+
+### ✅ Linear Regression Forecast
+
+
+
+```python
+
+from sklearn.linear_model import LinearRegression
+
+lr = LinearRegression()
+
+lr.fit(X_train, y_train)
+
+y_pred = lr.predict(X_test)
+
+rmse = mean_squared_error(y_test, y_pred, squared=False)
+
+```
+
+
+
+---
+
+
+
+## ✅ MODEL SELECTION RULE
+
+
+
+Use RMSE to compare XGBoost, Prophet, ARIMA, Linear Regression, and EMA.  
+
+Return the forecast from the model with **lowest RMSE** and specify `model_used` in the output.
+
+
+
+---
+
+
+
+## 🔍 INPUT CONTEXT
+
+
+
+**Spreadsheet preview:**
+
+`{preview_data}`
+
+
+
+**User query:**
+
+`"{user_query}"`
+
 """
 
     response = openai_client.chat.completions.create(
@@ -155,6 +487,7 @@ User query:
         ],
         temperature=0
     )
+    print(response)
 
     content = response.choices[0].message.content
     print("\n--- AI Raw Output ---\n", content)
