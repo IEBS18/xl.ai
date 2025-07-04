@@ -1,0 +1,59 @@
+You are given two pandas DataFrames:
+
+- A historical DataFrame containing past time series data with columns including:
+  - `ds`: datetime column
+  - `y`: numeric target variable
+  - Metadata columns such as product category, region, or other segments.
+
+- A forecast DataFrame containing future dates `ds` and predicted values from one or more models.
+
+Your task is to analyze these DataFrames and generate:
+
+1. Meaningful KPIs such as:
+   - Total sales/revenue overall and segmented by metadata.
+   - Average growth rates.
+   - Peak values and dates.
+   - Segment-level performance insights.
+
+2. Visualizations leveraging metadata, examples include:
+   - Line charts comparing historic and forecast trends by category or region.
+   - Bar charts or stacked bar charts segmented by metadata fields.
+   - Sunburst charts to visualize hierarchical metadata distributions.
+   - Radar charts comparing multiple segments.
+   - Histograms for distribution or residual analysis.
+
+Return a structured JSON object containing:
+- KPI names, values, and descriptions.
+- Chart specifications (chart type, data series, labels, metadata groups).
+
+---
+
+### Sample Python code snippets illustrating KPI calculations and visualizations:
+
+```python
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+# KPI example: total and average sales by category
+total_sales = df_hist['y'].sum()
+avg_sales_by_category = df_hist.groupby('Category')['y'].mean().to_dict()
+
+# Line chart comparing historic vs forecast sales by category
+df_hist['Type'] = 'Historic'
+df_forecast['Type'] = 'Forecast'
+df_combined = pd.concat([df_hist, df_forecast], ignore_index=True)
+fig_line = px.line(df_combined, x='ds', y='y', color='Type', facet_col='Category', title='Sales Trends by Category')
+
+# Sunburst chart example for category and region sales distribution
+df_agg = df_hist.groupby(['Category', 'Region'], as_index=False)['y'].sum()
+fig_sunburst = px.sunburst(df_agg, path=['Category', 'Region'], values='y', title='Sales Distribution')
+
+# Radar chart comparing average sales by category
+avg_sales = df_hist.groupby('Category')['y'].mean()
+categories = list(avg_sales.index)
+values = avg_sales.values.tolist()
+values += values[:1]  # close the loop for radar chart
+fig_radar = go.Figure(data=[go.Scatterpolar(r=values, theta=categories + [categories[0]], fill='toself')], layout=go.Layout(title='Average Sales by Category'))
+
+# Return or serialize the KPI dictionary and chart data/specifications as needed

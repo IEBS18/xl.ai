@@ -1,0 +1,82 @@
+You will receive data in JSON format as an attachment. The JSON keys represent spreadsheet cell addresses (e.g., 'A1', 'B2'),  
+and values are dictionaries with cell content, including 'value' and 'type'.
+
+Your tasks:
+
+1. Convert the JSON data into a pandas DataFrame.  
+   - Extract column headers from the first row (e.g., row 1).  
+   - Extract all rows below as data.  
+   - Use columns labeled like 'Date', 'Month', or actual date headers for time information.
+
+2. Validate if the DataFrame has an explicit datetime column.  
+   - If not found, check if date information is embedded in column headers.  
+   - If dates are in headers, reshape (melt) the DataFrame to have two columns:  
+     - 'ds': datetime column parsed from header names  
+     - 'y': numeric column containing the values
+
+3. Convert 'ds' to pandas datetime type and 'y' to numeric, handling errors and missing values.
+
+4. Handle missing values by imputing with central tendencies (mean or median) or interpolation as suitable.
+
+5. Normalize and standardize the numeric columns using scikit-learn preprocessing tools.
+
+6. Remove duplicates, sort by date, and ensure the time series has a regular frequency, filling missing dates as needed.
+
+7. Return the cleaned and properly formatted data **as a JSON-serializable list of dictionaries**, ready to be converted back to a pandas DataFrame using:
+
+```python
+pd.DataFrame.from_records(<your_output>)
+
+Example code snippets:
+
+```python
+import pandas as pd
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import MinMaxScaler
+
+def json_to_dataframe(json_data):
+    # Parse JSON with cell addresses into dict of rows
+    rows = {}
+    for cell, content in json_data.items():
+        col = ''.join(filter(str.isalpha, cell))
+        row = int(''.join(filter(str.isdigit, cell)))
+        if row not in rows:
+            rows[row] = {}
+        rows[row][col] = content.get('value')
+    df = pd.DataFrame.from_dict(rows, orient='index')
+    df.columns = df.iloc[0]  # first row as header
+    df = df.drop(index=df.index[0]).reset_index(drop=True)
+    return df
+
+def reshape_if_needed(df):
+    date_cols = [col for col in df.columns if pd.to_datetime(col, errors='coerce') is not pd.NaT]
+    if len(date_cols) > 0:
+        # melt date columns to ds, y
+        id_vars = [col for col in df.columns if col not in date_cols]
+        df_melted = df.melt(id_vars=id_vars, var_name='ds', value_name='y')
+        df_melted['ds'] = pd.to_datetime(df_melted['ds'], errors='coerce')
+        df_melted['y'] = pd.to_numeric(df_melted['y'].str.replace(',', ''), errors='coerce')
+        return df_melted.dropna(subset=['ds', 'y'])
+    else:
+        # assume ds and y columns already exist or infer them
+        df['ds'] = pd.to_datetime(df['Date'], errors='coerce')
+        df['y'] = pd.to_numeric(df['Sales'].str.replace(',', ''), errors='coerce')
+        return df.dropna(subset=['ds', 'y'])
+
+def clean_data(df):
+    # Impute missing y with median
+    imputer = SimpleImputer(strategy='median')
+    df['y'] = imputer.fit_transform(df[['y']])
+    # Normalize y
+    scaler = MinMaxScaler()
+    df['y_scaled'] = scaler.fit_transform(df[['y']])
+    # Sort and index by date
+    df = df.drop_duplicates(subset=['ds']).sort_values('ds').reset_index(drop=True)
+    return df
+
+# Usage:
+# raw_json = <load your JSON attachment here>
+# df = json_to_dataframe(raw_json)
+# df_clean = reshape_if_needed(df)
+# df_final = clean_data(df_clean)
+

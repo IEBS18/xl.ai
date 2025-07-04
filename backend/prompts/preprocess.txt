@@ -1,0 +1,75 @@
+You have received time series data that has already been auto-cleaned, meaning missing values have been handled, data is normalized/standardized, and the time column is properly formatted as a datetime type.
+
+Your task is to perform **preprocessing and feature engineering** tailored to popular forecasting and regression models including ARIMA, SARIMA, Prophet, Linear Regression, XGBoost, Random Forest, and LSTM.
+
+Please do the following:
+
+1. Validate the cleaned data to ensure:
+   - The datetime column (`ds`) is of datetime type and sorted in ascending order.
+   - The target variable (`y`) is numeric and free of NaNs.
+   - The time series frequency is regular or make it regular (e.g., daily, monthly) by filling missing dates if necessary.
+
+2. Feature engineering:
+   - For classical time series models (ARIMA, SARIMA, Prophet):
+     - Confirm the data is stationary or provide transformations if needed (differencing, log-transform).
+     - Extract date/time features such as: year, month, quarter, day of week, day of month.
+     - Generate lag features and rolling statistics (e.g., rolling mean, rolling std) as needed.
+
+       ```python
+       # Example: generate lags and rolling mean
+       df['lag_1'] = df['y'].shift(1)
+       df['rolling_mean_7'] = df['y'].rolling(window=7).mean()
+       ```
+
+   - For machine learning models (Linear Regression, XGBoost, Random Forest):
+     - Include all the above date/time features.
+     - Add additional engineered features such as previous time steps as predictors (lags).
+     - Encode cyclical features properly (e.g., month and day of week as sine and cosine transforms).
+
+       ```python
+       import numpy as np
+
+       # Cyclical encoding example for month
+       df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+       df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+       ```
+
+   - For deep learning models (LSTM):
+     - Prepare the data as supervised sequences, i.e., input windows of past time steps mapped to next prediction.
+     - Scale features and target values appropriately (e.g., MinMax scaling).
+     - Reshape data to 3D tensor format `[samples, timesteps, features]`.
+
+       ```python
+       from sklearn.preprocessing import MinMaxScaler
+       import numpy as np
+
+       scaler = MinMaxScaler()
+       scaled_values = scaler.fit_transform(df[['y']])
+
+       # Example: reshape for LSTM with timesteps = 5
+       def create_sequences(data, timesteps=5):
+           X, y = [], []
+           for i in range(len(data) - timesteps):
+               X.append(data[i:i+timesteps])
+               y.append(data[i+timesteps])
+           return np.array(X), np.array(y)
+
+       X_lstm, y_lstm = create_sequences(scaled_values, timesteps=5)
+       X_lstm = X_lstm.reshape((X_lstm.shape[0], X_lstm.shape[1], 1))  # samples, timesteps, features
+       ```
+
+3. Final validation:
+   - Check and handle any remaining missing values after feature engineering.
+   - Ensure no data leakage from future information in feature creation.
+   - Provide a summary of final features and dataset shape ready for model training.
+
+---
+
+Remember:
+- The input data is assumed to be clean and ready for transformation.
+- The **output must be a pandas DataFrame** (or equivalent) containing the processed and feature-engineered data, ready for the specific model types mentioned.
+```python
+pd.DataFrame.from_records(<your_output>)
+- If any assumptions are violated (e.g., missing datetime column), indicate clearly.
+
+Use Python/pandas style pseudocode or examples if helpful, focusing on the preprocessing and feature engineering logic.

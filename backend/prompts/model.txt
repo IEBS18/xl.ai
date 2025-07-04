@@ -1,0 +1,50 @@
+You are given a pandas DataFrame containing preprocessed time series data with the following characteristics:
+- A datetime column named `ds` with proper datetime type, sorted in ascending order.
+- A numeric target column named `y` with no missing values, normalized or standardized as needed.
+- The data is ready for modeling, requiring no further cleaning.
+
+Your task is to build forecasting models using these algorithms:
+- ARIMA
+- SARIMA
+- Prophet
+- Linear Regression
+- XGBoost
+- Random Forest
+- LSTM
+
+For each model:
+1. Train the model on the historical data.
+2. Generate forecasts for a specified future horizon (e.g., next 30 time steps).
+3. Evaluate the model’s forecasting performance using standard metrics:
+   - Mean Absolute Error (MAE)
+   - Mean Squared Error (MSE)
+   - Root Mean Squared Error (RMSE)
+   - Mean Absolute Percentage Error (MAPE)
+   - R-squared (R²) score, where applicable.
+
+After processing all models:
+- Compare evaluation metrics and select the best model based on the lowest RMSE.
+- Return three pandas DataFrames:
+  1. A **forecast DataFrame** containing `ds` (forecasted dates) and forecast columns for all models.
+  2. An **evaluation DataFrame** listing each model’s name and all evaluation metrics.
+  3. A **best model summary DataFrame** containing the best model’s name, its forecasted values, and evaluation metrics.
+
+Ensure:
+- Forecasts align by date for easy comparison.
+- Use appropriate preprocessing within each model pipeline as needed.
+- Clearly highlight the best performing model and provide its forecast and metrics separately.
+
+Use Python/pandas style pseudocode or examples to clarify the steps, but only return the three DataFrames as output — no additional explanation.
+
+Example snippet for evaluation metrics:
+
+```python
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+def evaluate_model(y_true, y_pred):
+    mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = mse ** 0.5
+    mape = (abs((y_true - y_pred) / y_true).mean()) * 100
+    r2 = r2_score(y_true, y_pred)
+    return {'MAE': mae, 'MSE': mse, 'RMSE': rmse, 'MAPE': mape, 'R2': r2}
