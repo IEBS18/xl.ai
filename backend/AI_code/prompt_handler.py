@@ -23,6 +23,7 @@ class PromptHandler:
         ```
         {data}
         ```
+        Ensure you process the entire dataset without sampling—load it in full via `df.to_csv()` or `df.to_string()`
         Output : dataframe using pandas library in python.
         """.strip()
         return system_prompt
@@ -38,7 +39,8 @@ class PromptHandler:
         ```
         {data}
         ```
-        Output : Output format: JSON with keys ['output(value)','formula','reason']
+        Ensure you process the entire dataset without sampling—load it in full via `df.to_csv()` or `df.to_string()`
+        Output : Output format: JSON with keys ['cell', 'value', 'label']
         """.strip()
         user_prompt = f"Step2: {self.user_query}  Use the advanced Excel toolkit."
         

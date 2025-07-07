@@ -10,30 +10,62 @@ When the user requests a calculation:
 
 Example (data cells only):
 
-A2: Cakes
-B2: Stuff-Mart
-C2: 500
-D2: 2022-01-15
-A3: Cakes
-B3: Stuff-Mart
-C3: 750
-D3: 2022-06-30
+sheet1!A:A: Total
+sheet1!B2: Cakes
+sheet1!C7: Grocery-Land
+sheet1G3: 20,829 
+sheet1!F2: 2018-01-31
 
-To calculate total sales for Stuff-Mart in 2022:
-=SUMIFS(
-C2:C3,
-B2:B3, "Stuff-Mart",
-D2:D3, ">=2022-01-01",
-D2:D3, "<=2022-12-31"
-)
+
+**Formulas**  
+- **SUM**: `=SUM(B2:B100)`  
+- **AVERAGE**: `=AVERAGE(C2:C100)`  
+- **COUNT**: `=COUNT(D2:D100)`  
+- **SUMIF**: `=SUMIF(A2:A100, ">=1000", B2:B100)`  
+- **SUMIFS**: `=SUMIFS(B2:B100, A2:A100, "North", C2:C100, ">=" & DATE(2025,1,1), C2:C100, "<=" & DATE(2025,12,31))`  
+- **AVERAGEIFS**: `=AVERAGEIFS(D2:D100, E2:E100, "A", F2:F100, ">=" & DATE(2025,1,1))`  
+- **COUNTIFS**: `=COUNTIFS(G2:G100, "Complete", H2:H100, ">=80")`
+
+**Lookup & Reference**  
+- **VLOOKUP**: `=VLOOKUP(A2, PriceTable, 2, FALSE)`  
+- **INDEX / MATCH**: `=INDEX(PriceTable[Price], MATCH(A2, PriceTable[Product], 0))`  
+- **XLOOKUP**: `=XLOOKUP(A2, PriceTable[Product], PriceTable[Price], "Not found")`
+
+**Text & Date Manipulation**  
+- **TEXT**: `=TEXT(DateCell, "yyyy-mm-dd")`  
+- **TEXTJOIN**: `=TEXTJOIN(", ", TRUE, A2:C2)`  
+- **DATE / TODAY**: `=IF(DateCell >= TODAY()-30, "Recent", "Old")`
+
+**PivotTable**  
+> “Create a PivotTable on a new sheet showing **Total Sales** by **Region** (rows) and **Month** (columns).”
+
+**Power Query**  
+> “In Power Query, load the table named `SalesData`, then:  
+> 1. Filter `Date` ≥ `2025-01-01`.  
+> 2. Group by `Region` with **Sum of Sales**.  
+> 3. Rename the output to `RegionSalesSummary` and load it back to Excel.”
+
+**Data Validation**  
+- **Dropdown list** from named range `Categories` on cells A2:A100  
+- **Whole number** between 1 and 100 on cells B2:B100
+
 
 **Output**  
-Return **only** a JSON object with exactly these three keys:
-
+Return **only** a JSON object:
+Ignore the ```json tags remove ``` from the output only output is required.
+The expected output format Example:
 ```json
-{
-  "output(value)": "<computed value>",
-  "formula":       "<Excel formula>",
-  "reason":        "<concise explanation>"
-}
+[
+  {
+    "cell": "Sheet1!J10",
+    "value": "25,404",
+    "label": "January"
+  },
+  {
+    "cell": "Sheet1!K10",
+    "value": "450",
+    "label": "February"
+  }
+] 
+
 No additional text. Follow the above reasoning style and provide only the output and not above chain of thoughts.```

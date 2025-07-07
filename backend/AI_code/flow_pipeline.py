@@ -17,8 +17,8 @@ openai_client = AzureOpenAI(
 )
 
 def response_openai(sys_prompt,user_prompt):
-    print("System prompt: ",sys_prompt)
-    print("User prompt: ", user_prompt)
+    # print("System prompt: ",sys_prompt)
+    # print("User prompt: ", user_prompt)
     response = openai_client.chat.completions.create(
         model= MODEL,
         messages=[
@@ -50,6 +50,7 @@ def run_workflow(df: pd.DataFrame, user_query:str, user_q_type: str, model_choic
     if user_q_type.lower() == "excel":
         system_clean, user_clean = ph.clean_df(data)
         df_clean = response_openai(system_clean, user_clean)
+        print("clean:\n",df_clean)
         
         system_p, user_p = ph.Excel_formual(df_clean)
         return response_openai(system_p, user_p)
@@ -58,15 +59,16 @@ def run_workflow(df: pd.DataFrame, user_query:str, user_q_type: str, model_choic
         ##_______________auto-cleanup________________________
         s1, u1 = ph.clean_df(data)
         df_clean = response_openai(s1, u1)
+        print("clean:\n", df_clean)
         
         ##______________preprocessing_________________________
         s2,u2 = ph.preprocess_model(df_clean)
         df_preprocess = response_openai(s2,u2)
-        
+        print("preprocess:\n", df_preprocess)
         #_____________best model fit/user model fit___________
         s3, u3 = ph.fit_model(df_preprocess, model_choice)
         fit_response = response_openai(s3, u3)
-        
+        print("model pred:\n", fit_response)
         ### response should return 2 data frame
         
         # #____________chart/dashboard creation___________________
@@ -94,11 +96,11 @@ if __name__ == "__main__":
     print(df.head())
     # df.to_excel("result_df.xlsx", index= False)
     
-    user_query = "What is the total sales from customer stuff-mart for 2024 year?"
+    user_query = "What is the total sales from customer stuff-mart for 2022 year?"
     
-    query_type = "Forecast"
+    query_type = "Excel"
     
-    model_type = "ARIMA"
+    model_type = None
     
     result = run_workflow(df,user_query, query_type, model_type)
     

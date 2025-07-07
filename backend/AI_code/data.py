@@ -23,13 +23,15 @@ def json_to_dataframe(j_data):
     # 5) Convert the remaining index labels to int, sort, reset
     df.index = df.index.astype(int)
     df = df.sort_index().reset_index(drop=True)
+    df= df.loc[:, ~df.columns.str.contains(r"Starting|Unnamed|Periods", regex=True)]
+    # df = df.loc[:, ~df.columns.str.contains(r"^Starting")]
     
     return df
     
     
 if __name__ == "__main__":
 
-    path = "sample.json"
+    path = "..\\sample.json"
     
     with open(path, 'r', encoding='utf-8') as fp:
         full = json.load(fp)

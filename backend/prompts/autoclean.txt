@@ -1,89 +1,136 @@
-```You will receive a pandas DataFrame in which:
+You will receive the complete pandas DataFrame.
+Row 1 contains the column headers.
+Rows 2…n contain the data values.
 
-- **Row 1** contains the column headers.  
-- **Rows 2…n** contain the corresponding data values.
+Your goal is to turn it into a clean, regular‐frequency time series with any metadata preserved.  
 
-Your goal is to turn this into a two-column time-series table (`Date`/`Value`) for downstream preprocessing.
+**1. Promote & prepare**  
+- Promote row 1 to `df.columns` and drop that row.  
 
-Your tasks:
+**2. Detect “Excel” vs “Forecast” structure**  
+- **Excel mode**: mixed metadata + date/value columns  and convert then in cell refernce as A: column and 1: row as A1 first cell and so on.
+  1. Look for one column whose values parse as dates → rename to `Date`.  
+  2. Look for one numeric column (e.g. Sales, Revenue, Demand, Inventory) → rename to `Value`.  
+  3. If no single date column, treat header‐dates as columns → unpivot (melt) into `Date` + `Value`, keeping all other columns as metadata.  
 
-1. **Header promotion & date detection/reshaping**  
-   - Promote row 1 into `df.columns` and drop it.  
-   - If one column parses cleanly as dates, rename it `Date` and gather all other columns as `Value`.  
-   - Otherwise, treat the existing column names as dates and unpivot (melt) the table into two columns:  
-     - `Date` (parsed from the former header names)  
-     - `Value` (the corresponding cell values)
+- **Forecast mode**: wide date‐headers  
+  1. Treat the existing column names as dates → melt into two columns:  
+     - `Date` (parsed from former headers)  
+     - `Value_raw` (the original numeric values, may include NaN)  
+  2. Preserve any extra metadata columns if present.  
 
-2. **Type conversion**  
-   - Convert `Date` → `datetime64[ns]` and `Value` → numeric (coerce errors).  
-   - Drop or impute missing values.  
-   - Return a DataFrame with exactly two columns: `Date` (datetime) and `Value` (float).
+**3. Clean & convert**  
+- Convert `Date` → `datetime64[ns]`, `Value`/`Value_raw` → numeric (`errors='coerce'`).  
+- Drop rows where `Date` is missing.  
 
-3. Convert 'Date' to pandas datetime type and 'Value' to numeric, handling errors and missing values.
+**4. Impute & scale**  
+- Impute missing values in `Value_raw` (median or mean), store result in `Value`.  
 
-4. Handle missing values by imputing with central tendencies (mean or median) or interpolation as suitable.
+**5. Regularize index**  
+- Drop duplicates, sort by `Date`.  
+- Reindex to a regular frequency (infer from data), filling missing dates by forward‐fill or interpolation.  
 
-5. Normalize and standardize the numeric columns using scikit-learn preprocessing tools.
+**6. Output**  
+Return a JSON‐serializable list of dicts, one per row.  
 
-6. Remove duplicates, sort by date, and ensure the time series has a regular frequency, filling missing dates as needed.
+**– Excel-mode DataFrame structure**  
+All metadata columns first, then:  
+[
+  {
+    "Category": "A",
+    "SKU": "100",
+    "ProductName": "Widget X",
+    "Region": "North",
+    "Date": "2025-01-01T00:00:00",
+    "Value": 123.45
+  },
+  {
+    "Category": "B",
+    "SKU": "101",
+    "ProductName": "Widget Y",
+    "Region": "South",
+    "Date": "2025-01-02T00:00:00",
+    "Value": 234.56
+  }
+]
 
-7. Return the cleaned and properly formatted data **as a JSON-serializable list of dictionaries**, ready to be converted back to a pandas DataFrame using:
+– Forecast-mode DataFrame structure
+All metadata columns first, then:
+This can be reloaded with pd.DataFrame.from_records(...).
+[
+  {
+    "Category": "A",
+    "SKU": "100",
+    "ProductName": "Widget X",
+    "Region": "North",
+    "Date": "2025-01-01T00:00:00",
+    "Value_raw": 120.0,
+    "Value": 123.45
+  },
+  {
+    "Category": "A",
+    "SKU": "100",
+    "ProductName": "Widget X",
+    "Region": "North",
+    "Date": "2025-01-02T00:00:00",
+    "Value_raw": null,
+    "Value": 124.10
+  }
+]
 
+This can be reloaded with pd.DataFrame.from_records(...) do this for me Excel‐mode output
+Ignore the ```python tags remove ``` from the code only code is required 
 ```python
 pd.DataFrame.from_records(<your_output>)
 ```
+No extra text—just perform these steps and output the final DataFrame.```
 
-Example code snippets:
+Example code snippets for format:
 
 ```python
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
 
-def json_to_dataframe(json_data):
-    # Parse JSON with cell addresses into dict of rows
-    rows = {}
-    for cell, content in json_data.items():
-        col = ''.join(filter(str.isalpha, cell))
-        row = int(''.join(filter(str.isdigit, cell)))
-        if row not in rows:
-            rows[row] = {}
-        rows[row][col] = content.get('value')
-    df = pd.DataFrame.from_dict(rows, orient='index')
-    df.columns = df.iloc[0]  # first row as header
-    df = df.drop(index=df.index[0]).reset_index(drop=True)
-    return df
-
-def reshape_if_needed(df):
-    date_cols = [col for col in df.columns if pd.to_datetime(col, errors='coerce') is not pd.NaT]
-    if len(date_cols) > 0:
-        # melt date columns to ds, y
+def reshape_if_needed(df: pd.DataFrame) -> pd.DataFrame:
+    # detect any columns whose names parse as dates
+    date_cols = [col for col in df.columns 
+                 if pd.to_datetime(col, errors='coerce').notna().all()]
+    if date_cols:
+        # wide forecast‐style: melt date‐columns into rows
         id_vars = [col for col in df.columns if col not in date_cols]
-        df_melted = df.melt(id_vars=id_vars, var_name='ds', value_name='y')
-        df_melted['ds'] = pd.to_datetime(df_melted['ds'], errors='coerce')
-        df_melted['y'] = pd.to_numeric(df_melted['y'].str.replace(',', ''), errors='coerce')
-        return df_melted.dropna(subset=['ds', 'y'])
+        df = (
+            df
+            .melt(id_vars=id_vars, var_name='Date', value_name='Value')
+            .assign(Date=lambda d: pd.to_datetime(d['Date'], errors='coerce'),
+                    Value=lambda d: pd.to_numeric(d['Value'].astype(str).str.replace(',', ''), errors='coerce'))
+            .dropna(subset=['Date', 'Value'])
+        )
     else:
-        # assume ds and y columns already exist or infer them
-        df['ds'] = pd.to_datetime(df['Date'], errors='coerce')
-        df['y'] = pd.to_numeric(df['Sales'].str.replace(',', ''), errors='coerce')
-        return df.dropna(subset=['ds', 'y'])
-
-def clean_data(df):
-    # Impute missing y with median
-    imputer = SimpleImputer(strategy='median')
-    df['y'] = imputer.fit_transform(df[['y']])
-    # Normalize y
-    scaler = MinMaxScaler()
-    df['y_scaled'] = scaler.fit_transform(df[['y']])
-    # Sort and index by date
-    df = df.drop_duplicates(subset=['ds']).sort_values('ds').reset_index(drop=True)
+        # excel‐style: assume columns 'Date' and 'Value' already exist
+        df = df.copy()
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df['Value'] = pd.to_numeric(df['Value'].astype(str).str.replace(',', ''), errors='coerce')
+        df = df.dropna(subset=['Date', 'Value'])
     return df
+
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    # Impute missing Value with median
+    imputer = SimpleImputer(strategy='median')
+    df['Value'] = imputer.fit_transform(df[['Value']])
+    # Scale Value to [0,1]
+    scaler = MinMaxScaler()
+    df['Value_scaled'] = scaler.fit_transform(df[['Value']])
+    # Sort, dedupe, reindex by Date
+    return (
+        df
+        .drop_duplicates(subset=['Date'])
+        .sort_values('Date')
+        .reset_index(drop=True)
+    )
 
 # Usage:
-# raw_json = <load your JSON attachment here>
-# df = json_to_dataframe(raw_json)
-# df_clean = reshape_if_needed(df)
-# df_final = clean_data(df_clean)
+# raw_df = <your DataFrame>
+# df_prepared = reshape_if_needed(raw_df)
+# df_final    = clean_data(df_prepared)
 
-No extra text—just perform these steps and output the final DataFrame.```
