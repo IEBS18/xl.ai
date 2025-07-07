@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import openpyxl
 import json
+from python_exe import PythonCodeExecutor  # your Python executor function
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,7 +34,7 @@ def response_openai(sys_prompt,user_prompt):
         
         
         
-def run_workflow(df: pd.DataFrame, user_query:str, user_q_type: str, model_choice: str):
+def run_workflow(df, user_query:str, user_q_type: str, model_choice: str):
     """
     Orchestrate either:
       • an Excel‐formula workflow, or
@@ -46,7 +47,24 @@ def run_workflow(df: pd.DataFrame, user_query:str, user_q_type: str, model_choic
         base_prompt = fb.read()
     data = df[1:]
     ph = PromptHandler(base_prompt, user_query)
-    
+    execute = PythonCodeExecutor()
+
+    # def exec_code(code: str, context_df: pd.DataFrame) :
+    #     return execute.execute_code(
+    #         code,
+    #         {
+    #             "df": context_df,
+    #             "pd": pd,
+    #             # "SimpleImputer": SimpleImputer,
+    #             # "MinMaxScaler": MinMaxScaler,
+    #             "openpyxl": openpyxl,
+    #             "pd": pd,
+    #             "response_openai": response_openai,
+    #         }
+    #     )
+
+    ##base greeting message pending on user query
+
     if user_q_type.lower() == "excel":
         system_clean, user_clean = ph.clean_df(data)
         df_clean = response_openai(system_clean, user_clean)
@@ -57,59 +75,62 @@ def run_workflow(df: pd.DataFrame, user_query:str, user_q_type: str, model_choic
     
     if user_q_type.lower() == "forecast":
         ##_______________auto-cleanup________________________
-        s1, u1 = ph.clean_df(data)
-        df_clean = response_openai(s1, u1)
-        print("clean:\n", df_clean)
+        sys1, user1 = ph.clean_df(data)
+        code1 = response_openai(sys1, user1)
+        print("clen df code", code1) #```python `
+        out1 = execute.execute_code(code1, {"df": data})
+        # out1 = exec_code(code1, {"df": data})
+        print("out1", out1)
+        df_clean = out1["variables"].get("df", out1["result"])
         
         ##______________preprocessing_________________________
-        s2,u2 = ph.preprocess_model(df_clean)
-        df_preprocess = response_openai(s2,u2)
-        print("preprocess:\n", df_preprocess)
+        sys2, user2 = ph.preprocess_model(df_clean)
+        code2 = response_openai(sys2, user2)
+        out2 = execute.execute_code(code2, {"df": df_clean})
+        df_prepped = out2["variables"].get("df", out2["result"])
+        
         #_____________best model fit/user model fit___________
-        s3, u3 = ph.fit_model(df_preprocess, model_choice)
-        fit_response = response_openai(s3, u3)
-        print("model pred:\n", fit_response)
+        sys3, user3 = ph.fit_model(df_prepped, model_choice)
+        code3 = response_openai(sys3, user3)
+        out3 = execute.execute_code(code3, {"df": df_prepped})
+        per_model = out3["variables"].get("per_model", out3["result"])
+        
         ### response should return 2 data frame
         
         # #____________chart/dashboard creation___________________
-        # s4, u4 = ph.chart(fit_response[0])
-        
-    return fit_response
+        best_name = max(per_model, key=lambda k: per_model[k]["accuracy"])
+        best = per_model[best_name]
 
+        # e) Charts & dashboard
+        sys4, user4 = ph.chart(pd.DataFrame(best["preds"]))
+        chart_code = response_openai(sys4, user4)
+        out4 = execute.execute_code(chart_code, {
+            "df": pd.DataFrame(best["preds"]),
+            **({"metrics": best["metrics"]} if "metrics" in best else {})
+        })
+
+        return {
+            "clean_step": out1,
+            "preprocess_step": out2,
+            "model_step": out3,
+            "best_model": best_name,
+            "metrics": best["metrics"],
+            "predictions": best["preds"],
+            "chart_step": out4
+        }
+
+    raise ValueError(f"Unknown user_q_type: {user_q_type}")
 
 if __name__ == "__main__":
-    
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
-    # base_dir = os.path.dirname(script_dir)
-    # path = os.path.join(base_dir, 'sample.json')
+    # Example local run
+    with open("spreadsheet.json", "r", encoding="utf-8") as f:
+        json_data = json.load(f)
+    df = json_to_dataframe(json_data)
 
-    
-    path = "../sample.json"
-    
-    with open(path, 'r', encoding='utf-8') as fp:
-        full = json.load(fp)
-        
-    data_dict = full['data']
-    
-    df = json_to_dataframe(data_dict)
-    # df_new = df.drop(df.index[0]).reset_index(drop=True)
-    print(df.head())
-    # df.to_excel("result_df.xlsx", index= False)
-    
-    user_query = "What is the total sales from customer stuff-mart for 2022 year?"
-    
-    query_type = "Excel"
-    
-    model_type = None
-    
-    result = run_workflow(df,user_query, query_type, model_type)
-    
-    print(f"result is : {result}")
-
-        
-        
-    
-    
-    
-    
-
+    out = run_workflow(
+        df=df,
+        user_query="Forecast sales for next quarter",
+        user_q_type="forecast",
+        model_choice="best"
+    )
+    print(json.dumps(out, indent=2))

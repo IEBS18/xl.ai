@@ -28,7 +28,7 @@ class PromptHandler:
         """.strip()
         return system_prompt
     
-    def Excel_formual(self, data: pd.DataFrame):
+    def Excel_formual(self, data):
         # table_txt = data.to_string(index= False)
             
         system_prompt = f""" You are a Data Analyst AI Assistant skilled in advanced Excel formulas.
@@ -46,12 +46,15 @@ class PromptHandler:
         
         return system_prompt, user_prompt
         
-    def clean_df(self, data: pd.DataFrame):
+    def clean_df(self, data):
         # data_str = data.to_string(index=False)
         task = "Auto-clean dataset for forecasting"
+        print("clean_df data:", data)
         prompt_path = "autoclean.txt"    
         system_prompt = self._make(prompt_path, data, task)
+        print("system_prompt:", system_prompt)
         user_prompt = "Step 1: Clean the data for further preprocessing and forecasting.".strip()
+        print("user_prompt:", user_prompt)
         
         return system_prompt, user_prompt
     
