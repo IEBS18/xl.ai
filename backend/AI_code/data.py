@@ -76,7 +76,7 @@ def main():
     Entry point for converting a spreadsheet-style JSON to a DataFrame.
     Modify the file path as needed.
     """
-    input_file = r"C:\Users\nirmiti.deshmukh\xl.ai\backend\AI_code\spreadsheet.json" # 🔁 Change this to your actual path
+    input_file = r".\spreadsheet.json" # 🔁 Change this to your actual path
 
     try:
         df = json_to_dataframe(input_file)

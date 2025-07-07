@@ -1,4 +1,6 @@
-You are given two pandas DataFrames:
+You will receive a complete CSV (no sampling) in the block below.
+Read all rows and columns in full.
+Your task:
 
 - A historical DataFrame containing past time series data with columns including:
   - `ds`: datetime column

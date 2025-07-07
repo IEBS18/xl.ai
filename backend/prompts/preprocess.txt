@@ -1,75 +1,130 @@
-You have received time series data that has already been auto-cleaned, meaning missing values have been handled, data is normalized/standardized, and the time column is properly formatted as a datetime type.
+You will receive a complete CSV (no sampling) in the block below.
+Read all rows and columns in full.
+Your task:
+You will have a cleaned pandas DataFrame with columns `Date`, `Value` and any metadata. Rename `Date` → `ds` and `Value` → `y`. Then perform preprocessing and feature engineering for forecasting and regression models (ARIMA, SARIMA, Prophet, Linear Regression, XGBoost, Random Forest, LSTM):
 
-Your task is to perform **preprocessing and feature engineering** tailored to popular forecasting and regression models including ARIMA, SARIMA, Prophet, Linear Regression, XGBoost, Random Forest, and LSTM.
+1. **Validate & regularize**  
+   - Ensure `ds` is `datetime64[ns]`, sorted ascending, and `y` is numeric with no NaNs.  
+   - Infer the series frequency (daily, monthly, etc.), reindex to a complete date range, and impute any missing `y`.
 
-Please do the following:
+2. **Classical time-series features**  
+   - Check stationarity (e.g. ADF test); if non-stationary, create `y_diff = y.diff()`.  
+   - Extract calendar features: `year`, `month`, `quarter`, `day_of_week`, `day_of_month`.  
+   - Generate lags (`lag_1`, `lag_7`) and rolling statistics (`rolling_mean_7`, `rolling_std_7`).
 
-1. Validate the cleaned data to ensure:
-   - The datetime column (`ds`) is of datetime type and sorted in ascending order.
-   - The target variable (`y`) is numeric and free of NaNs.
-   - The time series frequency is regular or make it regular (e.g., daily, monthly) by filling missing dates if necessary.
+3. **Machine-learning features**  
+   - Retain all classical features.  
+   - Add cyclical encodings:
+     ```python
+     df['month_sin'] = np.sin(2*np.pi*df['month']/12)
+     df['month_cos'] = np.cos(2*np.pi*df['month']/12)
+     df['dow_sin']   = np.sin(2*np.pi*df['day_of_week']/7)
+     df['dow_cos']   = np.cos(2*np.pi*df['day_of_week']/7)
+     ```
 
-2. Feature engineering:
-   - For classical time series models (ARIMA, SARIMA, Prophet):
-     - Confirm the data is stationary or provide transformations if needed (differencing, log-transform).
-     - Extract date/time features such as: year, month, quarter, day of week, day of month.
-     - Generate lag features and rolling statistics (e.g., rolling mean, rolling std) as needed.
+4. **LSTM preparation**  
+   - Scale `y` (and features if used) with `MinMaxScaler`.  
+   - Convert into supervised sequences of `timesteps` for X/Y.  
+   - Reshape to 3D: `[samples, timesteps, features]`.
 
-       ```python
-       # Example: generate lags and rolling mean
-       df['lag_1'] = df['y'].shift(1)
-       df['rolling_mean_7'] = df['y'].rolling(window=7).mean()
-       ```
+5. **Final checks & output**  
+   - Drop any rows with remaining NaNs.  
+   - Ensure no future data leakage in features.  
+   - Return:
+     - A pandas DataFrame (or `pd.DataFrame.from_records(...)`) ready for ARIMA/SARIMA/Prophet/ML models.
+     - LSTM arrays `X_lstm`, `y_lstm`.
 
-   - For machine learning models (Linear Regression, XGBoost, Random Forest):
-     - Include all the above date/time features.
-     - Add additional engineered features such as previous time steps as predictors (lags).
-     - Encode cyclical features properly (e.g., month and day of week as sine and cosine transforms).
+```python
+If any assumption fails (e.g., missing `ds` or `y`), clearly indicate the error. Use Python/pandas pseudocode where helpful.```
+import pandas as pd
+import numpy as np
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import MinMaxScaler
+from statsmodels.tsa.stattools import adfuller
 
-       ```python
-       import numpy as np
+# assume `df` is your cleaned DataFrame with columns ['Date', 'Value'] + metadata
 
-       # Cyclical encoding example for month
-       df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
-       df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
-       ```
+# 0. RENAME for consistency
+df = df.rename(columns={'Date': 'ds', 'Value': 'y'})
 
-   - For deep learning models (LSTM):
-     - Prepare the data as supervised sequences, i.e., input windows of past time steps mapped to next prediction.
-     - Scale features and target values appropriately (e.g., MinMax scaling).
-     - Reshape data to 3D tensor format `[samples, timesteps, features]`.
+# 1. VALIDATION & REGULARIZATION
+df['ds'] = pd.to_datetime(df['ds'])
+df = df.sort_values('ds').reset_index(drop=True)
+df['y'] = pd.to_numeric(df['y'], errors='raise')
 
-       ```python
-       from sklearn.preprocessing import MinMaxScaler
-       import numpy as np
+# infer freq and reindex to a complete timeline
+freq = df['ds'].diff().mode().iat[0]
+full_idx = pd.date_range(df['ds'].min(), df['ds'].max(), freq=freq)
+df = (
+    df.set_index('ds')
+      .reindex(full_idx)
+      .rename_axis('ds')
+      .reset_index()
+)
+df['y'] = SimpleImputer(strategy='median').fit_transform(df[['y']])
 
-       scaler = MinMaxScaler()
-       scaled_values = scaler.fit_transform(df[['y']])
+# 2. FEATURE ENGINEERING
 
-       # Example: reshape for LSTM with timesteps = 5
-       def create_sequences(data, timesteps=5):
-           X, y = [], []
-           for i in range(len(data) - timesteps):
-               X.append(data[i:i+timesteps])
-               y.append(data[i+timesteps])
-           return np.array(X), np.array(y)
+# 2a. Classical TS (ARIMA, SARIMA, Prophet)
+# – stationarity
+adf_p = adfuller(df['y'])[1]
+if adf_p > 0.05:
+    df['y_diff'] = df['y'].diff()
+    target = 'y_diff'
+else:
+    target = 'y'
 
-       X_lstm, y_lstm = create_sequences(scaled_values, timesteps=5)
-       X_lstm = X_lstm.reshape((X_lstm.shape[0], X_lstm.shape[1], 1))  # samples, timesteps, features
-       ```
+# – calendar features
+df['year']        = df['ds'].dt.year
+df['month']       = df['ds'].dt.month
+df['quarter']     = df['ds'].dt.quarter
+df['day_of_week'] = df['ds'].dt.dayofweek
+df['day_of_month']= df['ds'].dt.day
 
-3. Final validation:
-   - Check and handle any remaining missing values after feature engineering.
-   - Ensure no data leakage from future information in feature creation.
-   - Provide a summary of final features and dataset shape ready for model training.
+# – lags & rolling stats
+df['lag_1']          = df[target].shift(1)
+df['rolling_mean_7'] = df[target].rolling(window=7).mean()
+df['rolling_std_7']  = df[target].rolling(window=7).std()
 
----
+# 2b. Machine-learning (LinReg, XGB, RF)
+# cyclical encoding
+df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+df['dow_sin']   = np.sin(2 * np.pi * df['day_of_week'] / 7)
+df['dow_cos']   = np.cos(2 * np.pi * df['day_of_week'] / 7)
+
+# 2c. Deep-learning (LSTM)
+scaler = MinMaxScaler()
+df['y_scaled'] = scaler.fit_transform(df[['y']])
+
+def create_sequences(array, timesteps=5):
+    X, y = [], []
+    for i in range(len(array) - timesteps):
+        X.append(array[i:i+timesteps])
+        y.append(array[i+timesteps])
+    return np.array(X), np.array(y)
+
+X_lstm, y_lstm = create_sequences(df[['y_scaled']].values, timesteps=5)
+# reshape to [samples, timesteps, features]
+X_lstm = X_lstm.reshape(X_lstm.shape[0], X_lstm.shape[1], 1)
+
+# 3. FINAL VALIDATION & SUMMARY
+df_final = df.dropna().reset_index(drop=True)
+
+print("Final DataFrame shape:", df_final.shape)
+print("Features:", df_final.columns.tolist())
+print("LSTM X shape:", X_lstm.shape, "LSTM y shape:", y_lstm.shape)
+
+# df_final and (X_lstm, y_lstm) are ready for modeling
+```
 
 Remember:
+Ignore ```python tags remove``` from code. only code is required. 
 - The input data is assumed to be clean and ready for transformation.
 - The **output must be a pandas DataFrame** (or equivalent) containing the processed and feature-engineered data, ready for the specific model types mentioned.
 ```python
 pd.DataFrame.from_records(<your_output>)
+```
 - If any assumptions are violated (e.g., missing datetime column), indicate clearly.
 
 Use Python/pandas style pseudocode or examples if helpful, focusing on the preprocessing and feature engineering logic.

@@ -30,7 +30,6 @@ class PromptHandler:
     
     def Excel_formual(self, data):
         # table_txt = data.to_string(index= False)
-            
         system_prompt = f""" You are a Data Analyst AI Assistant skilled in advanced Excel formulas.
         Tool Description: {self.base_prompt}
         task: Apply advanced Excel formulas
@@ -60,9 +59,9 @@ class PromptHandler:
     
     def preprocess_model(self, data: pd.DataFrame):
         task = "Preprocess cleaned data for time-series modeling"
-        prompt_path = "autoclean.txt"    
+        prompt_path = "preprocess.txt"    
         system_prompt = self._make(prompt_path, data, task)
-        user_prompt = "Step 2: Clean the data for further preprocessing and forecasting.".strip()
+        user_prompt = "Step 2: Preprocess the data for the time-series models,ensure Date is datetime and sorted, add lag_1/lag_7, compute rolling_mean/std, apply differencing, drop NaNs, return augmented DataFrame.".strip()
         
         return system_prompt, user_prompt
     

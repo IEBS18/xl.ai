@@ -45,7 +45,8 @@ def run_workflow(df, user_query:str, user_q_type: str, model_choice: str):
     path = os.path.join(base_dir, "prompts", "base.txt")
     with open(path, 'r', encoding='utf-8') as fb:
         base_prompt = fb.read()
-    data = df[1:]
+    # data = df[1:]
+    data = df
     ph = PromptHandler(base_prompt, user_query)
     execute = PythonCodeExecutor()
 
@@ -69,30 +70,39 @@ def run_workflow(df, user_query:str, user_q_type: str, model_choice: str):
         system_clean, user_clean = ph.clean_df(data)
         df_clean = response_openai(system_clean, user_clean)
         print("clean:\n",df_clean)
+        out1 = execute.execute_code(df_clean, {"df": data})
+        # out1 = exec_code(code1, {"df": data})
+        # if not out1.get("success", False):
+        #     raise RuntimeError(f"Step failed: {out1.get('error')}")
+        print("out1", out1)
+        df_clean = out1["variables"].get("df", out1["result"])
         
-        system_p, user_p = ph.Excel_formual(df_clean)
+        system_p, user_p = ph.Excel_formual(df_clean.to_csv())
         return response_openai(system_p, user_p)
     
     if user_q_type.lower() == "forecast":
         ##_______________auto-cleanup________________________
+        
         sys1, user1 = ph.clean_df(data)
         code1 = response_openai(sys1, user1)
         print("clen df code", code1) #```python `
         out1 = execute.execute_code(code1, {"df": data})
         # out1 = exec_code(code1, {"df": data})
+        if not out1.get("success", False):
+            raise RuntimeError(f"Step failed: {out1.get('error')}")
         print("out1", out1)
         df_clean = out1["variables"].get("df", out1["result"])
         
         ##______________preprocessing_________________________
-        sys2, user2 = ph.preprocess_model(df_clean)
+        sys2, user2 = ph.preprocess_model(df_clean.to_csv())
         code2 = response_openai(sys2, user2)
-        out2 = execute.execute_code(code2, {"df": df_clean})
+        out2 = execute.execute_code(code2, {"df": df_clean.to_csv()})
         df_prepped = out2["variables"].get("df", out2["result"])
         
         #_____________best model fit/user model fit___________
-        sys3, user3 = ph.fit_model(df_prepped, model_choice)
+        sys3, user3 = ph.fit_model(df_prepped.to_csv(), model_choice)
         code3 = response_openai(sys3, user3)
-        out3 = execute.execute_code(code3, {"df": df_prepped})
+        out3 = execute.execute_code(code3, {"df": df_prepped.to_csv()})
         per_model = out3["variables"].get("per_model", out3["result"])
         
         ### response should return 2 data frame
@@ -126,11 +136,11 @@ if __name__ == "__main__":
     with open("spreadsheet.json", "r", encoding="utf-8") as f:
         json_data = json.load(f)
     df = json_to_dataframe(json_data)
-
+    
     out = run_workflow(
-        df=df,
-        user_query="Forecast sales for next quarter",
-        user_q_type="forecast",
-        model_choice="best"
+        df=df.to_csv(index=False),
+        user_query="what is the total sales for cakes",
+        user_q_type="excel",
+        model_choice=None
     )
     print(json.dumps(out, indent=2))

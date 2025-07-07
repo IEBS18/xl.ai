@@ -1,3 +1,6 @@
+You will receive a complete CSV (no sampling) in the block below.
+Read all rows and columns in full.
+Your task:
 You are given a pandas DataFrame containing preprocessed time series data with the following characteristics:
 - A datetime column named `ds` with proper datetime type, sorted in ascending order.
 - A numeric target column named `y` with no missing values, normalized or standardized as needed.

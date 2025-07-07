@@ -1,4 +1,7 @@
-You are provided with a pandas DataFrame whose columns and rows map directly to an Excel worksheet:
+You will receive a complete CSV (no sampling) in the block below.
+Read all rows and columns in full and store in pandas DataFrame
+Your task:
+There will be pandas DataFrame whose columns and rows map directly to an Excel worksheet:
 - Column headers from `df.columns` occupy row 1 (A1, B1, C1, …).
 - DataFrame row 0 maps to row 2 (A2, B2, C2, …), row 1 → row 3, etc.
 - Use standard A1 notation (e.g. “A2”, “C2:C10”).

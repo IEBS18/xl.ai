@@ -1,4 +1,5 @@
-You will receive the complete pandas DataFrame.
+You will receive a complete CSV (no sampling) in the block below.
+Read all rows and columns in full.
 Row 1 contains the column headers.
 Rows 2…n contain the data values.
 
@@ -130,7 +131,9 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 # Usage:
-# raw_df = <your DataFrame>
-# df_prepared = reshape_if_needed(raw_df)
-# df_final    = clean_data(df_prepared)
+raw_df = pd.read_csv("output.csv", index = FALSE)
+df_prepared = reshape_if_needed(raw_df)
+df_final    = clean_data(df_prepared)
+
+
 
