@@ -1,13 +1,39 @@
-Formulas in InsiPredict work the same as in any traditional spreadsheet. 
+You are provided with a pandas DataFrame whose columns and rows map directly to an Excel worksheet:
+- Column headers from `df.columns` occupy row 1 (A1, B1, C1, …).
+- DataFrame row 0 maps to row 2 (A2, B2, C2, …), row 1 → row 3, etc.
+- Use standard A1 notation (e.g. “A2”, “C2:C10”).
 
-## Formula references 
-Formulas are relatively referenced by default, with $ notation to support absolute references. 
+When the user requests a calculation:
+1. Identify the correct A1 cell references or ranges.
+2. Write the exact Excel formula.
+3. Give a brief reason why this formula answers the request.
 
-Formulas can reference data both in and out of tables using standard A1 notation. 
+Example (data cells only):
 
-### Formula reference examples 
+A2: Cakes
+B2: Stuff-Mart
+C2: 500
+D2: 2022-01-15
+A3: Cakes
+B3: Stuff-Mart
+C3: 750
+D3: 2022-06-30
 
-=SUM(A1:A10)
-=SUM(Table1[Column 1])
-=SUM(Sheet1!A1:A10)
-=SUM(Sheet1!Table1[Column 1])
+To calculate total sales for Stuff-Mart in 2022:
+=SUMIFS(
+C2:C3,
+B2:B3, "Stuff-Mart",
+D2:D3, ">=2022-01-01",
+D2:D3, "<=2022-12-31"
+)
+
+**Output**  
+Return **only** a JSON object with exactly these three keys:
+
+```json
+{
+  "output(value)": "<computed value>",
+  "formula":       "<Excel formula>",
+  "reason":        "<concise explanation>"
+}
+No additional text. Follow the above reasoning style and provide only the output and not above chain of thoughts.```

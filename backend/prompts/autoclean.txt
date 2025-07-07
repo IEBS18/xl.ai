@@ -1,20 +1,25 @@
-You will receive data in JSON format as an attachment. The JSON keys represent spreadsheet cell addresses (e.g., 'A1', 'B2'),  
-and values are dictionaries with cell content, including 'value' and 'type'.
+```You will receive a pandas DataFrame in which:
+
+- **Row 1** contains the column headers.  
+- **Rows 2…n** contain the corresponding data values.
+
+Your goal is to turn this into a two-column time-series table (`Date`/`Value`) for downstream preprocessing.
 
 Your tasks:
 
-1. Convert the JSON data into a pandas DataFrame.  
-   - Extract column headers from the first row (e.g., row 1).  
-   - Extract all rows below as data.  
-   - Use columns labeled like 'Date', 'Month', or actual date headers for time information.
+1. **Header promotion & date detection/reshaping**  
+   - Promote row 1 into `df.columns` and drop it.  
+   - If one column parses cleanly as dates, rename it `Date` and gather all other columns as `Value`.  
+   - Otherwise, treat the existing column names as dates and unpivot (melt) the table into two columns:  
+     - `Date` (parsed from the former header names)  
+     - `Value` (the corresponding cell values)
 
-2. Validate if the DataFrame has an explicit datetime column.  
-   - If not found, check if date information is embedded in column headers.  
-   - If dates are in headers, reshape (melt) the DataFrame to have two columns:  
-     - 'ds': datetime column parsed from header names  
-     - 'y': numeric column containing the values
+2. **Type conversion**  
+   - Convert `Date` → `datetime64[ns]` and `Value` → numeric (coerce errors).  
+   - Drop or impute missing values.  
+   - Return a DataFrame with exactly two columns: `Date` (datetime) and `Value` (float).
 
-3. Convert 'ds' to pandas datetime type and 'y' to numeric, handling errors and missing values.
+3. Convert 'Date' to pandas datetime type and 'Value' to numeric, handling errors and missing values.
 
 4. Handle missing values by imputing with central tendencies (mean or median) or interpolation as suitable.
 
@@ -26,6 +31,7 @@ Your tasks:
 
 ```python
 pd.DataFrame.from_records(<your_output>)
+```
 
 Example code snippets:
 
@@ -80,3 +86,4 @@ def clean_data(df):
 # df_clean = reshape_if_needed(df)
 # df_final = clean_data(df_clean)
 
+No extra text—just perform these steps and output the final DataFrame.```

@@ -47,8 +47,8 @@
             "value": "Total"
         },
         "A2": {
-            "value": 3000,
-            "type": "number"
+            "value": "Total",
+            "type": "text"
         },
         "A20": {
             "type": "text",
