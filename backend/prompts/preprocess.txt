@@ -34,7 +34,6 @@ You will have a cleaned pandas DataFrame with columns `Date`, `Value` and any me
      - A pandas DataFrame (or `pd.DataFrame.from_records(...)`) ready for ARIMA/SARIMA/Prophet/ML models.
      - LSTM arrays `X_lstm`, `y_lstm`.
 
-```python
 If any assumption fails (e.g., missing `ds` or `y`), clearly indicate the error. Use Python/pandas pseudocode where helpful.```
 import pandas as pd
 import numpy as np
@@ -116,7 +115,7 @@ print("Features:", df_final.columns.tolist())
 print("LSTM X shape:", X_lstm.shape, "LSTM y shape:", y_lstm.shape)
 
 # df_final and (X_lstm, y_lstm) are ready for modeling
-```
+
 
 Remember:
 Ignore ```python tags remove``` from code. only code is required. 

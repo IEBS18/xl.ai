@@ -1,139 +1,243 @@
-You will receive a complete CSV (no sampling) in the block below.
-Read all rows and columns in full.
-Row 1 contains the column headers.
-Rows 2…n contain the data values.
+```You will receive a pandas DataFrame in which:
+ 
+- **Row 1** contains the column headers.  
 
-Your goal is to turn it into a clean, regular‐frequency time series with any metadata preserved.  
+- **Rows 2…n** contain the corresponding data values.
+ 
+Your goal is to turn this into a two-column time-series table (`Date`/`Value`) for downstream preprocessing.
+ 
+Your tasks:
+ 
+1. **Header promotion & date detection/reshaping**  
 
-**1. Promote & prepare**  
-- Promote row 1 to `df.columns` and drop that row.  
+   - Promote row 1 into `df.columns` and drop it.  
 
-**2. Detect “Excel” vs “Forecast” structure**  
-- **Excel mode**: mixed metadata + date/value columns  and convert then in cell refernce as A: column and 1: row as A1 first cell and so on.
-  1. Look for one column whose values parse as dates → rename to `Date`.  
-  2. Look for one numeric column (e.g. Sales, Revenue, Demand, Inventory) → rename to `Value`.  
-  3. If no single date column, treat header‐dates as columns → unpivot (melt) into `Date` + `Value`, keeping all other columns as metadata.  
+   - If one column parses cleanly as dates, rename it `Date` and gather all other columns as `Value`.  
 
-- **Forecast mode**: wide date‐headers  
-  1. Treat the existing column names as dates → melt into two columns:  
-     - `Date` (parsed from former headers)  
-     - `Value_raw` (the original numeric values, may include NaN)  
-  2. Preserve any extra metadata columns if present.  
+   - Otherwise, treat the existing column names as dates and unpivot (melt) the table into two columns:  
 
-**3. Clean & convert**  
-- Convert `Date` → `datetime64[ns]`, `Value`/`Value_raw` → numeric (`errors='coerce'`).  
-- Drop rows where `Date` is missing.  
+     - `Date` (parsed from the former header names)  
 
-**4. Impute & scale**  
-- Impute missing values in `Value_raw` (median or mean), store result in `Value`.  
+     - `Value` (the corresponding cell values)
+ 
+2. **Type conversion**  
 
-**5. Regularize index**  
-- Drop duplicates, sort by `Date`.  
-- Reindex to a regular frequency (infer from data), filling missing dates by forward‐fill or interpolation.  
+   - Vectorize the column-name parse to avoid scalar .notna() errors
 
-**6. Output**  
-Return a JSON‐serializable list of dicts, one per row.  
+   - Convert `Date` → `datetime64[ns]` and `Value` → numeric (coerce errors).  
 
-**– Excel-mode DataFrame structure**  
-All metadata columns first, then:  
-[
-  {
-    "Category": "A",
-    "SKU": "100",
-    "ProductName": "Widget X",
-    "Region": "North",
-    "Date": "2025-01-01T00:00:00",
-    "Value": 123.45
-  },
-  {
-    "Category": "B",
-    "SKU": "101",
-    "ProductName": "Widget Y",
-    "Region": "South",
-    "Date": "2025-01-02T00:00:00",
-    "Value": 234.56
-  }
-]
+   - Drop or impute missing values.  
 
-– Forecast-mode DataFrame structure
-All metadata columns first, then:
-This can be reloaded with pd.DataFrame.from_records(...).
-[
-  {
-    "Category": "A",
-    "SKU": "100",
-    "ProductName": "Widget X",
-    "Region": "North",
-    "Date": "2025-01-01T00:00:00",
-    "Value_raw": 120.0,
-    "Value": 123.45
-  },
-  {
-    "Category": "A",
-    "SKU": "100",
-    "ProductName": "Widget X",
-    "Region": "North",
-    "Date": "2025-01-02T00:00:00",
-    "Value_raw": null,
-    "Value": 124.10
-  }
-]
-
-This can be reloaded with pd.DataFrame.from_records(...) do this for me Excel‐mode output
-Ignore the ```python tags remove ``` from the code only code is required 
-```python
+   - Return a DataFrame with exactly two columns: `Date` (datetime) and `Value` (float).
+ 
+3. Convert 'Date' to pandas datetime type and 'Value' to numeric, handling errors and missing values.
+ 
+4. Handle missing values by imputing with central tendencies (mean or median) or interpolation as suitable.
+ 
+5. Normalize and standardize the numeric columns using scikit-learn preprocessing tools.
+ 
+6. Remove duplicates, sort by date, and ensure the time series has a regular frequency, filling missing dates as needed.
+ 
+7. Return the cleaned and properly formatted data **as a JSON-serializable list of dictionaries**, ready to be converted back to a pandas DataFrame using:
+ 
+8. Remove ```python tags ``` from the output and ignore them
+ 
 pd.DataFrame.from_records(<your_output>)
-```
-No extra text—just perform these steps and output the final DataFrame.```
-
-Example code snippets for format:
-
-```python
+ 
+ 
+Example code snippets:
 import pandas as pd
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import MinMaxScaler
+import numpy as np
+import re
+import builtins
 
-def reshape_if_needed(df: pd.DataFrame) -> pd.DataFrame:
-    # detect any columns whose names parse as dates
-    date_cols = [col for col in df.columns 
-                 if pd.to_datetime(col, errors='coerce').notna().all()]
-    if date_cols:
-        # wide forecast‐style: melt date‐columns into rows
-        id_vars = [col for col in df.columns if col not in date_cols]
-        df = (
-            df
-            .melt(id_vars=id_vars, var_name='Date', value_name='Value')
-            .assign(Date=lambda d: pd.to_datetime(d['Date'], errors='coerce'),
-                    Value=lambda d: pd.to_numeric(d['Value'].astype(str).str.replace(',', ''), errors='coerce'))
-            .dropna(subset=['Date', 'Value'])
-        )
-    else:
-        # excel‐style: assume columns 'Date' and 'Value' already exist
-        df = df.copy()
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df['Value'] = pd.to_numeric(df['Value'].astype(str).str.replace(',', ''), errors='coerce')
-        df = df.dropna(subset=['Date', 'Value'])
-    return df
+# Ensure built-in functions are available
+any = builtins.any
+len = builtins.len
+str = builtins.str
+float = builtins.float
 
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Impute missing Value with median
-    imputer = SimpleImputer(strategy='median')
-    df['Value'] = imputer.fit_transform(df[['Value']])
-    # Scale Value to [0,1]
-    scaler = MinMaxScaler()
-    df['Value_scaled'] = scaler.fit_transform(df[['Value']])
-    # Sort, dedupe, reindex by Date
-    return (
-        df
-        .drop_duplicates(subset=['Date'])
-        .sort_values('Date')
-        .reset_index(drop=True)
+print("Starting data cleaning...")
+print(f"Input: {df.shape}")
+
+# Identify column types
+metadata_cols = []
+date_cols = []
+
+# Find metadata columns (text/categorical in first 10 columns)
+for i, col in enumerate(df.columns):
+    if i < 10:
+        col_lower = str(col).lower()
+        metadata_keywords = ['total', 'category', 'customer', 'sku', 'description', 'product', 'store', 'code', 'starting', 'year', 'period']
+        
+        has_keyword = False
+        for keyword in metadata_keywords:
+            if keyword in col_lower:
+                has_keyword = True
+                break
+        
+        if has_keyword:
+            metadata_cols.append(col)
+        else:
+            # Check if column has text values
+            try:
+                sample = df[col].dropna().astype(str).head(3)
+                if len(sample) > 0:
+                    has_text = False
+                    for val in sample:
+                        if re.match(r'^[A-Za-z]', str(val)):
+                            has_text = True
+                            break
+                    if has_text:
+                        metadata_cols.append(col)
+            except:
+                pass
+
+# Find date columns
+date_patterns = [
+    r'^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\\d{2}$',
+    r'^\\d{1,2}/\\d{1,2}/\\d{2,4}$',
+    r'^\\d{4}-\\d{2}-\\d{2}$'
+]
+
+for col in df.columns:
+    if col not in metadata_cols:
+        col_str = str(col)
+        is_date = False
+        
+        # Pattern matching
+        for pattern in date_patterns:
+            try:
+                if re.match(pattern, col_str):
+                    is_date = True
+                    break
+            except:
+                continue
+        
+        # Check for month names if regex fails
+        if not is_date:
+            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            for month in month_names:
+                if month in col_str:
+                    is_date = True
+                    break
+        
+        # Pandas parsing as last resort
+        if not is_date:
+            try:
+                parsed = pd.to_datetime(col_str, errors='coerce')
+                if pd.notna(parsed):
+                    is_date = True
+            except:
+                pass
+        
+        if is_date:
+            date_cols.append(col)
+
+print(f"Metadata: {metadata_cols}")
+print(f"Dates: {date_cols}")
+
+# Ensure we have some structure
+if not date_cols:
+    # Emergency fallback - assume columns after metadata are dates
+    if len(df.columns) > len(metadata_cols):
+        date_cols = df.columns[len(metadata_cols):].tolist()
+
+if not metadata_cols:
+    # Use first 5 columns as metadata if none detected
+    metadata_cols = df.columns[:5].tolist() if len(df.columns) >= 5 else [df.columns[0]]
+
+print(f"Final Metadata: {metadata_cols}")
+print(f"Final Dates: {date_cols}")
+
+# Melt data
+if date_cols and metadata_cols:
+    df_melted = df.melt(
+        id_vars=metadata_cols,
+        value_vars=date_cols,
+        var_name='Date',
+        value_name='Value'
     )
+    print(f"Melted successfully: {df_melted.shape}")
+else:
+    # Create basic structure
+    df_melted = df.copy()
+    df_melted['Date'] = pd.date_range('2020-01-01', periods=len(df_melted), freq='M')
+    df_melted['Value'] = 1000
 
+# Clean data
+df_melted['Date'] = pd.to_datetime(df_melted['Date'], errors='coerce')
+
+def clean_value(val):
+    if pd.isna(val) or val in ['', ' ', '-']:
+        return np.nan
+    try:
+        cleaned_str = str(val).replace(',', '').replace('"', '').replace('$', '').strip()
+        return float(cleaned_str) if cleaned_str else np.nan
+    except:
+        return np.nan
+
+df_melted['Value'] = df_melted['Value'].apply(clean_value)
+
+# Fill missing values
+if metadata_cols and len(metadata_cols) > 0:
+    try:
+        def fill_missing_group(group):
+            median_val = group['Value'].median()
+            fill_val = median_val if pd.notna(median_val) else 0
+            group['Value'] = group['Value'].fillna(fill_val)
+            return group
+        
+        df_cleaned = df_melted.groupby(metadata_cols, group_keys=False).apply(fill_missing_group)
+    except Exception as e:
+        print(f"Group filling failed: {e}")
+        median_val = df_melted['Value'].median()
+        fill_val = median_val if pd.notna(median_val) else 0
+        df_cleaned = df_melted.fillna({'Value': fill_val})
+else:
+    median_val = df_melted['Value'].median()
+    fill_val = median_val if pd.notna(median_val) else 0
+    df_cleaned = df_melted.fillna({'Value': fill_val})
+
+# Final cleanup
+df_final = df_cleaned.dropna(subset=['Date']).drop_duplicates()
+
+if metadata_cols:
+    sort_cols = metadata_cols + ['Date']
+else:
+    sort_cols = ['Date']
+
+try:
+    df_final = df_final.sort_values(sort_cols).reset_index(drop=True)
+except Exception as e:
+    print(f"Sorting failed: {e}")
+    df_final = df_final.reset_index(drop=True)
+
+print(f"Output: {df_final.shape}")
+print(f"Columns: {list(df_final.columns)}")
+
+if len(df_final) > 0:
+    print("Sample output:")
+    print(df_final.head())
+else:
+    print("Creating dummy data...")
+    df_final = pd.DataFrame({
+        'Date': pd.date_range('2020-01-01', periods=12, freq='M'),
+        'Value': np.random.randn(12) * 100 + 1000
+    })
+
+df = df_final
+print(f"Final df assigned with shape: {df.shape}")
+ 
 # Usage:
-raw_df = pd.read_csv("output.csv", index = FALSE)
-df_prepared = reshape_if_needed(raw_df)
-df_final    = clean_data(df_prepared)
 
+# raw_json = <load your JSON attachment here>
 
+# df = json_to_dataframe(raw_json)
 
+# df_clean = reshape_if_needed(df)
+
+# df_final = clean_data(df_clean)
+ 
+No extra text—just perform these steps and output the final DataFrame.```
+ 
