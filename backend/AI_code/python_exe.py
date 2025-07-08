@@ -9,242 +9,123 @@ import re
 import importlib.metadata
 import importlib.util
 
+
 class PythonCodeExecutor:
     def __init__(self):
+        # Modules we’ll always make available under these aliases
+        import pandas as _pd
+        from sklearn.impute import SimpleImputer as _SI
+        from sklearn.preprocessing import MinMaxScaler as _MMS
+        import numpy as _np
+
+        self._injected = {
+            "pd": _pd,
+            "SimpleImputer": _SI,
+            "MinMaxScaler": _MMS,
+            "np": _np,
+        }
+
         self.allowed_packages = {
             'numpy', 'pandas', 'scikit-learn', 'matplotlib', 
             'seaborn', 'plotly', 'scipy', 'statsmodels', 'xgboost',
             'lightgbm', 'catboost', 'tensorflow', 'torch', 'keras'
         }
-        self.restricted_modules = {
-            'os', 'subprocess', 'sys', 'eval', 'exec', 'open', 'file',
-            '__import__', 'compile', 'globals', 'locals', 'vars'
-        }
-    
-    def check_code_safety(self, code: str) -> tuple[bool, str]:
-        """Basic safety checks for the generated code"""
-        dangerous_patterns = [
+        self.dangerous_patterns = [
             r'\b(os\.|subprocess\.|sys\.)',
             r'\b(eval|exec|compile|__import__)\s*\(',
             r'\bopen\s*\(',
             r'\bfile\s*\(',
             r'globals\s*\(\)|locals\s*\(\)',
-            r'__.*__',  # dunder methods
+            r'__.*__',
             r'import\s+os|import\s+subprocess|import\s+sys'
         ]
-        
-        for pattern in dangerous_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
-                return False, f"Potentially dangerous code detected: {pattern}"
-        
-        return True, "Code appears safe"
-    
+
+    def check_code_safety(self, code: str) -> tuple[bool, str]:
+        for pat in self.dangerous_patterns:
+            if re.search(pat, code, re.IGNORECASE):
+                return False, f"Blocked by safety pattern: {pat}"
+        return True, "OK"
+
     def install_missing_packages(self, code: str) -> List[str]:
-        """Extract and install missing packages from import statements"""
-        import_patterns = [
-            r'import\s+(\w+)',
-            r'from\s+(\w+)',
-            r'import\s+(\w+)\s+as\s+\w+',
-            r'from\s+(\w+)\s+import'
-        ]
-        
-        required_packages = set()
-        for pattern in import_patterns:
-            matches = re.findall(pattern, code)
-            for match in matches:
-                if match in self.allowed_packages:
-                    required_packages.add(match)
-        
-        installed_packages = []
-        for package in required_packages:
+        import_patterns = [r'import\s+(\w+)', r'from\s+(\w+)\s+import']
+        required = set()
+        for pat in import_patterns:
+            for m in re.findall(pat, code):
+                if m in self.allowed_packages:
+                    required.add(m)
+        installed = []
+        for pkg in required:
             try:
-                importlib.metadata.distribution(package)
+                importlib.metadata.distribution(pkg)
             except importlib.metadata.PackageNotFoundError:
-                try:
-                    subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
-                    installed_packages.append(package)
-                except subprocess.CalledProcessError:
-                    print(f"Warning: Could not install {package}")
-        
-        return installed_packages
-    
+                subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
+                installed.append(pkg)
+        return installed
+
     def execute_code(self, code: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Execute the generated Python code safely
-        
-        Args:
-            code: Python code string to execute
-            data: Optional data dictionary to pass to the code
-            
-        Returns:
-            Dictionary containing execution results
-        """
-        # Safety check
-        is_safe, safety_msg = self.check_code_safety(code)
-        if not is_safe:
-            return {
-                'success': False,
-                'error': f"Code safety check failed: {safety_msg}",
-                'output': None,
-                'plots': None
-            }
-        
-        # Install missing packages
+        safe, msg = self.check_code_safety(code)
+        if not safe:
+            return {"success": False, "error": msg}
+
+        # Optionally install imports
         try:
-            installed = self.install_missing_packages(code)
-            if installed:
-                print(f"Installed packages: {', '.join(installed)}")
-        except Exception as e:
-            print(f"Package installation warning: {e}")
-        
-        # Capture stdout and stderr
-        stdout_capture = io.StringIO()
-        stderr_capture = io.StringIO()
-        
-        # Prepare execution environment with proper builtins
+            self.install_missing_packages(code)
+        except:
+            pass
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        # Build a fresh globals dict each run
         exec_globals = {
-            '__builtins__': {
-                # Essential built-ins
-                'print': print,
-                'len': len,
-                'range': range,
-                'enumerate': enumerate,
-                'zip': zip,
-                'map': map,
-                'filter': filter,
-                'sum': sum,
-                'min': min,
-                'max': max,
-                'abs': abs,
-                'round': round,
-                'sorted': sorted,
-                'reversed': reversed,
-                'any': any,
-                'all': all,
-                
-                # Data types
-                'int': int,
-                'float': float,
-                'str': str,
-                'bool': bool,
-                'list': list,
-                'dict': dict,
-                'set': set,
-                'tuple': tuple,
-                'frozenset': frozenset,
-                'complex': complex,
-                'bytes': bytes,
-                'bytearray': bytearray,
-                
-                # Type checking
-                'type': type,
-                'isinstance': isinstance,
-                'issubclass': issubclass,
-                'hasattr': hasattr,
-                'getattr': getattr,
-                'setattr': setattr,
-                'delattr': delattr,
-                'dir': dir,
-                'id': id,
-                
-                # Import functionality
-                '__import__': __import__,
-                
-                # Other essentials
-                'slice': slice,
-                'property': property,
-                'staticmethod': staticmethod,
-                'classmethod': classmethod,
-                'super': super,
-                'iter': iter,
-                'next': next,
-                'callable': callable,
-                'divmod': divmod,
-                'pow': pow,
-                'repr': repr,
-                'ascii': ascii,
-                'ord': ord,
-                'chr': chr,
-                'bin': bin,
-                'oct': oct,
-                'hex': hex,
-                'hash': hash,
-                'object': object,
-                'Exception': Exception,
-                'ValueError': ValueError,
-                'TypeError': TypeError,
-                'AttributeError': AttributeError,
-                'IndexError': IndexError,
-                'KeyError': KeyError,
-                'ImportError': ImportError,
-                'ModuleNotFoundError': ModuleNotFoundError,
-                'RuntimeError': RuntimeError,
-                'StopIteration': StopIteration,
-                'NotImplementedError': NotImplementedError,
-                'ZeroDivisionError': ZeroDivisionError,
-                'OverflowError': OverflowError,
-                'MemoryError': MemoryError,
-                'SystemError': SystemError,
-                'Warning': Warning,
-                'UserWarning': UserWarning,
-                'DeprecationWarning': DeprecationWarning,
-                'FutureWarning': FutureWarning,
-                'RuntimeWarning': RuntimeWarning,
-                'SyntaxWarning': SyntaxWarning,
+            "__builtins__": {
+                **{name: __builtins__[name] for name in (
+                    'print','len','range','sum','min','max','abs','round',
+                    'int','float','str','bool','list','dict','tuple','set',
+                    'type','isinstance','enumerate','zip','map','filter',
+                    'iter','next','Exception','ValueError'
+                )},
+                "__import__": __import__,
             }
         }
-        
-        # Add data to execution environment if provided
+        # Inject our data-science modules
+        exec_globals.update(self._injected)
+
+        # Inject any user data (df, etc.)
         if data:
             exec_globals.update(data)
-        
+
         exec_locals = {}
-        
         try:
-            # Redirect stdout/stderr to capture output
-            with contextlib.redirect_stdout(stdout_capture), \
-                 contextlib.redirect_stderr(stderr_capture):
-                
-                # Execute the code
+            with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
                 exec(code, exec_globals, exec_locals)
-            
-            # Capture any variables that might contain results
+            # Capture variables
             results = {}
-            for var_name, var_value in exec_locals.items():
-                if not var_name.startswith('_'):
+            for k,v in exec_locals.items():
+                if not k.startswith("_"):
                     try:
-                        # Try to serialize the value
-                        json.dumps(var_value, default=str)
-                        results[var_name] = var_value
+                        json.dumps(v, default=str)
+                        results[k] = v
                     except:
-                        # If not serializable, convert to string
-                        results[var_name] = str(var_value)
-            
-            # Get printed output
-            output = stdout_capture.getvalue()
-            
-            # Check for matplotlib plots
-            plots = self._extract_plots()
-            
+                        results[k] = str(v)
             return {
-                'success': True,
-                'output': output,
-                'variables': results,
-                'plots': plots,
-                'error': None
+                "success": True,
+                "output": stdout_buf.getvalue(),
+                "variables": results,
+                "plots": [],  # or your plot extraction logic
+                "error": None
             }
-            
         except Exception as e:
-            error_output = stderr_capture.getvalue()
             return {
-                'success': False,
-                'error': str(e),
-                'traceback': traceback.format_exc(),
-                'stderr': error_output,
-                'output': stdout_capture.getvalue(),
-                'variables': None,
-                'plots': None
+                "success": False,
+                "output": stdout_buf.getvalue(),
+                "stderr": stderr_buf.getvalue(),
+                "traceback": traceback.format_exc(),
+                "variables": None,
+                "plots": None,
+                "error": str(e)
             }
+
     
     def _extract_plots(self) -> List[str]:
         """Extract matplotlib plots if any were created"""

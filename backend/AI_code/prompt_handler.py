@@ -48,12 +48,12 @@ class PromptHandler:
     def clean_df(self, data):
         # data_str = data.to_string(index=False)
         task = "Auto-clean dataset for forecasting"
-        print("clean_df data:", data)
+        # print("clean_df data:", data)
         prompt_path = "autoclean.txt"    
         system_prompt = self._make(prompt_path, data, task)
-        print("system_prompt:", system_prompt)
+        # print("system_prompt:", system_prompt)
         user_prompt = "Step 1: Clean the data for further preprocessing and forecasting.".strip()
-        print("user_prompt:", user_prompt)
+        # print("user_prompt:", user_prompt)
         
         return system_prompt, user_prompt
     
