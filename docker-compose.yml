@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  quadratic:
+    build: .
+    container_name: quadratic
+    environment:
+      - LICENSE_KEY=${LICENSE_KEY}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3001:3001"
+      - "3002:3002"
+      - "3003:3003"
+      - "4433:4433"
+      - "4455:4455"
+      - "8000:8000"
+    volumes:
+      - quadratic_data:/app/data
+    stdin_open: true   # For interactive license prompt fallback
+    tty: true
+
+volumes:
+  quadratic_data:

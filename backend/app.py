@@ -1,468 +1,814 @@
-from flask import Flask, request, jsonify, send_from_directory, stream_with_context, Response
-from flask_cors import CORS
-from openai import AzureOpenAI
-import json
+# Fix for eventlet - MUST be the first import
+try:
+    import eventlet
+    eventlet.monkey_patch()
+    EVENTLET_AVAILABLE = True
+    print("✅ Eventlet monkey patch applied successfully")
+except ImportError:
+    EVENTLET_AVAILABLE = False
+    print("⚠️  Eventlet not available, using threading mode")
+except Exception as e:
+    EVENTLET_AVAILABLE = False
+    print(f"⚠️  Eventlet monkey patch failed: {e}")
+    print("   Continuing with threading mode...")
+
 import os
-from datetime import datetime
-import pandas as pd
-import io
+import json
+import uuid
+import base64
+from io import BytesIO
+from datetime import datetime, timedelta
+from pathlib import Path
+import threading
+import time
+import traceback
+import warnings
 import re
-import openpyxl
+from typing import Dict, Any, List, Tuple
+import numpy as np
+
+from flask import Flask, render_template, request, jsonify, session, send_file, Response
+from flask_socketio import SocketIO, emit, disconnect, join_room
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Import your existing analyzer
+from test2 import QuadraticCSVAnalyzer
 from dotenv import load_dotenv
 
-from test import get_cell_value_from_query
-
-app = Flask(__name__)
-CORS(app)
+# Suppress warnings
+warnings.filterwarnings('ignore')
 
 load_dotenv()
 
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 
-openai_client = AzureOpenAI(
-    api_key= os.getenv("AZUREAPI"),
-    api_version= os.getenv("AZUREVERSION"),
-    azure_endpoint= os.getenv("AZUREENDPOINT")
+# Comprehensive CORS configuration for multiple frontend sources
+allowed_origins = [
+    "http://localhost:5173", 
+    "http://127.0.0.1:5173",
+    "https://preview--data-scope-ai-lens.lovable.app",
+    "https://*.lovable.app",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001"
+]
+
+CORS(app, origins=allowed_origins, supports_credentials=True)
+
+# Initialize SocketIO with robust configuration
+async_mode = 'eventlet' if EVENTLET_AVAILABLE else 'threading'
+
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=allowed_origins,
+    async_mode=async_mode,
+    transports=['polling', 'websocket'],
+    logger=False,
+    engineio_logger=False,
+    ping_timeout=60,
+    ping_interval=25
 )
 
-MODEL = "gpt-4o-mini"
-# Global storage for spreadsheet data (in production, use a database)
-spreadsheet_data = {}
-chat_history = []
+# Ensure upload directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-def generate_sample_data(prompt):
-    """Generate sample data based on the prompt using Azure OpenAI"""
-    system_prompt = """You are a data generator that creates realistic spreadsheet data based on user prompts. 
-    Always respond with ONLY a JSON object containing:
-    1. "data": a 2D array where the first row contains headers
-    2. "description": a brief description of the data created
+# Global storage for analyzer instances per session
+analyzers = {}
+session_data = {}
+
+class StreamingAnalyzer(QuadraticCSVAnalyzer):
+    """Extended analyzer with streaming capabilities for Flask integration."""
     
-    Make the data realistic and include at least 10-20 rows of data.
+    def __init__(self, session_id):
+        super().__init__()
+        self.session_id = session_id
+        self.streaming_outputs = []
     
-    Example format:
-    {
-        "data": [
-            ["Date", "Product", "Sales", "Region"],
-            ["2025-01-01", "Product A", 1500, "North"],
-            ["2025-01-02", "Product B", 2000, "South"]
-        ],
-        "description": "Sales data with dates, products, sales amounts, and regions"
-    }"""
-    
-    try:
-        response = openai_client.chat.completions.create(
-            model=MODEL,  # Replace with your deployment name
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        print(response)
-        
-        content = response.choices[0].message.content.strip()
-        # Extract JSON from the response
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-        else:
-            return {"error": "Could not parse response"}
-    except Exception as e:
-        return {"error": str(e)}
-
-def analyze_data_with_ai(data, prompt):
-    """Analyze existing data with AI and return insights or modifications"""
-    system_prompt = """You are a data analyst that can analyze spreadsheet data and provide insights or modifications.
-    The user will provide spreadsheet data and a prompt. You should:
-    1. Analyze the data if asked for insights
-    2. Modify the data if asked for changes
-    3. Always respond in JSON format with "response", "data" (if modified), and "analysis" fields
-    
-    Current data structure will be provided as a 2D array where first row is headers."""
-    
-    try:
-        data_str = json.dumps(data)
-        user_message = f"Current spreadsheet data: {data_str}\n\nUser request: {prompt}"
-        
-        response = openai_client.chat.completions.create(
-            model=MODEL,  # Replace with your deployment name
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.7
-        )
-
-        print(response)
-        
-        content = response.choices[0].message.content.strip()
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-        else:
-            return {"response": content, "analysis": "Analysis completed"}
-    except Exception as e:
-        return {"error": str(e)}
-
-def stream_ai_response(messages):
-    """Stream AI response for real-time chat."""
-    try:
-        response = openai_client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            temperature=0.7,
-            stream=True
-        )
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        return
-
-    for chunk in response:
-        if not chunk.choices:
-            continue
-
-        delta = chunk.choices[0].delta
-        content = delta.content  # ✅ Access attribute directly
-
-        if content:
-            yield f"data: {json.dumps({'content': content})}\n\n"
-
-    yield f"data: {json.dumps({'done': True})}\n\n"
-
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    global spreadsheet_data, chat_history
-    
-    try:
-        data = request.get_json()
-        messages = data.get('messages', [])
-        
-        if not messages:
-            return jsonify({"error": "No messages provided"}), 400
-        
-        latest_message = messages[-1]['content']
-        
-        # Check if this is a request to create new spreadsheet data
-        create_keywords = ['create', 'generate', 'make', 'build', 'new spreadsheet', 'new data']
-        is_create_request = any(keyword in latest_message.lower() for keyword in create_keywords)
-        
-        if is_create_request and not spreadsheet_data:
-            # Generate new spreadsheet data
-            result = generate_sample_data(latest_message)
-            if 'error' not in result:
-                spreadsheet_data = result['data']
-                chat_history.append({
-                    "role": "user",
-                    "content": latest_message,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-                response_content = f"I've created a spreadsheet with {result['description']}. The data includes {len(result['data'])-1} rows with columns: {', '.join(result['data'][0])}."
-                
-                chat_history.append({
-                    "role": "assistant", 
-                    "content": response_content,
-                    "timestamp": datetime.now().isoformat(),
-                    "data_created": True
-                })
-                
-                return jsonify({
-                    "message": response_content,
-                    "data": spreadsheet_data,
-                    "success": True
-                })
+    def emit_stream(self, message_type, data):
+        """Emit streaming data to the frontend."""
+        try:
+            socketio.emit('stream_data', {
+                'type': message_type,
+                'data': data,
+                'timestamp': datetime.now().isoformat()
+            }, room=self.session_id)
+            if EVENTLET_AVAILABLE:
+                socketio.sleep(0.05)  # Small delay for smooth streaming
             else:
-                return jsonify({"error": result['error']}), 500
+                time.sleep(0.05)
+        except Exception as e:
+            print(f"Error emitting stream: {e}")
+    
+    def analyze_query_streaming(self, user_query: str):
+        """Enhanced analyze_query with real-time streaming that matches original behavior EXACTLY."""
+        if self.df is None:
+            self.emit_stream('error', "No CSV file loaded. Please upload a CSV first.")
+            return {"error": "No CSV file loaded. Please load a CSV first."}
         
-        elif spreadsheet_data:
-            # Analyze or modify existing data
-            result = analyze_data_with_ai(spreadsheet_data, latest_message)
-            if 'error' not in result:
-                chat_history.append({
-                    "role": "user",
-                    "content": latest_message,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-                # Update data if modified
-                if 'data' in result:
-                    spreadsheet_data = result['data']
-                
-                chat_history.append({
-                    "role": "assistant",
-                    "content": result['response'],
-                    "timestamp": datetime.now().isoformat(),
-                    "analysis": result.get('analysis', '')
-                })
-                
-                return jsonify({
-                    "message": result['response'],
-                    "data": spreadsheet_data,
-                    "analysis": result.get('analysis', ''),
-                    "success": True
-                })
+        try:
+            print(f"🤖 Analyzing query: {user_query}")
+            self.emit_stream('status', f"🤖 Analyzing query: {user_query}")
+            
+            # Reset generated images for this query
+            self.generated_images = []
+            self.streaming_outputs = []
+            
+            # Check if this is a report request
+            is_report_request = self._is_report_request(user_query)
+            
+            # Extract data request type
+            data_request = self._extract_data_request(user_query)
+            
+            # Detect if this is a forecasting query
+            forecasting_keywords = ['forecast', 'predict', 'future', 'next', 'ahead', 'months', 'years', 'projection']
+            is_forecasting = any(keyword in user_query.lower() for keyword in forecasting_keywords)
+    
+            if is_report_request:
+                # Generate comprehensive report
+                self.emit_stream('status', "📋 Generating comprehensive report...")
+                return self._generate_comprehensive_report_streaming(user_query, is_forecasting)
             else:
-                return jsonify({"error": result['error']}), 500
-        
+                # Focus on DataFrame results
+                self.emit_stream('status', "📊 Focusing on DataFrame results...")
+                return self._generate_dataframe_analysis_streaming(user_query, data_request, is_forecasting)
+                
+        except Exception as e:
+            error_msg = f"Error analyzing query: {str(e)}"
+            print(error_msg)
+            self.emit_stream('error', error_msg)
+            return {
+                "error": error_msg,
+                "traceback": traceback.format_exc(),
+                "type": "error"
+            }
+    
+    def _generate_dataframe_analysis_streaming(self, user_query: str, data_request: Dict, is_forecasting: bool) -> Dict[str, Any]:
+        """Generate analysis focused on returning actionable DataFrame results - EXACT COPY from test2.py"""
+       
+        # Enhanced prompt for DataFrame-focused analysis - EXACT COPY from test2.py
+        base_requirements = f"""
+Generate Python code to: {user_query} and always write code inside ```python
+
+PRIMARY GOAL: Return actionable DataFrame results that can enhance the original dataset.
+
+CRITICAL REQUIREMENTS:
+- Use 'df' variable which contains the loaded DataFrame
+- NEVER use pd.read_csv() or file paths
+- Focus on creating NEW DATA that adds value to the original dataset
+- Return results as DataFrames with meaningful column names
+- Show before/after data previews
+- If generating plots, never use plt.show() always savefig
+
+DATA OUTPUT FOCUS:
+- Create calculated columns, derived metrics, or classifications
+- Generate forecasted data with future dates if requested
+- Add trend indicators, performance scores, or category rankings
+- Provide data that can be merged back to the original file
+
+REQUEST TYPE: {data_request['type']}
+"""
+ 
+        if is_forecasting:
+            enhanced_prompt = base_requirements + f"""
+FORECASTING-SPECIFIC REQUIREMENTS:
+- Create a separate DataFrame with future predictions
+- Include future dates beyond the last date in dataset
+- Provide confidence intervals or prediction ranges
+- Return forecasted_data_df with columns: [Date, Predicted_Value, Confidence_Lower, Confidence_Upper]
+- Show both historical trend analysis and future predictions
+
+FORECASTING OUTPUT:
+- Original data with trend indicators added
+- Separate forecast DataFrame for future periods
+- Combined visualization showing historical + predicted
+"""
         else:
-            # General chat without spreadsheet data
-            system_message = {
-                "role": "system", 
-                "content": "You are a helpful assistant that specializes in spreadsheet data analysis and creation. Help users with their data needs."
+            enhanced_prompt = base_requirements + f"""
+ANALYSIS-SPECIFIC REQUIREMENTS:
+- Add calculated fields to enhance business insights
+- Create performance metrics, rankings, or categorizations  
+- Generate trend indicators and growth rates
+- Provide statistical measures as new columns
+- Focus on actionable business intelligence
+
+ANALYSIS OUTPUT:
+- Enhanced DataFrame with new calculated columns
+- Summary statistics as additional rows/columns
+- Category-wise metrics and comparisons
+- Data quality indicators and flags
+"""
+        
+        self.emit_stream('status', "🤖 Generating analysis code...")
+        
+        # Generate and execute the analysis code - EXACT COPY from test2.py
+        response = self.openai_client.chat.completions.create(
+            model=self.MODEL,
+            messages=[
+                {"role": "system", "content": self._create_system_prompt()},
+                {"role": "user",   "content": enhanced_prompt}
+            ],
+            # temperature=0.1,
+        )
+        
+        generated_code = response.choices[0].message.content
+        if "```python" in generated_code:
+            generated_code = generated_code.split("```python")[1].split("```")[0].strip()
+        elif "```" in generated_code:
+            generated_code = generated_code.split("```")[1].split("```")[0].strip()
+        
+        print("📝 Generated code:")
+        print(generated_code)
+        print("-" * 50)
+        self.emit_stream('code', generated_code)
+        
+        self.emit_stream('status', "⚡ Executing generated code...")
+        result = self._execute_code_streaming(generated_code)
+        
+        # Process results to extract DataFrames - EXACT COPY from test2.py
+        dataframes_found = {}
+        if result.get("success") and result.get("variables"):
+            for var_name, var_value in result["variables"].items():
+                if isinstance(var_value, pd.DataFrame):
+                    dataframes_found[var_name] = var_value
+                    print(f"📊 Found DataFrame: {var_name} (Shape: {var_value.shape})")
+                    
+                    # Stream the dataframe data
+                    self.emit_stream('dataframe', {
+                        'name': var_name,
+                        'shape': var_value.shape,
+                        'columns': list(var_value.columns),
+                        'preview': generate_tailwind_table(var_value.head()),
+                        'data': var_value.to_dict('records')[:100] if len(var_value) > 0 else []
+                    })
+        
+        # Prepare the result - EXACT COPY from test2.py
+        analysis_result = {
+            "query": user_query,
+            "type": "dataframe_analysis",
+            "request_type": data_request['type'],
+            "generated_code": generated_code,
+            "execution_result": result,
+            "success": result.get("success", False),
+            "is_forecasting": is_forecasting,
+            "generated_images": self.generated_images.copy(),
+            "dataframes": dataframes_found,
+            "data_update_available": len(dataframes_found) > 0
+        }
+        
+        # Show data updates if successful - EXACT COPY from test2.py
+        if result.get("success") and dataframes_found:
+            print(f"\n✅ Analysis completed successfully!")
+            print(f"📊 Generated {len(dataframes_found)} result DataFrames")
+            self.emit_stream('success', f"✅ Analysis completed successfully! Generated {len(dataframes_found)} result DataFrames")
+            
+            # Save the main result DataFrame - EXACT COPY from test2.py
+            main_df_name = list(dataframes_found.keys())[0]
+            main_df = dataframes_found[main_df_name]
+            
+            if len(main_df) > 0:
+                # Show preview - EXACT COPY from test2.py
+                self.show_data_preview(self.original_df, main_df)
+                
+                # Save for potential file update - EXACT COPY from test2.py
+                update_name = data_request['type'].replace('_', '-')
+                saved_path = self.save_data_updates(main_df, update_name)
+                analysis_result["saved_data_path"] = saved_path
+                
+                print(f"\n💡 NEXT STEPS:")
+                print(f"   • Review the data updates above")
+                print(f"   • Data saved to: {self.data_dir}")
+                print(f"   • Use this data to update your original file")
+                if is_forecasting:
+                    print(f"   • Forecast data can be appended to extend your dataset")
+        
+        return analysis_result
+    
+    def _execute_code_streaming(self, code: str) -> Dict[str, Any]:
+        """Execute generated Python code with timeout and better error handling"""
+        import sys
+        import platform
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def timeout_context(seconds):
+            """Context manager for execution timeout - cross-platform"""
+            if platform.system() != 'Windows':
+                # Use signal-based timeout on Unix systems
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutError(f"Code execution timed out after {seconds} seconds")
+                
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(seconds)
+                
+                try:
+                    yield
+                finally:
+                    signal.signal(signal.SIGALRM, old_handler)
+                    signal.alarm(0)
+            else:
+                # Use threading-based timeout on Windows
+                import threading
+                import time
+                
+                timeout_occurred = threading.Event()
+                
+                def timeout_thread():
+                    time.sleep(seconds)
+                    timeout_occurred.set()
+                
+                timer = threading.Thread(target=timeout_thread)
+                timer.daemon = True
+                timer.start()
+                
+                try:
+                    yield
+                    if timeout_occurred.is_set():
+                        raise TimeoutError(f"Code execution timed out after {seconds} seconds")
+                finally:
+                    timeout_occurred.set()  # Stop the timer
+        
+        try:
+            from scipy import stats
+            
+            # Set matplotlib to non-interactive mode and use Agg backend
+            plt.switch_backend('Agg')
+            plt.ioff()
+            
+            exec_globals = {
+                'df': self.df,
+                'pd': pd,
+                'np': np,
+                'plt': plt,
+                'sns': sns,
+                'json': json,
+                'os': os,
+                'warnings': warnings,
+                'print': self._streaming_print,
+                're': re,
+                'stats': stats,
+                'datetime': datetime,
+                'timedelta': timedelta,
+                'Path': Path,
+                'images_dir': str(self.images_dir)
             }
             
-            all_messages = [system_message] + messages
-            
-            def generate():
-                yield "data: " + json.dumps({"type": "start"}) + "\n\n"
+            # Add sklearn libraries - EXACT COPY from test2.py
+            try:
+                from sklearn.linear_model import LinearRegression
+                from sklearn.model_selection import train_test_split
+                from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+                from sklearn.preprocessing import StandardScaler, MinMaxScaler, PolynomialFeatures
                 
-                for chunk in stream_ai_response(all_messages):
-                    yield chunk
+                exec_globals.update({
+                    'LinearRegression': LinearRegression,
+                    'train_test_split': train_test_split,
+                    'mean_squared_error': mean_squared_error,
+                    'r2_score': r2_score,
+                    'mean_absolute_error': mean_absolute_error,
+                    'StandardScaler': StandardScaler,
+                    'MinMaxScaler': MinMaxScaler,
+                    'PolynomialFeatures': PolynomialFeatures
+                })
+            except ImportError as e:
+                self.emit_stream('output', f"⚠️ Some sklearn libraries not available: {e}")
             
-            return Response(
-                stream_with_context(generate()),
-                mimetype='text/event-stream',
-                headers={
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                    'Access-Control-Allow-Origin': '*',
+            # Add statsmodels for time series - EXACT COPY from test2.py
+            try:
+                import statsmodels.api as sm
+                from statsmodels.tsa.arima.model import ARIMA
+                from statsmodels.tsa.seasonal import seasonal_decompose
+                from statsmodels.tsa.holtwinters import ExponentialSmoothing
+                
+                exec_globals.update({
+                    'sm': sm,
+                    'ARIMA': ARIMA,
+                    'seasonal_decompose': seasonal_decompose,
+                    'ExponentialSmoothing': ExponentialSmoothing
+                })
+            except ImportError:
+                self.emit_stream('output', "⚠️ Statsmodels not available. Install with: pip install statsmodels")
+            
+            # Add XGBoost - EXACT COPY from test2.py
+            try:
+                import xgboost as xgb
+                from xgboost import XGBRegressor
+                exec_globals.update({'xgb': xgb, 'XGBRegressor': XGBRegressor})
+            except ImportError:
+                self.emit_stream('output', "⚠️ XGBoost not available. Install with: pip install xgboost")
+            
+            self.emit_stream('status', "▶️ Executing code...")
+            
+            exec_locals = {}
+            
+            # Execute with timeout (reduced to 60 seconds for faster response)
+            try:
+                if platform.system() != 'Windows':
+                    with timeout_context(60):  # 1 minute timeout on Unix
+                        exec(code, exec_globals, exec_locals)
+                else:
+                    # On Windows, execute without signal-based timeout
+                    exec(code, exec_globals, exec_locals)
+            except TimeoutError as e:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": f"❌ Code execution timed out after 1 minute"
                 }
+            
+            self.emit_stream('status', "📸 Capturing visualizations...")
+            
+            # Capture images with timeout protection
+            try:
+                captured_images = self._capture_matplotlib_plots_streaming()
+                plt.close('all')
+            except Exception as img_error:
+                self.emit_stream('output', f"⚠️ Image capture failed: {img_error}")
+                captured_images = []
+                plt.close('all')
+            
+            # EXACT same result processing as original - EXACT COPY from test2.py
+            result_vars = {k: v for k, v in exec_locals.items() if not k.startswith('_')}
+            
+            return {
+                "success": True,
+                "output": "Code executed successfully!",
+                "variables": result_vars,
+                "captured_images": captured_images,
+                "message": f"✅ Execution completed successfully! Captured {len(captured_images)} images."
+            }
+            
+        except Exception as e:
+            self.emit_stream('error', f"Execution failed: {str(e)}")
+            # Ensure matplotlib is cleaned up even on error
+            try:
+                plt.close('all')
+            except:
+                pass
+            return {
+                "success": False,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "message": f"❌ Execution failed: {str(e)}"
+            }
+    
+    def _streaming_print(self, *args, **kwargs):
+        """Custom print function that streams output to frontend."""
+        output_text = ' '.join(str(arg) for arg in args)
+        self.streaming_outputs.append(output_text)
+        self.emit_stream('output', output_text)
+        print(*args, **kwargs)  # Also print to console
+    
+    def _capture_matplotlib_plots_streaming(self) -> List[str]:
+        """Capture any matplotlib plots that were created during code execution - EXACT COPY from test2.py with streaming"""
+        captured_images = []
+        
+        fig_nums = plt.get_fignums()
+        
+        for i, fig_num in enumerate(fig_nums):
+            try:
+                fig = plt.figure(fig_num)
+                
+                timestamp = datetime.now().strftime("%H%M%S")
+                image_filename = f"plot_{timestamp}_{i+1}.png"
+                image_path = self.images_dir / image_filename
+                
+                # Save the image - EXACT COPY from test2.py
+                fig.savefig(image_path, dpi=300, bbox_inches='tight',
+                           facecolor='white', edgecolor='none')
+                
+                captured_images.append(str(image_path))
+                self.generated_images.append(image_filename)
+                
+                # Convert to base64 and stream to frontend
+                try:
+                    with open(image_path, 'rb') as f:
+                        img_data = base64.b64encode(f.read()).decode('utf-8')
+                    
+                    self.emit_stream('image', {
+                        'filename': image_filename,
+                        'data': f"data:image/png;base64,{img_data}",
+                        'path': str(image_path)
+                    })
+                    
+                    print(f"📸 Saved and streamed plot: {image_filename}")
+                    
+                except Exception as stream_error:
+                    print(f"⚠️ Failed to stream image {image_filename}: {stream_error}")
+                
+            except Exception as e:
+                print(f"⚠️ Failed to save plot {i+1}: {str(e)}")
+        
+        return captured_images
+    
+    def _generate_comprehensive_report_streaming(self, user_query: str, is_forecasting: bool) -> Dict[str, Any]:
+        """Generate comprehensive report when specifically requested - EXACT COPY from test2.py"""
+        print("\n📋 Generating comprehensive strategic report...")
+        self.emit_stream('status', "📋 Generating comprehensive strategic report...")
+        
+        try:
+            # First run the analysis to get data - EXACT COPY from test2.py
+            data_request = self._extract_data_request(user_query)
+            analysis_result = self._generate_dataframe_analysis_streaming(user_query, data_request, is_forecasting)
+            
+            if not analysis_result.get("success"):
+                return {
+                    "error": "Cannot generate report - analysis failed",
+                    "type": "report_error"
+                }
+            
+            self.emit_stream('status', "📝 Generating strategic report content...")
+            
+            # Generate the report - EXACT COPY from test2.py
+            market_topic = self._extract_market_topic(user_query)
+            target_variable = self._extract_target_variable(user_query)
+            forecast_periods = self._extract_forecast_periods(user_query) if is_forecasting else 6
+            
+            report = self.generate_forecast_report(
+                forecast_results=analysis_result,
+                client_name="Executive Leadership Team",
+                market_topic=market_topic,
+                forecast_periods=forecast_periods,
+                target_variable=target_variable
             )
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/chat/stream', methods=['POST'])
-def chat_stream():
-    """Streaming endpoint for real-time chat"""
-    global spreadsheet_data, chat_history  # Declare globals for outer scope if needed
-    
-    try:
-        data = request.get_json()
-        messages = data.get('messages', [])
-        
-        if not messages:
-            return jsonify({"error": "No messages provided"}), 400
-        
-        latest_message = messages[-1]['content']
-        
-        def generate():
-            global spreadsheet_data, chat_history  # Fix: declare inside generator to avoid UnboundLocalError
-
-            yield "data: " + json.dumps({"type": "start"}) + "\n\n"
             
-            # Check if this is a request to create new spreadsheet data
-            create_keywords = ['create', 'generate', 'make', 'build', 'new spreadsheet', 'new data']
-            is_create_request = any(keyword in latest_message.lower() for keyword in create_keywords)
+            # Stream the report to frontend
+            self.emit_stream('report', report)
             
-            if is_create_request and not spreadsheet_data:
-                yield "data: " + json.dumps({"content": "Creating spreadsheet data based on your request...", "type": "thinking"}) + "\n\n"
-                
-                result = generate_sample_data(latest_message)
-                if 'error' not in result:
-                    spreadsheet_data = result['data']
-                    response_content = f"I've created a spreadsheet with {result['description']}. The data includes {len(result['data'])-1} rows with columns: {', '.join(result['data'][0])}."
-                    
-                    yield "data: " + json.dumps({"content": response_content, "type": "message"}) + "\n\n"
-                    yield "data: " + json.dumps({"data": spreadsheet_data, "type": "data"}) + "\n\n"
-                else:
-                    yield "data: " + json.dumps({"content": f"Error: {result['error']}", "type": "error"}) + "\n\n"
+            analysis_result.update({
+                "type": "comprehensive_report",
+                "comprehensive_report": report,
+                "report_generated": True,
+                "market_topic": market_topic,
+                "target_variable": target_variable,
+                "forecast_periods": forecast_periods
+            })
             
-            elif spreadsheet_data:
-                yield "data: " + json.dumps({"content": "Analyzing your spreadsheet data...", "type": "thinking"}) + "\n\n"
-                
-                result = analyze_data_with_ai(spreadsheet_data, latest_message)
-                if 'error' not in result:
-                    if 'data' in result:
-                        spreadsheet_data = result['data']
-                        yield "data: " + json.dumps({"data": spreadsheet_data, "type": "data"}) + "\n\n"
-                    
-                    yield "data: " + json.dumps({"content": result['response'], "type": "message"}) + "\n\n"
-                    
-                    if 'analysis' in result:
-                        yield "data: " + json.dumps({"content": result['analysis'], "type": "analysis"}) + "\n\n"
-                else:
-                    yield "data: " + json.dumps({"content": f"Error: {result['error']}", "type": "error"}) + "\n\n"
+            print("✅ Comprehensive strategic report generated successfully!")
+            self.emit_stream('success', "✅ Comprehensive strategic report generated successfully!")
             
-            else:
-                # General chat (no data yet)
-                system_message = {
-                    "role": "system", 
-                    "content": "You are a helpful assistant that specializes in spreadsheet data analysis and creation."
-                }
-                
-                all_messages = [system_message] + messages
-
-                # print(all_messages)
-                
-                for chunk in stream_ai_response(all_messages):
-                    print(chunk)
-                    yield chunk
-            
-            yield "data: " + json.dumps({"type": "end"}) + "\n\n"
+        except Exception as report_error:
+            print(f"⚠️ Report generation failed: {str(report_error)}")
+            self.emit_stream('error', f"Report generation failed: {str(report_error)}")
+            analysis_result.update({
+                "report_error": str(report_error),
+                "report_generated": False,
+                "type": "report_error"
+            })
         
-        return Response(
-            stream_with_context(generate()),
-            mimetype='text/event-stream',
-            headers={
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'Access-Control-Allow-Origin': '*',
-            }
-        )
-    
-    except Exception as e:
-        return Response(
-            f"data: {json.dumps({'error': str(e)})}\n\n",
-            mimetype='text/event-stream'
-        )
+        return analysis_result
 
-@app.route('/api/spreadsheet/data', methods=['GET'])
-def get_spreadsheet_data():
-    """Get current spreadsheet data"""
-    return jsonify({
-        "data": spreadsheet_data,
-        "success": True
-    })
+def generate_tailwind_table(df):
+    html = '<table class="w-full bg-gray-900 text-gray-100 rounded-2xl overflow-hidden shadow-lg">'
+    html += '<thead><tr>'
+    for col in df.columns:
+        html += f'<th class="px-6 py-4 text-left font-semibold text-white border-b border-gray-700">{col}</th>'
+    html += '</tr></thead><tbody>'
+    for _, row in df.iterrows():
+        html += '<tr class="hover:bg-gray-800">'
+        for val in row:
+            html += f'<td class="px-6 py-4 border-b border-gray-800">{val}</td>'
+        html += '</tr>'
+    html += '</tbody></table>'
+    return html
 
-@app.route('/api/spreadsheet/data', methods=['POST'])
-def update_spreadsheet_data():
-    """Update spreadsheet data"""
-    global spreadsheet_data
-    
-    try:
-        data = request.get_json()
-        new_data = data.get('data', [])
-        
-        if new_data:
-            spreadsheet_data = new_data
-            return jsonify({"success": True, "message": "Spreadsheet data updated"})
-        else:
-            return jsonify({"error": "No data provided"}), 400
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route('/')
+def index():
+    """Main chat interface."""
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+    return render_template('index.html')
 
-@app.route('/api/export/csv', methods=['GET'])
-def export_csv():
-    """Export spreadsheet data as CSV"""
-    if not spreadsheet_data:
-        return jsonify({"error": "No data to export"}), 400
-    
-    try:
-        df = pd.DataFrame(spreadsheet_data[1:], columns=spreadsheet_data[0])
-        csv_data = df.to_csv(index=False)
-        
-        return Response(
-            csv_data,
-            mimetype='text/csv',
-            headers={'Content-Disposition': 'attachment; filename=spreadsheet_data.csv'}
-        )
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/chat/history', methods=['GET'])
-def get_chat_history():
-    """Get chat history"""
-    return jsonify({
-        "history": chat_history,
-        "success": True
-    })
-
-@app.route('/api/chat/clear', methods=['POST'])
-def clear_chat():
-    """Clear chat history and spreadsheet data"""
-    global chat_history, spreadsheet_data
-    
-    chat_history = []
-    spreadsheet_data = {}
-    
-    return jsonify({
-        "success": True,
-        "message": "Chat history and spreadsheet data cleared"
-    })
-
-
-def parse_excel_to_json(file_stream, filename):
-    data = {}
-
-    # Determine file type by extension
-    if filename.lower().endswith(".csv"):
-        # Read CSV
-        df = pd.read_csv(file_stream).fillna("")
-        data["Sheet1"] = convert_dataframe_to_sheet(df)
-    elif filename.lower().endswith((".xls", ".xlsx")):
-        # Read Excel using openpyxl
-        xls = pd.ExcelFile(file_stream, engine="openpyxl")
-        for sheet_name in xls.sheet_names:
-            df = xls.parse(sheet_name).fillna("")
-            data[sheet_name] = convert_dataframe_to_sheet(df)
-    else:
-        raise ValueError("Unsupported file format")
-
-    return data
-
-def convert_dataframe_to_sheet(df):
-    df = df.reset_index(drop=True)
-    cell_map = {}
-
-    rows = df.shape[0]
-    cols = df.shape[1]
-
-    # Add headers (row 1)
-    for col_idx, col_name in enumerate(df.columns):
-        col_letter = chr(65 + col_idx)
-        cell_map[f"{col_letter}1"] = {"value": str(col_name), "type": "text"}
-
-    # Add data starting from row 2
-    for row_idx, row in df.iterrows():
-        for col_idx, cell in enumerate(row):
-            col_letter = chr(65 + col_idx)
-            cell_ref = f"{col_letter}{row_idx + 2}"
-            cell_type = "number" if isinstance(cell, (int, float)) else "text"
-            cell_map[cell_ref] = {"value": cell, "type": cell_type}
-
-    return {
-        "data": cell_map,
-        "rows": rows + 5,
-        "cols": cols + 5,
-        "charts": [],
-    }
-
-@app.route("/api/upload", methods=["POST"])
+@app.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"success": False, "message": "No file uploaded"})
-
-    file = request.files["file"]
-    try:
-        structured = parse_excel_to_json(file, file.filename)
-        print(structured)
-        return jsonify({"success": True, "data": structured})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
+    """Handle CSV file upload with CORS support."""
+    if request.method == 'OPTIONS':
+        # Handle preflight request
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
     
-
-@app.route("/get-cell-value", methods=["POST"])
-def get_cell_value():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+        return jsonify({'error': 'Please upload a CSV or Excel file'}), 400
+    
     try:
-        req_data = request.get_json()
-        spreadsheet_json = req_data.get("spreadsheet")
-        user_query = req_data.get("query")
-        sheet_name = req_data.get("sheetName", "Sheet1")
+        # Generate session ID if not exists
+        if 'session_id' not in session:
+            session['session_id'] = str(uuid.uuid4())
+        
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Initialize analyzer for this session
+        session_id = session['session_id']
+        analyzer = StreamingAnalyzer(session_id)
+        
+        # Load the CSV
+        if analyzer.load_csv(filepath):
+            analyzers[session_id] = analyzer
+            session_data[session_id] = {
+                'filename': file.filename,
+                'filepath': filepath,
+                'upload_time': datetime.now().isoformat(),
+                'shape': analyzer.df.shape,
+                'columns': list(analyzer.df.columns)
+            }
+            
+            response = jsonify({
+                'success': True,
+                'message': f'File uploaded successfully! Shape: {analyzer.df.shape}',
+                'data': {
+                    'filename': file.filename,
+                    'shape': analyzer.df.shape,
+                    'columns': list(analyzer.df.columns),
+                    'preview': generate_tailwind_table(analyzer.df.head())
 
-        if not spreadsheet_json or not user_query:
-            return jsonify({"error": "Missing spreadsheet or query"}), 400
-
-        result = get_cell_value_from_query(spreadsheet_json, user_query, sheet_name)
-        return jsonify({"result": result})
-
+                }
+            })
+            origin = request.headers.get('Origin', '*')
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            return response
+        else:
+            return jsonify({'error': 'Failed to load CSV file'}), 400
+            
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+@app.route('/session-info', methods=['GET', 'OPTIONS'])
+def session_info():
+    """Get current session information with CORS support."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    session_id = session.get('session_id')
+    if session_id and session_id in session_data:
+        response = jsonify({
+            'connected': True,
+            'data': session_data[session_id]
+        })
+    else:
+        response = jsonify({'connected': False})
+    
+    origin = request.headers.get('Origin', '*')
+    response.headers.add('Access-Control-Allow-Origin', origin)
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
-@app.route("/static/<path:filename>")
-def serve_static(filename):
-    return send_from_directory(app.static_folder, filename)
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection."""
+    # Generate session ID if not exists
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+    
+    session_id = session['session_id']
+    join_room(session_id)
+    
+    print(f"Client connected with session: {session_id}")
+    emit('status', {'message': 'Connected to analysis server'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection."""
+    session_id = session.get('session_id')
+    print(f'Client disconnected: {session_id}')
+
+@socketio.on('send_message')
+def handle_message(data):
+    """Handle chat messages and process queries."""
+    session_id = session.get('session_id')
+    
+    if not session_id:
+        emit('stream_data', {
+            'type': 'error',
+            'data': 'Session not found. Please refresh the page and try again.',
+            'timestamp': datetime.now().isoformat()
+        })
+        return
+    
+    print(f"Processing message for session: {session_id}")
+    print(f"Available analyzers: {list(analyzers.keys())}")
+    print(f"Session data: {list(session_data.keys())}")
+    
+    if session_id not in analyzers:
+        emit('stream_data', {
+            'type': 'error',
+            'data': 'Please upload a CSV file first. Session data not found.',
+            'timestamp': datetime.now().isoformat()
+        })
+        return
+    
+    query = data.get('message', '').strip()
+    if not query:
+        return
+    
+    # Process the query directly with better error handling
+    def process_query():
+        try:
+            analyzer = analyzers[session_id]
+            analyzer.session_id = session_id  # Ensure session ID is set
+            
+            # Start the analysis
+            result = analyzer.analyze_query_streaming(query)
+            
+            # Send completion signal
+            socketio.emit('stream_data', {
+                'type': 'completion',
+                'data': 'Analysis completed successfully!',
+                'timestamp': datetime.now().isoformat()
+            }, room=session_id)
+            
+        except Exception as e:
+            print(f"Analysis error: {str(e)}")
+            socketio.emit('stream_data', {
+                'type': 'error',
+                'data': f'Analysis failed: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }, room=session_id)
+    
+    # Run in a daemon thread for non-blocking execution
+    thread = threading.Thread(target=process_query)
+    thread.daemon = True
+    thread.start()
+
+@app.route('/debug-session')
+def debug_session():
+    """Debug endpoint to check session state."""
+    session_id = session.get('session_id')
+    return jsonify({
+        'session_id': session_id,
+        'has_analyzer': session_id in analyzers if session_id else False,
+        'has_session_data': session_id in session_data if session_id else False,
+        'analyzers_count': len(analyzers),
+        'session_data_count': len(session_data),
+        'analyzer_keys': list(analyzers.keys()),
+        'session_data_keys': list(session_data.keys())
+    })
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    """Download generated files."""
+    session_id = session.get('session_id')
+    if session_id in analyzers:
+        analyzer = analyzers[session_id]
+        # Check in various output directories
+        for dir_path in [analyzer.images_dir, analyzer.reports_dir, analyzer.data_dir]:
+            file_path = dir_path / filename
+            if file_path.exists():
+                return send_file(file_path, as_attachment=True)
+    
+    return jsonify({'error': 'File not found'}), 404
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Verify environment variables
+    required_vars = ["AZUREAPI", "AZUREVERSION", "AZUREENDPOINT"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print(f"❌ Missing environment variables: {missing_vars}")
+        print("Please set the following:")
+        print("- AZUREAPI: Your Azure OpenAI API key")
+        print("- AZUREVERSION: API version (e.g., '2024-02-01')")
+        print("- AZUREENDPOINT: Your Azure OpenAI endpoint")
+        exit(1)
+    
+    print("🚀 Starting Flask CSV Analysis Chatbot...")
+    print("📊 Backend running on http://localhost:5000")
+    print("🔗 Connect your React frontend to this backend")
+    print(f"⚙️  Using {async_mode} async mode")
+    
+    if EVENTLET_AVAILABLE:
+        print("✅ Using eventlet for optimal WebSocket support")
+        socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    else:
+        print("⚠️  Using threading mode - install eventlet for better performance")
+        print("   pip install eventlet")
+        socketio.run(app, host='0.0.0.0', port=5000, debug=True, use_reloader=False)

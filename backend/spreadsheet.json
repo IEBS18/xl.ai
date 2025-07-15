@@ -1,0 +1,409 @@
+{
+    "spreadsheet": {
+        "data": {
+            "charts": [],
+            "cols": 14,
+            "data": {
+                "A1": {
+                    "type": "text",
+                    "value": "Sales_ID"
+                },
+                "A10": {
+                    "type": "number",
+                    "value": 9
+                },
+                "A11": {
+                    "type": "number",
+                    "value": 10
+                },
+                "A2": {
+                    "type": "number",
+                    "value": 1
+                },
+                "A3": {
+                    "type": "number",
+                    "value": 2
+                },
+                "A4": {
+                    "type": "number",
+                    "value": 3
+                },
+                "A5": {
+                    "type": "number",
+                    "value": 4
+                },
+                "A6": {
+                    "type": "number",
+                    "value": 5
+                },
+                "A7": {
+                    "type": "number",
+                    "value": 6
+                },
+                "A8": {
+                    "type": "number",
+                    "value": 7
+                },
+                "A9": {
+                    "type": "number",
+                    "value": 8
+                },
+                "B1": {
+                    "type": "text",
+                    "value": "Product_Name"
+                },
+                "B10": {
+                    "type": "text",
+                    "value": "Portable Speaker"
+                },
+                "B11": {
+                    "type": "text",
+                    "value": "Smart TV"
+                },
+                "B2": {
+                    "type": "text",
+                    "value": "Wireless Mouse"
+                },
+                "B3": {
+                    "type": "text",
+                    "value": "Gaming Laptop"
+                },
+                "B4": {
+                    "type": "text",
+                    "value": "Bluetooth Headphones"
+                },
+                "B5": {
+                    "type": "text",
+                    "value": "Smartphone"
+                },
+                "B6": {
+                    "type": "text",
+                    "value": "Smart Watch"
+                },
+                "B7": {
+                    "type": "text",
+                    "value": "Tablet"
+                },
+                "B8": {
+                    "type": "text",
+                    "value": "USB-C Hub"
+                },
+                "B9": {
+                    "type": "text",
+                    "value": "Wireless Keyboard"
+                },
+                "C1": {
+                    "type": "text",
+                    "value": "Quantity_Sold"
+                },
+                "C10": {
+                    "type": "number",
+                    "value": 90
+                },
+                "C11": {
+                    "type": "number",
+                    "value": 45
+                },
+                "C2": {
+                    "type": "number",
+                    "value": 120
+                },
+                "C3": {
+                    "type": "number",
+                    "value": 35
+                },
+                "C4": {
+                    "type": "number",
+                    "value": 150
+                },
+                "C5": {
+                    "type": "number",
+                    "value": 80
+                },
+                "C6": {
+                    "type": "number",
+                    "value": 200
+                },
+                "C7": {
+                    "type": "number",
+                    "value": 55
+                },
+                "C8": {
+                    "type": "number",
+                    "value": 130
+                },
+                "C9": {
+                    "type": "number",
+                    "value": 60
+                },
+                "D1": {
+                    "type": "text",
+                    "value": "Price_Per_Unit ($)"
+                },
+                "D10": {
+                    "type": "number",
+                    "value": 120
+                },
+                "D11": {
+                    "type": "number",
+                    "value": 1000
+                },
+                "D2": {
+                    "type": "number",
+                    "value": 25
+                },
+                "D3": {
+                    "type": "number",
+                    "value": 1500
+                },
+                "D4": {
+                    "type": "number",
+                    "value": 100
+                },
+                "D5": {
+                    "type": "number",
+                    "value": 800
+                },
+                "D6": {
+                    "type": "number",
+                    "value": 250
+                },
+                "D7": {
+                    "type": "number",
+                    "value": 300
+                },
+                "D8": {
+                    "type": "number",
+                    "value": 70
+                },
+                "D9": {
+                    "type": "number",
+                    "value": 50
+                },
+                "E1": {
+                    "type": "text",
+                    "value": "Discount_Applied (%)"
+                },
+                "E10": {
+                    "type": "number",
+                    "value": 5
+                },
+                "E11": {
+                    "type": "number",
+                    "value": 18
+                },
+                "E2": {
+                    "type": "number",
+                    "value": 10
+                },
+                "E3": {
+                    "type": "number",
+                    "value": 5
+                },
+                "E4": {
+                    "type": "number",
+                    "value": 15
+                },
+                "E5": {
+                    "type": "number",
+                    "value": 7
+                },
+                "E6": {
+                    "type": "number",
+                    "value": 20
+                },
+                "E7": {
+                    "type": "number",
+                    "value": 10
+                },
+                "E8": {
+                    "type": "number",
+                    "value": 12
+                },
+                "E9": {
+                    "type": "number",
+                    "value": 8
+                },
+                "F1": {
+                    "type": "text",
+                    "value": "Total_Sales ($)"
+                },
+                "F10": {
+                    "type": "number",
+                    "value": 10800
+                },
+                "F11": {
+                    "type": "number",
+                    "value": 45000
+                },
+                "F2": {
+                    "type": "number",
+                    "value": 2700
+                },
+                "F3": {
+                    "type": "number",
+                    "value": 52500
+                },
+                "F4": {
+                    "type": "number",
+                    "value": 12750
+                },
+                "F5": {
+                    "type": "number",
+                    "value": 56000
+                },
+                "F6": {
+                    "type": "number",
+                    "value": 50000
+                },
+                "F7": {
+                    "type": "number",
+                    "value": 16500
+                },
+                "F8": {
+                    "type": "number",
+                    "value": 8580
+                },
+                "F9": {
+                    "type": "number",
+                    "value": 3000
+                },
+                "G1": {
+                    "type": "text",
+                    "value": "Region"
+                },
+                "G10": {
+                    "type": "text",
+                    "value": "North"
+                },
+                "G11": {
+                    "type": "text",
+                    "value": "South"
+                },
+                "G2": {
+                    "type": "text",
+                    "value": "North"
+                },
+                "G3": {
+                    "type": "text",
+                    "value": "South"
+                },
+                "G4": {
+                    "type": "text",
+                    "value": "East"
+                },
+                "G5": {
+                    "type": "text",
+                    "value": "West"
+                },
+                "G6": {
+                    "type": "text",
+                    "value": "North"
+                },
+                "G7": {
+                    "type": "text",
+                    "value": "South"
+                },
+                "G8": {
+                    "type": "text",
+                    "value": "East"
+                },
+                "G9": {
+                    "type": "text",
+                    "value": "West"
+                },
+                "H1": {
+                    "type": "text",
+                    "value": "Salesperson"
+                },
+                "H10": {
+                    "type": "text",
+                    "value": "Ivan"
+                },
+                "H11": {
+                    "type": "text",
+                    "value": "Jack"
+                },
+                "H2": {
+                    "type": "text",
+                    "value": "Alice"
+                },
+                "H3": {
+                    "type": "text",
+                    "value": "Bob"
+                },
+                "H4": {
+                    "type": "text",
+                    "value": "Charlie"
+                },
+                "H5": {
+                    "type": "text",
+                    "value": "David"
+                },
+                "H6": {
+                    "type": "text",
+                    "value": "Eve"
+                },
+                "H7": {
+                    "type": "text",
+                    "value": "Frank"
+                },
+                "H8": {
+                    "type": "text",
+                    "value": "Grace"
+                },
+                "H9": {
+                    "type": "text",
+                    "value": "Helen"
+                },
+                "I1": {
+                    "type": "text",
+                    "value": "Sales_Date"
+                },
+                "I10": {
+                    "type": "text",
+                    "value": "2025-07-06"
+                },
+                "I11": {
+                    "type": "text",
+                    "value": "2025-07-06"
+                },
+                "I2": {
+                    "type": "text",
+                    "value": "2025-07-01"
+                },
+                "I3": {
+                    "type": "text",
+                    "value": "2025-07-02"
+                },
+                "I4": {
+                    "type": "text",
+                    "value": "2025-07-02"
+                },
+                "I5": {
+                    "type": "text",
+                    "value": "2025-07-03"
+                },
+                "I6": {
+                    "type": "text",
+                    "value": "2025-07-03"
+                },
+                "I7": {
+                    "type": "text",
+                    "value": "2025-07-04"
+                },
+                "I8": {
+                    "type": "text",
+                    "value": "2025-07-05"
+                },
+                "I9": {
+                    "type": "text",
+                    "value": "2025-07-05"
+                }
+            },
+            "rows": 15
+        }
+    },
+    "query": "Forecast for sales for upcoming 3 months using and detailed different type of models like xgboost arima, compare the current sales the forecasted all on same chart.",
+    "sheetName": "Sheet1"
+}

@@ -1,60 +1,188 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: oklch(8% 0.02 258);
-  --color-foreground: oklch(98% 0.02 258);
-  --color-card: oklch(10% 0.02 258);
-  --color-card-foreground: oklch(98% 0.02 258);
-  --color-popover: oklch(8% 0.02 258);
-  --color-popover-foreground: oklch(98% 0.02 258);
-  --color-primary: oklch(69% 0.20 258);
-  --color-primary-foreground: oklch(8% 0.02 258);
-  --color-secondary: oklch(18% 0.06 258);
-  --color-secondary-foreground: oklch(98% 0.02 258);
-  --color-muted: oklch(15% 0.04 258);
-  --color-muted-foreground: oklch(65% 0.04 258);
-  --color-accent: oklch(18% 0.06 258);
-  --color-accent-foreground: oklch(98% 0.02 258);
-  --color-destructive: oklch(55% 0.20 25);
-  --color-destructive-foreground: oklch(98% 0.02 258);
-  --color-border: oklch(25% 0.06 258);
-  --color-input: oklch(18% 0.06 258);
-  --color-ring: oklch(69% 0.20 258);
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
   
-  --radius: 0.5rem;
-}
-
-@media (prefers-color-scheme: light) {
-  @theme {
-    --color-background: oklch(98% 0 0);
-    --color-foreground: oklch(9% 0.21 258);
-    --color-card: oklch(100% 0 0);
-    --color-card-foreground: oklch(9% 0.21 258);
-    --color-popover: oklch(100% 0 0);
-    --color-popover-foreground: oklch(9% 0.21 258);
-    --color-primary: oklch(62% 0.18 258);
-    --color-primary-foreground: oklch(98% 0.04 258);
-    --color-secondary: oklch(96% 0.04 258);
-    --color-secondary-foreground: oklch(20% 0.15 258);
-    --color-muted: oklch(96% 0.04 258);
-    --color-muted-foreground: oklch(45% 0.08 258);
-    --color-accent: oklch(96% 0.04 258);
-    --color-accent-foreground: oklch(20% 0.15 258);
-    --color-destructive: oklch(63% 0.20 25);
-    --color-destructive-foreground: oklch(98% 0.04 258);
-    --color-border: oklch(85% 0.06 258);
-    --color-input: oklch(91% 0.06 258);
-    --color-ring: oklch(62% 0.18 258);
-  }
+  --shadow-soft: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  
+  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 @layer base {
   * {
-    border-color: var(--color-border);
+    border-color: theme(colors.gray.200);
   }
   
   body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
+    background-color: theme(colors.gray.50);
+    color: theme(colors.gray.900);
+    font-family: theme(fontFamily.sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: theme(fontWeight.semibold);
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: theme(borderRadius.lg);
+    font-size: theme(fontSize.sm);
+    font-weight: theme(fontWeight.medium);
+    transition-property: all;
+    transition-duration: 200ms;
+    transition-timing-function: theme(transitionTimingFunction.DEFAULT);
+    
+    &:focus {
+      outline: 2px solid transparent;
+      outline-offset: 2px;
+      box-shadow: 
+        0 0 0 2px theme(colors.white),
+        0 0 0 4px theme(colors.primary.500);
+    }
+    
+    &:disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+  }
+  
+  .btn-primary {
+    background-color: theme(colors.primary.600);
+    color: theme(colors.white);
+    box-shadow: theme(boxShadow.sm);
+    
+    &:hover:not(:disabled) {
+      background-color: theme(colors.primary.700);
+    }
+  }
+  
+  .btn-secondary {
+    background-color: theme(colors.white);
+    color: theme(colors.gray.700);
+    border: 1px solid theme(colors.gray.300);
+    box-shadow: theme(boxShadow.sm);
+    
+    &:hover:not(:disabled) {
+      background-color: theme(colors.gray.50);
+    }
+  }
+  
+  .btn-ghost {
+    color: theme(colors.gray.600);
+    
+    &:hover:not(:disabled) {
+      color: theme(colors.gray.900);
+      background-color: theme(colors.gray.100);
+    }
+  }
+  
+  .input {
+    display: block;
+    width: 100%;
+    border-radius: theme(borderRadius.lg);
+    border: 1px solid theme(colors.gray.300);
+    background-color: theme(colors.white);
+    padding: theme(spacing.2) theme(spacing.3);
+    font-size: theme(fontSize.sm);
+    box-shadow: theme(boxShadow.sm);
+    transition-property: color, background-color, border-color, box-shadow;
+    transition-timing-function: theme(transitionTimingFunction.DEFAULT);
+    transition-duration: 150ms;
+    
+    &::placeholder {
+      color: theme(colors.gray.400);
+    }
+    
+    &:focus {
+      outline: 2px solid transparent;
+      outline-offset: 2px;
+      border-color: theme(colors.primary.500);
+      box-shadow: 0 0 0 1px theme(colors.primary.500);
+    }
+  }
+  
+  .card {
+    background-color: theme(colors.white);
+    border-radius: theme(borderRadius.xl);
+    border: 1px solid theme(colors.gray.200);
+    box-shadow: var(--shadow-soft);
+  }
+  
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: theme(borderRadius.full);
+    padding: theme(spacing.1) theme(spacing.2.5);
+    font-size: theme(fontSize.xs);
+    font-weight: theme(fontWeight.medium);
+  }
+  
+  .badge-primary {
+    background-color: theme(colors.primary.100);
+    color: theme(colors.primary.800);
+  }
+  
+  .badge-success {
+    background-color: theme(colors.green.100);
+    color: theme(colors.green.800);
+  }
+  
+  .badge-error {
+    background-color: theme(colors.red.100);
+    color: theme(colors.red.800);
+  }
+  
+  .badge-warning {
+    background-color: theme(colors.yellow.100);
+    color: theme(colors.yellow.800);
+  }
+}
+
+@layer utilities {
+  /* Custom scrollbar */
+  .custom-scrollbar {
+    &::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    
+    &::-webkit-scrollbar-track {
+      background: theme(colors.slate.100);
+      border-radius: 3px;
+    }
+    
+    &::-webkit-scrollbar-thumb {
+      background: theme(colors.slate.300);
+      border-radius: 3px;
+      
+      &:hover {
+        background: theme(colors.slate.400);
+      }
+    }
+  }
+  
+  /* Loading animation */
+  @keyframes pulse-soft {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+  
+  .animate-pulse-soft {
+    animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
