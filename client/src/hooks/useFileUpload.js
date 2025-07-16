@@ -88,17 +88,18 @@ export const useFileUpload = (backendUrl, onMessage) => {
       }
       const data = await response.json()
       if (data.connected && data.data) {
+        // Set file state but don't add messages automatically
+        // This prevents auto-switching to chat interface
         setFileUploaded(true)
         setFileInfo(data.data)
-        onMessage(
-          "system",
-          `Restored session! Your data file "${data.data.filename}" is loaded with ${data.data.shape[0]} rows and ${data.data.shape[1]} columns.\n\nReady for analysis! What would you like to explore?`,
-        )
+        
+        // Only show session restored message in console, not in UI
+        console.log(`Session restored: ${data.data.filename} with ${data.data.shape[0]} rows and ${data.data.shape[1]} columns`)
       }
     } catch (error) {
       console.log("No existing session or connection error:", error.message)
     }
-  }, [backendUrl, onMessage])
+  }, [backendUrl])
 
   const checkSessionSync = useCallback(async () => {
     try {

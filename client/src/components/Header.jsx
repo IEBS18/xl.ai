@@ -28,7 +28,7 @@ const Header = ({ isConnected }) => {
               <div className={`w-6 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
               <div className={`w-2 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
             </div>
-            <span className={`text-xl font-semibold ${themeClasses.text}`}>DataScope AI</span>
+            <span className={`text-xl font-semibold ${themeClasses.text}`}>InsiPredict</span>
           </motion.div>
 
           {/* Desktop Navigation */}

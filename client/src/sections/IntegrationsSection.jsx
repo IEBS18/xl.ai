@@ -32,7 +32,7 @@ const IntegrationsSection = () => {
               300+ integrations so you can research, analyze, and create without switching between platforms.
             </p>
 
-            <p className={`${themeClasses.text} mb-8 font-medium`}>DataScope AI integrates with:</p>
+            <p className={`${themeClasses.text} mb-8 font-medium`}>InsiPredict integrates with:</p>
 
             <div className="flex flex-wrap gap-3 mb-10">
               {integrations.map((integration, index) => (

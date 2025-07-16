@@ -25,6 +25,7 @@ export const useMessages = () => {
 
     setMessages((prev) => {
       const lastMessage = prev[prev.length - 1]
+      
 
       // Enhanced duplicate prevention with better object comparison
       if (lastMessage && !isUser && Date.now() - new Date(lastMessage.timestamp).getTime() < 3000) {

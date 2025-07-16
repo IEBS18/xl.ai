@@ -1,4 +1,3 @@
-// Custom Hooks
+export { useMessages } from './useMesssages'
 export { useSocket } from './useSocket'
-export { useMessages } from './useMessages'
 export { useFileUpload } from './useFileUpload'

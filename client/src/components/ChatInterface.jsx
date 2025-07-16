@@ -23,10 +23,10 @@ const ChatInterface = ({
   manualSessionSync
 }) => {
   return (
-    <div className="pt-32">
-      {/* Messages Timeline */}
-      <section className="relative pb-20 overflow-hidden">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+    <div className="flex flex-col h-full">
+      {/* Messages Area - Scrollable with explicit height */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <MessageTimeline
             messages={messages}
             isAnalyzing={isAnalyzing}
@@ -35,34 +35,37 @@ const ChatInterface = ({
             messagesEndRef={messagesEndRef}
           />
         </div>
-      </section>
+      </div>
 
-      {/* Sample Questions */}
-      {fileUploaded && messages.filter((m) => m.isUser).length === 0 && (
-        <SampleQuestions onSelectQuestion={(question) => onSendMessage(question)} />
-      )}
+      {/* Bottom UI Elements - Fixed at bottom */}
+      <div className="flex-shrink-0 bg-gray-900">
+        {/* Sample Questions */}
+        {fileUploaded && messages.filter((m) => m.isUser).length === 0 && (
+          <SampleQuestions onSelectQuestion={(question) => onSendMessage(question)} />
+        )}
 
-      {/* Upload Progress */}
-      {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
+        {/* Upload Progress */}
+        {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
 
-      {/* File Info */}
-      {fileUploaded && fileInfo && (
-        <FileInfo
-          fileInfo={fileInfo}
-          onDebug={debugSession}
-          onSync={manualSessionSync}
-        />
-      )}
+        {/* File Info */}
+        {fileUploaded && fileInfo && (
+          <FileInfo
+            fileInfo={fileInfo}
+            onDebug={debugSession}
+            onSync={manualSessionSync}
+          />
+        )}
 
-      {/* Input Area */}
-      {fileUploaded && (
-        <InputArea
-          isConnected={isConnected}
-          isAnalyzing={isAnalyzing}
-          onSendMessage={onSendMessage}
-          onFileUpload={triggerFileUpload}
-        />
-      )}
+        {/* Input Area - Always visible at bottom */}
+        {fileUploaded && (
+          <InputArea
+            isConnected={isConnected}
+            isAnalyzing={isAnalyzing}
+            onSendMessage={onSendMessage}
+            onFileUpload={triggerFileUpload}
+          />
+        )}
+      </div>
 
       {/* Hidden File Input */}
       <input

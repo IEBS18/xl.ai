@@ -10,16 +10,16 @@ import Footer from "../sections/Footer"
 const LandingPage = ({ 
   isConnected, 
   onSendMessage, 
+  onFileUpload,
   fileInputRef, 
-  handleFileUpload, 
-  triggerFileUpload 
+  handleFileUpload
 }) => {
   return (
     <>
       <HeroSection
         isConnected={isConnected}
         onSendMessage={onSendMessage}
-        onFileUpload={triggerFileUpload}
+        onFileUpload={onFileUpload}
       />
       
       <ConnectorsSection />

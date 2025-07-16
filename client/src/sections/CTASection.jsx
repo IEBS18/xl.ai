@@ -18,7 +18,7 @@ const CTASection = () => {
             Endless use cases
           </h2>
           <p className={`text-lg ${themeClasses.textSecondary} mb-12 max-w-2xl mx-auto leading-relaxed`}>
-            DataScope AI has 1000+ use cases for any corporate role, helping you and your team take care of
+            InsiPredict has 1000+ use cases for any corporate role, helping you and your team take care of
             serious work
           </p>
 

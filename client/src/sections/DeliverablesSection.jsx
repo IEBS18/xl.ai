@@ -46,7 +46,7 @@ const DeliverablesSection = () => {
             </h3>
 
             <p className={`text-lg ${themeClasses.textSecondary} leading-relaxed`}>
-              No broken formulas. No manual cleanup. DataScope AI helps you catch issues and surface insights in
+              No broken formulas. No manual cleanup. InsiPredict helps you catch issues and surface insights in
               real time.
             </p>
           </motion.div>
@@ -149,14 +149,14 @@ const DeliverablesSection = () => {
                 <div className={`border-b ${themeClasses.border} pb-4`}>
                   <div className="flex items-center space-x-2">
                     <span className={`text-sm ${themeClasses.textSecondary}`}>FINANCIALS</span>
-                    <div className={`${themeClasses.button} px-2 py-1 rounded text-xs`}>DataScope AI</div>
+                    <div className={`${themeClasses.button} px-2 py-1 rounded text-xs`}>InsiPredict</div>
                   </div>
                 </div>
 
                 <div className={`${themeClasses.surfaceSecondary} p-4 rounded-xl border ${themeClasses.border}`}>
                   <p className={`text-sm ${themeClasses.textSecondary}`}>
                     Every insight, a step toward exponential growth.
-                    <span className={`${themeClasses.button} px-1 rounded text-xs ml-1`}>DataScope AI</span> turns
+                    <span className={`${themeClasses.button} px-1 rounded text-xs ml-1`}>InsiPredict</span> turns
                     intelligence into ROI.
                   </p>
                 </div>
@@ -181,7 +181,7 @@ const DeliverablesSection = () => {
             </h3>
 
             <p className={`text-lg ${themeClasses.textSecondary} leading-relaxed`}>
-              Slides made easy. Any data, any topic, any input. DataScope AI turns it into a polished story fast.
+              Slides made easy. Any data, any topic, any input. InsiPredict turns it into a polished story fast.
             </p>
           </motion.div>
         </div>
@@ -204,7 +204,7 @@ const DeliverablesSection = () => {
             </h3>
 
             <p className={`text-lg ${themeClasses.textSecondary} leading-relaxed`}>
-              DataScope AI formats, edits, and checks your docs so that you don't have to.
+              InsiPredict formats, edits, and checks your docs so that you don't have to.
             </p>
           </motion.div>
 

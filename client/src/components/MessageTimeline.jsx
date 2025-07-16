@@ -10,7 +10,10 @@ const MessageTimeline = ({
   messagesEndRef 
 }) => {
   return (
-    <div>
+    <div className="space-y-6 pb-6">
+      {/* Add some top padding for better visual spacing */}
+      <div className="h-4"></div>
+      
       {messages.map((message) => (
         <MessageItem
           key={message.id}
@@ -37,6 +40,10 @@ const MessageTimeline = ({
         </div>
       )}
       
+      {/* Bottom spacer to ensure last message is visible above input */}
+      <div className="h-8"></div>
+      
+      {/* Scroll anchor */}
       <div ref={messagesEndRef} />
     </div>
   )

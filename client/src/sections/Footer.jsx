@@ -24,7 +24,7 @@ const Footer = () => {
               </div>
             </motion.div>
             <p className={`${themeClasses.textSecondary} mb-8 max-w-md leading-relaxed text-lg`}>
-              Work smarter, faster, and more efficiently with DataScope AI.
+              Work smarter, faster, and more efficiently with InsiPredict.
             </p>
             <div className="flex items-center space-x-6">
               <span className={`${themeClasses.textMuted} text-sm uppercase tracking-wider`}>Socials</span>
@@ -95,7 +95,7 @@ const Footer = () => {
           transition={{ duration: 0.8 }}
           viewport={{ once: true }}
         >
-          <p className={`${themeClasses.textMuted} text-sm`}>© 2025 DataScope AI. All rights reserved.</p>
+          <p className={`${themeClasses.textMuted} text-sm`}>© 2025 InsiPredict. All rights reserved.</p>
         </motion.div>
       </div>
     </footer>

@@ -27,7 +27,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
   return (
     <section className="relative pt-32 pb-20 overflow-hidden">
       {/* Three.js Background */}
-      <ThreeBackground ref={heroRef} />
+      {/* <ThreeBackground ref={heroRef} /> */}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="relative h-full w-full overflow-hidden">
@@ -88,7 +88,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                 className={`text-lg ${themeClasses.textSecondary} mb-2 font-light tracking-wide`}
                 style={{ fontFamily: "SF Pro Text, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
               >
-                Welcome back to DataScope AI
+                Welcome back to InsiPredict
               </p>
               <p
                 className={`text-sm ${themeClasses.textMuted} font-light tracking-wide`}
