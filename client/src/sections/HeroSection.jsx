@@ -3,7 +3,6 @@ import { Send, Paperclip } from "lucide-react"
 import { motion } from "framer-motion"
 import { useTheme } from "../context/ThemeProvider"
 import { getTimeBasedGreeting } from "../utils/helpers"
-import ThreeBackground from "../components/ThreeBackground"
 import AnimatedInterface from "../components/AnimatedInterface"
 
 const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {

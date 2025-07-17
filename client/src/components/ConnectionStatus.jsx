@@ -6,7 +6,7 @@ const ConnectionStatus = ({ isConnected }) => {
       <div
         className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-400" : "bg-red-400"} shadow-lg animate-pulse`}
       ></div>
-      <span className="text-xs font-medium text-gray-300">
+      <span className="text-xs font-medium text-gray-500">
         {isConnected ? "Connected" : "Disconnected"}
       </span>
     </div>

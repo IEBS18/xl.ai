@@ -73,7 +73,7 @@ const MainContent = () => {
   return (
     <div className={`h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
       <Header isConnected={isConnected} />
-      
+        
       {/* Main Content Area - Takes remaining height after header */}
       <div className="flex-1 min-h-0">
         {shouldShowChat ? (

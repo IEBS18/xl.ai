@@ -6,3 +6,11 @@ scikit-learn
 boto3
 openpyxl
 xlrd
+matplotlib
+seaborn
+flask_socketio
+openai
+python_dotenv
+Werkzeug
+psycopg2-binary
+python-dotenv
