@@ -7,6 +7,10 @@
   --font-family-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
 }
 
+.bg-gray-850 {
+  background-color: #1a1f2e;
+}
+
 /* Base Styles */
 * {
   box-sizing: border-box;

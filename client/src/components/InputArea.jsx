@@ -1,8 +1,10 @@
 import React, { useState } from "react"
 import { Send, Paperclip, Loader2 } from "lucide-react"
+import { useTheme } from "@/context/ThemeProvider"
 
 const InputArea = ({ isConnected, isAnalyzing, onSendMessage, onFileUpload }) => {
   const [inputMessage, setInputMessage] = useState("")
+  const { themeClasses } = useTheme()
 
   const handleSendMessage = () => {
     if (!inputMessage.trim() || isAnalyzing) return
@@ -18,35 +20,42 @@ const InputArea = ({ isConnected, isAnalyzing, onSendMessage, onFileUpload }) =>
   }
 
   return (
-    <div className="bg-gray-900 border-t border-gray-800 shadow-xl">
-      <div className="max-w-4xl mx-auto px-4 py-4">
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={onFileUpload}
-            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors rounded-lg border border-gray-700 flex-shrink-0"
-            title="Upload new file"
-          >
-            <Paperclip size={18} />
-          </button>
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={!isConnected ? "Connecting to server..." : "Ask me anything about your data..."}
-              disabled={isAnalyzing || !isConnected}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-900 disabled:text-gray-500 text-sm shadow-sm text-white placeholder-gray-500 transition-all duration-200"
-            />
+    <div className={`${themeClasses.bg} ${themeClasses.border} border-t transition-colors`}>
+      <div className="max-w-4xl mx-auto px-4 py-2">
+        <div className={`${themeClasses.glass} rounded-3xl shadow-lg`}>
+          <div className="flex items-center space-x-3">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={!isConnected ? "Connecting to server..." : "Upload a file or describe what you'd like to analyze..."}
+                disabled={isAnalyzing || !isConnected}
+                className={`w-full px-6 py-4 bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none`}
+                style={{ minHeight: '24px' }}
+              />
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={onFileUpload}
+                className={`p-3 ${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors rounded-2xl hover:${themeClasses.surfaceSecondary} flex-shrink-0`}
+                title="Upload file"
+              >
+                <Paperclip size={20} />
+              </button>
+              
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputMessage.trim() || isAnalyzing || !isConnected}
+                className={`${themeClasses.button} p-3 rounded-2xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transform hover:scale-105 disabled:transform-none flex-shrink-0`}
+                title={!isConnected ? "Not connected" : "Send message"}
+              >
+                {isAnalyzing ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={handleSendMessage}
-            disabled={!inputMessage.trim() || isAnalyzing || !isConnected}
-            className="bg-white text-gray-900 p-3 rounded-xl hover:bg-gray-100 transition-all duration-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:transform-none flex-shrink-0"
-            title={!isConnected ? "Not connected" : "Send message"}
-          >
-            {isAnalyzing ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-          </button>
         </div>
       </div>
     </div>

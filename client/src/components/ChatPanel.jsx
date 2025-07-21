@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Send, X, Bot, User, Loader2, CheckCircle, AlertCircle, Sparkles } from "lucide-react"
+import { useTheme } from "@/context/ThemeProvider"
 
 export function ChatPanel({ socket, connected, hasData, onClose }) {
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const scrollAreaRef = useRef(null)
+  const { themeClasses } = useTheme()
 
   const addMessage = (message) => {
     setMessages((prev) => [...prev, { ...message, id: Date.now().toString() }])
@@ -151,17 +153,17 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
   const getMessageStyle = (type) => {
     switch (type) {
       case "user":
-        return "bg-primary-600 text-white ml-8"
+        return `${themeClasses.button} ml-8 rounded-2xl`
       case "bot":
-        return "bg-gray-100 text-gray-900 mr-8"
+        return `${themeClasses.surface} ${themeClasses.text} mr-8 rounded-2xl`
       case "success":
-        return "bg-green-50 text-green-800 border border-green-200 mr-8"
+        return "bg-green-50 text-green-800 border border-green-200 mr-8 rounded-2xl"
       case "error":
-        return "bg-red-50 text-red-800 border border-red-200 mr-8"
+        return "bg-red-50 text-red-800 border border-red-200 mr-8 rounded-2xl"
       case "status":
-        return "bg-blue-50 text-blue-800 border border-blue-200 mr-8"
+        return "bg-blue-50 text-blue-800 border border-blue-200 mr-8 rounded-2xl"
       default:
-        return "bg-gray-100 text-gray-900 mr-8"
+        return `${themeClasses.surface} ${themeClasses.text} mr-8 rounded-2xl`
     }
   }
 
@@ -174,20 +176,25 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
   ]
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className={`h-full flex flex-col ${themeClasses.bg} transition-colors`}>
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-primary-50 to-blue-50">
+      <div className={`p-4 ${themeClasses.border} border-b ${themeClasses.surface}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-primary-100 rounded-lg">
-              <Sparkles className="w-5 h-5 text-primary-600" />
+            <div className={`p-2 ${themeClasses.button} rounded-lg`}>
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-semibold text-gray-900">AI Assistant</h2>
-              <p className="text-xs text-gray-600">{connected ? "Ready to analyze your data" : "Connecting..."}</p>
+              <h2 className={`font-semibold ${themeClasses.text}`}>AI Assistant</h2>
+              <p className={`text-xs ${themeClasses.textSecondary}`}>
+                {connected ? "Ready to analyze your data" : "Connecting..."}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="btn btn-ghost p-2">
+          <button 
+            onClick={onClose} 
+            className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-md transition-colors`}
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -198,7 +205,7 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
         <div ref={scrollAreaRef} className="h-full overflow-y-auto custom-scrollbar p-4">
           <div className="space-y-4">
             {!hasData && (
-              <div className="card p-4 bg-blue-50 border-blue-200">
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 <div className="flex items-start space-x-3">
                   <Bot className="w-5 h-5 text-blue-600 mt-0.5" />
                   <div>
@@ -213,12 +220,12 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
 
             {hasData && messages.length === 0 && (
               <div className="space-y-3">
-                <div className="card p-4 bg-gradient-to-br from-primary-50 to-blue-50 border-primary-200">
+                <div className={`${themeClasses.surface} ${themeClasses.border} border rounded-2xl p-4`}>
                   <div className="flex items-start space-x-3">
-                    <Bot className="w-5 h-5 text-primary-600 mt-0.5" />
+                    <Bot className={`w-5 h-5 ${themeClasses.textSecondary} mt-0.5`} />
                     <div>
-                      <p className="text-sm text-primary-800 font-medium mb-2">Ready to analyze your data!</p>
-                      <p className="text-xs text-primary-700 mb-3">
+                      <p className={`text-sm ${themeClasses.text} font-medium mb-2`}>Ready to analyze your data!</p>
+                      <p className={`text-xs ${themeClasses.textSecondary} mb-3`}>
                         Try asking me questions about your dataset. Here are some suggestions:
                       </p>
                       <div className="space-y-2">
@@ -226,7 +233,7 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
                           <button
                             key={index}
                             onClick={() => setInputValue(suggestion)}
-                            className="block w-full text-left text-xs text-primary-700 hover:text-primary-800 bg-white bg-opacity-50 hover:bg-opacity-75 rounded px-2 py-1 transition-colors"
+                            className={`block w-full text-left text-xs ${themeClasses.textSecondary} hover:${themeClasses.text} ${themeClasses.bg} hover:${themeClasses.surface} rounded-lg px-3 py-2 transition-colors ${themeClasses.border} border`}
                           >
                             "{suggestion}"
                           </button>
@@ -239,25 +246,25 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
             )}
 
             {messages.map((message) => (
-              <div key={message.id} className="flex items-start space-x-3">
+              <div key={message.id} className="flex items-start space-x-3 animate-in slide-in-from-bottom duration-300">
                 <div
                   className={`flex-shrink-0 p-1.5 rounded-full ${
-                    message.type === "user" ? "bg-primary-100" : "bg-gray-100"
+                    message.type === "user" ? themeClasses.button : themeClasses.surfaceSecondary
                   }`}
                 >
-                  <div className={message.type === "user" ? "text-primary-600" : "text-gray-600"}>
+                  <div className={message.type === "user" ? "" : themeClasses.textSecondary}>
                     {getMessageIcon(message.type)}
                   </div>
                 </div>
-                <div className={`rounded-lg px-3 py-2 text-sm max-w-full ${getMessageStyle(message.type)}`}>
+                <div className={`px-4 py-3 text-sm max-w-full ${getMessageStyle(message.type)}`}>
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  <p className="text-xs opacity-70 mt-1">{message.timestamp.toLocaleTimeString()}</p>
+                  <p className="text-xs opacity-70 mt-2">{message.timestamp.toLocaleTimeString()}</p>
                 </div>
               </div>
             ))}
 
             {isAnalyzing && (
-              <div className="flex items-center space-x-3 text-sm text-gray-600">
+              <div className={`flex items-center space-x-3 text-sm ${themeClasses.textSecondary} animate-in slide-in-from-bottom duration-300`}>
                 <div className="p-1.5 bg-blue-100 rounded-full">
                   <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                 </div>
@@ -269,28 +276,28 @@ export function ChatPanel({ socket, connected, hasData, onClose }) {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
-        <div className="flex space-x-2">
+      <div className={`p-4 ${themeClasses.border} border-t ${themeClasses.surface}`}>
+        <div className="flex space-x-3">
           <input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder={hasData ? "Ask about your data..." : "Upload data first"}
             disabled={!hasData || isAnalyzing || !connected}
-            className="input flex-1"
+            className={`flex-1 px-4 py-3 ${themeClasses.border} border rounded-2xl ${themeClasses.bg} ${themeClasses.text} ${themeClasses.textMuted} focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-colors`}
           />
           <button
             onClick={handleSendMessage}
             disabled={!inputValue.trim() || !hasData || isAnalyzing || !connected}
-            className="btn btn-primary px-4 py-2"
+            className={`px-6 py-3 ${themeClasses.button} rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center`}
           >
             <Send className="w-4 h-4" />
           </button>
         </div>
 
         {hasData && (
-          <div className="mt-2">
-            <p className="text-xs text-gray-500">Ask questions, request charts, or generate reports from your data</p>
+          <div className="mt-3">
+            <p className={`text-xs ${themeClasses.textSecondary}`}>Ask questions, request charts, or generate reports from your data</p>
           </div>
         )}
       </div>

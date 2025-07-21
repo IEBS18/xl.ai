@@ -20,12 +20,11 @@ export const useMessages = () => {
       content,
       isUser,
       timestamp: new Date().toISOString(),
-      isCompleted: type !== "status", // Status messages start as not completed
+      isCompleted: type !== "status",
     }
 
     setMessages((prev) => {
       const lastMessage = prev[prev.length - 1]
-      
 
       // Enhanced duplicate prevention with better object comparison
       if (lastMessage && !isUser && Date.now() - new Date(lastMessage.timestamp).getTime() < 3000) {
@@ -59,17 +58,25 @@ export const useMessages = () => {
         }
       }
 
-      // Special handling for output messages - accumulate content with the last output message
+      // FIXED: Better handling for output messages - prevent duplication
       if (type === "output" && !isUser) {
         // Find the last output message in the array
         const lastOutputIndex = prev.findLastIndex((msg) => msg.type === "output")
 
         if (lastOutputIndex !== -1) {
-          // Update the existing output message by accumulating content
+          const existingContent = prev[lastOutputIndex].content
+          
+          // Check if the new content is already included in existing content
+          if (existingContent.includes(content)) {
+            console.log("Preventing duplicate output content")
+            return prev
+          }
+          
+          // Only append if it's truly new content
           const updatedMessages = [...prev]
           updatedMessages[lastOutputIndex] = {
             ...updatedMessages[lastOutputIndex],
-            content: updatedMessages[lastOutputIndex].content + "\n" + content,
+            content: existingContent + "\n" + content,
             timestamp: new Date().toISOString(),
           }
           return updatedMessages

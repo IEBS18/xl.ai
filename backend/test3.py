@@ -1,187 +1,164 @@
 import os
-import json
-import uuid
-import re
-import traceback
 import base64
-import pandas as pd
-import matplotlib.pyplot as plt
 from openai import AzureOpenAI
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
-
-# Setup OpenAI client
-openai_client = AzureOpenAI(
-    api_key=os.getenv("AZUREAPI"),
-    api_version=os.getenv("AZUREVERSION"),
-    azure_endpoint=os.getenv("AZUREENDPOINT")
-)
-
-MODEL = "gpt-4o-mini"
-os.makedirs("charts/test3", exist_ok=True)
-
-# Utility Functions
-def print_step(title, content=""):
-    print(f"\n\U0001f9e0 {title}\n{'-' * len(title)}")
-    if content:
-        print(content)
-
-def spreadsheet_json_to_dataframe(sheet_data):
-    columns = {}
-    max_row = 0
-    for cell_ref, cell in sheet_data.items():
-        col_letter = ''.join(filter(str.isalpha, cell_ref))
-        row_number = int(''.join(filter(str.isdigit, cell_ref)))
-        col_index = ord(col_letter.upper()) - ord('A')
-        max_row = max(max_row, row_number)
-        if row_number == 1:
-            columns[col_index] = cell['value']
-
-    num_cols = max(columns.keys()) + 1
-    col_names = [columns.get(i, f"Col{i+1}") for i in range(num_cols)]
-
-    all_rows = []
-    for row in range(2, max_row + 1):
-        row_data = []
-        for col in range(num_cols):
-            cell_ref = f"{chr(65 + col)}{row}"
-            cell = sheet_data.get(cell_ref, {})
-            row_data.append(cell.get("value", None))
-        all_rows.append(row_data)
-
-    return pd.DataFrame(all_rows, columns=col_names)
-
-def extract_code_block(markdown):
-    match = re.search(r"```(?:python)?\n(.*?)```", markdown, re.DOTALL)
-    return match.group(1).strip() if match else ""
-
-def embed_chart_base64(chart_filename):
-    with open(chart_filename, "rb") as img_file:
-        b64 = base64.b64encode(img_file.read()).decode('utf-8')
-    return f"<img src='data:image/png;base64,{b64}' style='max-width:100%;'>"
-
-# Load spreadsheet.json
-print_step("Step 1: Loading spreadsheet")
-with open('spreadsheet.json', 'r', encoding='utf-8') as f:
-    payload = json.load(f)
-
-user_query = payload['query']
-sheet_data = payload['spreadsheet']['data']['data']
-df = spreadsheet_json_to_dataframe(sheet_data)
-print(df.head())
-
-# Generate analysis plan
-print_step("Step 2: Asking AI for multi-step plan with code")
-full_prompt = f"""
-You are a world-class AI data analyst with expertise in interpreting business data.
-
-User Query: "{user_query}"
-
-Here is a sample of the spreadsheet (first 10 rows):
-
-{df.head(10).to_string(index=False)}
-
-Please perform the following:
-1. Rephrase the user query with full explanation (at least 150 words).
-2. Perform a data audit: missing values, formatting issues, inconsistencies, invalid entries. Describe if cleaning is needed. If yes, write code.
-3. Define logical steps needed to analyze the query.
-4. For each step:
-   - Step number and title
-   - 100-word explanation
-   - Python code block for that step
-5. Ensure at least one step creates a chart using matplotlib or seaborn.
-6. After all steps, write a final insight section.
-7. Return the full analysis in Markdown format with all code blocks clearly formatted using triple backticks.
-8. IMPORTANT: Use the existing variable `df` for the dataset. Do NOT reload from CSV or any file. Use `df` throughout the steps.
-"""
-
-response = openai_client.chat.completions.create(
-    model=MODEL,
-    messages=[{"role": "user", "content": full_prompt}],
-    temperature=0.3
-)
-
-markdown_report = response.choices[0].message.content.strip()
-
-# Execute AI-generated code blocks
-print_step("Step 3: Executing steps from AI plan")
-code_blocks = re.findall(r"```(?:python)?\n(.*?)```", markdown_report, re.DOTALL)
-exec_env = {'df': df, 'pd': pd, 'np': __import__('numpy'), 'plt': plt}
-chart_filename = None
-successful_steps = []
-
-for i, code in enumerate(code_blocks):
-    print_step(f"Executing Step {i + 1}", code)
+def encode_image_to_base64(image_path):
+    """Convert image file to base64 string."""
     try:
-        if 'plt.show' in code or 'plt.savefig' in code:
-            code = code.replace('plt.show()', '')  # remove interactive show
-            chart_filename = f"charts/test3/{uuid.uuid4().hex}.png"
-            print("\U0001f4f8 Saving chart:", chart_filename)
-            code += f"\nplt.savefig('{chart_filename}', bbox_inches='tight')\nplt.close()"
-
-        exec(code, exec_env)
-        successful_steps.append(i + 1)
-        print(f"✅ Variables after Step {i+1}: {list(exec_env.keys())}")
-
+        with open(image_path, "rb") as image_file:
+            base64_string = base64.b64encode(image_file.read()).decode('utf-8')
+            return base64_string
+    except FileNotFoundError:
+        print(f"Error: Image file '{image_path}' not found.")
+        return None
     except Exception as e:
-        traceback_str = traceback.format_exc()
-        print(f"❌ Error in Step {i + 1}: {e}\n{traceback_str}")
-        print("🔁 Requesting alternate approach from AI")
+        print(f"Error encoding image: {str(e)}")
+        return None
 
-        retry_prompt = f"""
-A multi-step analysis plan failed on Step {i + 1}.
-
-User Query: {user_query}
-
-Data Sample:
-{df.head(10).to_string(index=False)}
-
-Original Step {i + 1} Code:
-```python
-{code}
-```
-
-Error:
-{traceback_str}
-
-Previously successful steps: {successful_steps}
-
-Please revise the above step to avoid the error. Return ONLY the corrected Python code.
-"""
-        retry_response = openai_client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": retry_prompt}],
-            temperature=0.3
+def analyze_image_with_azure_openai(image_base64, custom_question=None):
+    """Send base64 image to Azure OpenAI and get description."""
+    
+    # Initialize Azure OpenAI client
+    client = AzureOpenAI(
+        api_key=os.getenv("AZUREAPI"),
+        api_version=os.getenv("AZUREVERSION", "2024-02-01"),
+        azure_endpoint=os.getenv("AZUREENDPOINT")
+    )
+    
+    # Default question if none provided
+    question = custom_question or "What's in this image? Describe what you see in detail."
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Use GPT-4 Vision model
+            messages=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": question
+                        }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/plot_204650_1.png?sp=r&st=2025-07-21T07:04:27Z&se=2025-07-21T15:19:27Z&sv=2024-11-04&sr=b&sig=qNsCstv%2Fzwh4TZxXquOsRA0KsZkv%2FdcMNUkXV7MO680%3D"
+                            }
+                        }
+                    ]
+                }
+            ],
+            # max_tokens=1000,
+            # temperature=0.1
         )
-        retry_code = extract_code_block(retry_response.choices[0].message.content)
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error analyzing image: {str(e)}"
 
-        try:
-            exec(retry_code, exec_env)
-            successful_steps.append(i + 1)
-            print(f"✅ Step {i + 1} recovered successfully after retry")
-        except Exception as e2:
-            print(f"❌ Retry of Step {i + 1} also failed: {e2}")
-            print("🚫 Halting further execution.")
+def main():
+    """Main function to demonstrate image analysis."""
+    
+    # Check for required environment variables
+    required_vars = ["AZUREAPI", "AZUREENDPOINT"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print("❌ Missing required environment variables:")
+        for var in missing_vars:
+            print(f"   - {var}")
+        print("\nPlease set these environment variables:")
+        print("- AZUREAPI: Your Azure OpenAI API key")
+        print("- AZUREENDPOINT: Your Azure OpenAI endpoint URL")
+        print("- AZUREVERSION: API version (optional, defaults to '2024-02-01')")
+        return
+    
+    print("🖼️  Azure OpenAI Image Analysis Tool")
+    print("=" * 50)
+    
+    # Get image path from user
+    while True:
+        image_path = input("\n📁 Enter path to your image file: ").strip()
+        
+        if image_path.lower() in ['quit', 'exit']:
+            print("👋 Goodbye!")
+            return
+            
+        if not image_path:
+            print("Please enter a valid image path or 'quit' to exit.")
+            continue
+            
+        if not Path(image_path).exists():
+            print(f"❌ File not found: {image_path}")
+            continue
+            
+        # Convert image to base64
+        print("🔄 Converting image to base64...")
+        base64_image = encode_image_to_base64(image_path)
+        
+        if not base64_image:
+            continue
+            
+        print(f"✅ Image encoded successfully ({len(base64_image):,} characters)")
+        
+        # Get custom question (optional)
+        custom_question = input("\n❓ Enter your question about the image (or press Enter for default): ").strip()
+        
+        # Analyze the image
+        print("🤖 Analyzing image with Azure OpenAI...")
+        
+        result = analyze_image_with_azure_openai(
+            base64_image, 
+            custom_question if custom_question else None
+        )
+        
+        print("\n" + "=" * 50)
+        print("🔍 ANALYSIS RESULT:")
+        print("=" * 50)
+        print(result)
+        print("=" * 50)
+        
+        # Ask if user wants to analyze another image
+        another = input("\n🔄 Analyze another image? (y/n): ").strip().lower()
+        if another not in ['y', 'yes']:
+            print("👋 Thanks for using the image analyzer!")
             break
 
-# Generate final HTML report
-html_report = f"""
-<html><head><title>AI Analysis Report</title></head><body>
-<h1>AI-Generated Analysis Report</h1>
-<pre>{markdown_report}</pre>
+# Example usage for direct function calls
+def analyze_single_image(image_path, question="What's in this image?"):
+    """Simplified function to analyze a single image."""
+    
+    # Encode image
+    base64_image = encode_image_to_base64(image_path)
+    if not base64_image:
+        return "Failed to encode image"
+    
+    # Analyze with Azure OpenAI
+    result = analyze_image_with_azure_openai(base64_image, question)
+    return result
+
+if __name__ == "__main__":
+    main()
+
+# Alternative: Direct usage example
 """
-if chart_filename:
-    html_report += "<h2>Generated Chart</h2>" + embed_chart_base64(chart_filename)
-
-html_report += "</body></html>"
-report_path = "charts/detailed_report.html"
-
-with open(report_path, "w", encoding="utf-8") as f:
-    f.write(html_report)
-
-with open("charts/report.md", "w", encoding="utf-8") as f:
-    f.write(markdown_report)
-
-print_step("✅ Final Report Saved", report_path)
+# Example of direct usage:
+if __name__ == "__main__":
+    # Set your environment variables first
+    os.environ["AZUREAPI"] = "your-api-key-here"
+    os.environ["AZUREENDPOINT"] = "https://your-endpoint.openai.azure.com/"
+    os.environ["AZUREVERSION"] = "2024-02-01"
+    
+    # Analyze an image
+    result = analyze_single_image("path/to/your/image.jpg", "What objects do you see in this image?")
+    print(result)
+"""

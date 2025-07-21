@@ -1040,8 +1040,6 @@ from test2 import QuadraticCSVAnalyzer
 from dotenv import load_dotenv
 
 from auth import auth_blueprint, init_db
-
-
 # LangChain imports - optional, will handle gracefully if not available
 try:
     from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryBufferMemory, ConversationBufferMemory
@@ -1770,8 +1768,6 @@ REQUEST TYPE: {data_request['type']}
             enhanced_prompt = base_requirements + f"""
 FORECASTING-SPECIFIC REQUIREMENTS:
 - Create a separate DataFrame with future predictions
-- Target variable are to be choose betweeen revenue, sales, units sold, quantity and similar data. 
-- Never drop the Date column. 
 - Always first run the xgBoost algorithm{{given below in example}}for forecasting or prediction then go with the user suggested model if any
 - Include future dates beyond the last date in dataset
 - Provide confidence intervals or prediction ranges
@@ -1796,7 +1792,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 print("=== STEP 1: DATA PREPARATION ===")
 # Convert date and prepare data
 df['Date'] = pd.to_datetime(df['Date'])
-
+df = df.sort_values('Date').reset_index(drop=True)
 
 # Aggregate by date to create time series
 daily_data = df.groupby('Date').agg({{
@@ -2072,9 +2068,18 @@ Pseudo-code:
    - future_values = model.predict(future_time_indices)
 4. Convert future_time_indices back to actual future dates
 ```
-
  
-2. AUTOREGRESSIVE (AR) MODELS:
+2. MOVING AVERAGE FORECASTING:
+```
+Pseudo-code:
+1. Simple Moving Average: forecast = mean(last_N_values)
+2. Weighted Moving Average: forecast = sum(weights * last_N_values)
+3. Exponential Moving Average:
+   - alpha = smoothing_factor (0.1 to 0.3)
+   - forecast = alpha * last_value + (1-alpha) * previous_forecast
+```
+ 
+3. AUTOREGRESSIVE (AR) MODELS:
 ```
 Pseudo-code:
 1. AR(p): y_t = c + φ₁*y_{{t-1}} + φ₂*y_{{t-2}} + ... + φ_p*y_{{t-p}} + ε_t
@@ -2084,7 +2089,7 @@ Pseudo-code:
 3. Implementation: Use statsmodels.tsa.ar_model.AutoReg
 ```
  
-3. ARIMA FORECASTING:
+4. ARIMA FORECASTING:
 ```
 Pseudo-code:
 1. ARIMA(p,d,q): Combines AR(p) + Integration(d) + MA(q)
@@ -2095,7 +2100,7 @@ Pseudo-code:
 4. Implementation: Use statsmodels.tsa.arima.ARIMA
 ```
  
-4. XGBOOST TIME SERIES FORECASTING:
+5. XGBOOST TIME SERIES FORECASTING:
 ```
 Pseudo-code:
 1. Create lagged features: [y_{{t-1}}, y_{{t-2}}, ..., y_{{t-window_size}}]
@@ -2108,7 +2113,7 @@ Pseudo-code:
    c. Repeat for each future period
 ```
  
-5. LSTM NEURAL NETWORK FORECASTING:
+6. LSTM NEURAL NETWORK FORECASTING:
 ```
 Pseudo-code:
 1. Reshape data: (samples, window_size, features)
@@ -2494,9 +2499,9 @@ ANALYSIS OUTPUT:
         """
     Fallback function to regenerate code when execution fails
     """
-        
+    
         self.emit_stream('status', f"🔄 Code execution failed. Attempting to regenerate...")
-        print("fai;ed code:", failed_code)
+        
         # Create enhanced prompt with error context
         error_context_prompt = f"""
     PREVIOUS ATTEMPT FAILED - PLEASE FIX THE ISSUES:
@@ -2558,13 +2563,12 @@ ANALYSIS OUTPUT:
     FORECASTING-SPECIFIC ERROR FIXES:
     - Ensure date columns are properly identified and converted
     - Handle missing or invalid date formats
-    - Keep in mind that never to drop Date, Datetime columns
     - Validate that target columns contain numeric data
     - Provide fallback if advanced models fail (use simple moving average)
     - Generate future dates correctly beyond the dataset range
 
     FORECASTING FALLBACK HIERARCHY:
-    1. Primary: Advanced models (ARIMA, SARIMA,EMA, FBProphet etc.)
+    1. Primary: Advanced models (ARIMA, XGBoost, etc.)
     2. Secondary: Linear regression with time trend
     3. Tertiary: Moving averages (simple, exponential)
     4. Fallback: Last known value with trend adjustment
@@ -2604,7 +2608,7 @@ ANALYSIS OUTPUT:
 
     ANALYSIS FALLBACK HIERARCHY:
     1. Primary: Advanced calculated metrics
-    2. Secondary: Basic statistical measures, Use simpler algortihms as SARIMA and ARIMA
+    2. Secondary: Basic statistical measures
     3. Tertiary: Simple aggregations
     4. Fallback: Data structure summary
 
@@ -2656,7 +2660,6 @@ ANALYSIS OUTPUT:
     - Test column existence before use
     - Return results even if primary analysis fails
     - Include clear error messages and solutions
-    - If no code works then generate the code for SARIMA/ARIMA code 
     """
     
     # Attempt regeneration with retries
@@ -2815,7 +2818,7 @@ ANALYSIS OUTPUT:
             is_forecasting=is_forecasting,
             failed_code=failed_code,
             error_message=error_message,
-            max_retries=3
+            max_retries=2
         )
         
         return fallback_result
@@ -2845,15 +2848,8 @@ ANALYSIS OUTPUT:
                 fig.savefig(image_path, dpi=300, bbox_inches='tight',
                            facecolor='white', edgecolor='none')
                 
-                public_url = self._upload_image_to_blob(str(image_path))
-                if public_url:
-                    captured_images.append(public_url)
-                    self.generated_images.append(public_url)
-                else:
-                    captured_images.append(str(image_path))
-                    self.generated_images.append(image_filename)
-                # captured_images.append(str(image_path))
-                # self.generated_images.append(image_filename)
+                captured_images.append(str(image_path))
+                self.generated_images.append(image_filename)
                 
                 # Convert to base64 and stream to frontend
                 try:
@@ -2876,48 +2872,13 @@ ANALYSIS OUTPUT:
         
         return captured_images
     
-    ##BASE64
-    def _convert_images_to_base64(self) -> Dict[str, str]:
-        """Convert all generated images to base64 for HTML embedding."""
-        base64_images = {}
-        
-        # Convert existing saved images
-        for i, img_filename in enumerate(self.generated_images):
-            try:
-                img_path = self.images_dir / img_filename
-                if img_path.exists():
-                    with open(img_path, 'rb') as f:
-                        img_data = base64.b64encode(f.read()).decode('utf-8')
-                        base64_images[f"image_{i+1}"] = img_data
-                        print(f"📸 Converted {img_filename} to base64")
-            except Exception as e:
-                print(f"⚠️ Failed to convert {img_filename}: {e}")
-        
-        # Also capture any currently open matplotlib figures
-        fig_nums = plt.get_fignums()
-        for i, fig_num in enumerate(fig_nums):
-            try:
-                fig = plt.figure(fig_num)
-                buffer = BytesIO()
-                fig.savefig(buffer, format='png', dpi=300, bbox_inches='tight',
-                        facecolor='white', edgecolor='none')
-                buffer.seek(0)
-                img_data = base64.b64encode(buffer.read()).decode('utf-8')
-                base64_images[f"figure_{i+1}"] = img_data
-                buffer.close()
-                print(f"📸 Converted matplotlib figure {fig_num} to base64")
-            except Exception as e:
-                print(f"⚠️ Failed to convert figure {fig_num}: {e}")
-        
-        return base64_images
-
     def _generate_comprehensive_report_streaming(self, user_query: str, is_forecasting: bool) -> Dict[str, Any]:
-        """Generate comprehensive report when specifically requested - FIXED VERSION"""
+        """Generate comprehensive report when specifically requested - EXACT COPY from test2.py"""
         print("\n📋 Generating comprehensive strategic report...")
         self.emit_stream('status', "📋 Generating comprehensive strategic report...")
         
         try:
-            # First run the analysis to get data
+            # First run the analysis to get data - EXACT COPY from test2.py
             data_request = self._extract_data_request(user_query)
             analysis_result = self._generate_dataframe_analysis_streaming_with_fallback(user_query, data_request, is_forecasting)
             
@@ -2927,28 +2888,19 @@ ANALYSIS OUTPUT:
                     "type": "report_error"
                 }
             
-            self.emit_stream('status', "📝 Converting images and generating report...")
+            self.emit_stream('status', "📝 Generating strategic report content...")
             
-            # FIXED: Convert all images to base64
-            base64_images = self._convert_images_to_base64()
-            print(f"📸 Converted {len(base64_images)} images to base64")
-            
-            # Generate the report
+            # Generate the report - EXACT COPY from test2.py
             market_topic = self._extract_market_topic(user_query)
             target_variable = self._extract_target_variable(user_query)
             forecast_periods = self._extract_forecast_periods(user_query) if is_forecasting else 6
             
-            # Prepare data context
-            data_context = self._prepare_report_data_context(analysis_result, target_variable)
-            
             report = self.generate_forecast_report(
-                data_context=data_context,
                 forecast_results=analysis_result,
                 client_name="Executive Leadership Team",
                 market_topic=market_topic,
                 forecast_periods=forecast_periods,
-                target_variable=target_variable,
-                # base64_images=base64_images  # Pass the base64 images
+                target_variable=target_variable
             )
             
             # Stream the report to frontend
@@ -2960,8 +2912,7 @@ ANALYSIS OUTPUT:
                 "report_generated": True,
                 "market_topic": market_topic,
                 "target_variable": target_variable,
-                "forecast_periods": forecast_periods,
-                # "base64_images_count": len(base64_images)
+                "forecast_periods": forecast_periods
             })
             
             print("✅ Comprehensive strategic report generated successfully!")
@@ -2969,7 +2920,6 @@ ANALYSIS OUTPUT:
             
         except Exception as report_error:
             print(f"⚠️ Report generation failed: {str(report_error)}")
-            print(f"Traceback: {traceback.format_exc()}")
             self.emit_stream('error', f"Report generation failed: {str(report_error)}")
             analysis_result.update({
                 "report_error": str(report_error),
@@ -2978,6 +2928,7 @@ ANALYSIS OUTPUT:
             })
         
         return analysis_result
+
 
 def generate_tailwind_table(df):
     """
@@ -3172,8 +3123,6 @@ def generate_simple_table(df):
     '''
     
     return html
-
-
 
 
 @app.route('/')
