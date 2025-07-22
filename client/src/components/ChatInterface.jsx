@@ -52,6 +52,15 @@ const ChatInterface = ({
       .filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
   }
 
+  // Auto-select latest user message when new messages are added
+  React.useEffect(() => {
+    const userMessages = messages.filter(msg => msg.isUser)
+    if (userMessages.length > 0) {
+      const latestUserMessage = userMessages[userMessages.length - 1]
+      setSelectedChatMessage(latestUserMessage.id)
+    }
+  }, [messages])
+
   const sidePanelItems = selectedChatMessage 
     ? getSidePanelItemsForMessage(selectedChatMessage)
     : getSidePanelItems()

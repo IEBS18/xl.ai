@@ -1,0 +1,18 @@
+[
+  {
+    "timestamp": "2025-07-22T12:26:11.287332",
+    "user_query": "Give me a very detailed report with all the insights about business from the data",
+    "response_type": "comprehensive_report",
+    "success": true,
+    "error": null,
+    "generated_images": [
+      "https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/analysis_20250722_122407/images/plot_122535_1.png?se=2025-07-22T08%3A55%3A39Z&sp=r&sv=2025-07-05&sr=b&sig=u0XZa2VD7%2BwQjNdf%2B5lZA/wt/ILslAiMRHLBIDZIXzs%3D",
+      "https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/analysis_20250722_122407/images/plot_122539_2.png?se=2025-07-22T08%3A55%3A42Z&sp=r&sv=2025-07-05&sr=b&sig=KHMf0yWx6xoJifY2Cae3LQiV5nc5ZcnhCT7vlN%2BHNME%3D",
+      "https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/analysis_20250722_122407/images/plot_122542_3.png?se=2025-07-22T08%3A55%3A45Z&sp=r&sv=2025-07-05&sr=b&sig=zO%2BpLJhMd8ByZ25J9yfO2OlTSKIX7wwjam1xQ/iRZ40%3D"
+    ],
+    "dataframes_count": 4,
+    "execution_output": "Code executed successfully!",
+    "report_generated": true,
+    "report_length": 6382
+  }
+]

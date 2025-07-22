@@ -1538,7 +1538,7 @@ Generate reports that would meet the standards of top-tier strategy consulting f
     ### OUTPUT FORMAT
     Return ONLY the complete HTML document with embedded CSS and actual image URLs. The file should be ready to save as .html and open in any browser.
 
-    Maximum content length: 5000 words equivalent for comprehensive coverage while maintaining executive readability.
+    Maximum content length: 20000 words equivalent for comprehensive coverage while maintaining executive readability.
     """
         
         return prompt

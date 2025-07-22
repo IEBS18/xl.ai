@@ -56,6 +56,10 @@ dist/
 *.njsproj
 *.sln
 *.sw?
+*.csv
+*.png
+*.xlsx
+*.jpeg
 
 # Optional: VSCode specific Python settings
 .vscode/settings.json
