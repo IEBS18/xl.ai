@@ -25,18 +25,24 @@ const InputArea = ({ isConnected, isAnalyzing, onSendMessage, onFileUpload }) =>
         <div className={`${themeClasses.glass} rounded-3xl shadow-lg`}>
           <div className="flex items-center space-x-3">
             <div className="flex-1 relative">
-              <input
-                type="text"
+              <textarea
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
+                onChange={(e) => {
+                  setInputMessage(e.target.value);
+                  // Auto-resize textarea
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
                 onKeyPress={handleKeyPress}
                 placeholder={!isConnected ? "Connecting to server..." : "Upload a file or describe what you'd like to analyze..."}
                 disabled={isAnalyzing || !isConnected}
                 className={`w-full px-6 py-4 bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none`}
-                style={{ minHeight: '24px' }}
+                style={{ minHeight: '56px', maxHeight: '200px' }}
+                rows={1}
               />
             </div>
-            
+
+
             <div className="flex items-center space-x-2">
               <button
                 onClick={onFileUpload}
@@ -45,7 +51,7 @@ const InputArea = ({ isConnected, isAnalyzing, onSendMessage, onFileUpload }) =>
               >
                 <Paperclip size={20} />
               </button>
-              
+
               <button
                 onClick={handleSendMessage}
                 disabled={!inputMessage.trim() || isAnalyzing || !isConnected}

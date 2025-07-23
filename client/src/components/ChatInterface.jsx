@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useCallback, useRef, useEffect } from "react"
 import MessageTimeline from "./MessageTimeline"
 import InputArea from "./InputArea"
 import FileInfo from "./FileInfo"
@@ -22,11 +22,22 @@ const ChatInterface = ({
   handleFileUpload,
   triggerFileUpload,
   debugSession,
-  manualSessionSync
+  manualSessionSync,
+  onUpdateMessage // Add this prop to handle message updates
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
   const [selectedChatMessage, setSelectedChatMessage] = useState(null)
+  const [chatPanelWidth, setChatPanelWidth] = useState(50) // Percentage width
+  const [isDragging, setIsDragging] = useState(false)
+  const containerRef = useRef(null)
   const { themeClasses } = useTheme()
+
+  // Handle updating a specific message/item content
+  const handleUpdateItem = useCallback((itemId, newContent) => {
+    if (onUpdateMessage) {
+      onUpdateMessage(itemId, { content: newContent })
+    }
+  }, [onUpdateMessage])
 
   // Get side panel items (code, image, dataframe, report)
   const getSidePanelItems = () => {
@@ -52,18 +63,23 @@ const ChatInterface = ({
       .filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
   }
 
-  // Auto-select latest user message when new messages are added
-  React.useEffect(() => {
-    const userMessages = messages.filter(msg => msg.isUser)
-    if (userMessages.length > 0) {
-      const latestUserMessage = userMessages[userMessages.length - 1]
-      setSelectedChatMessage(latestUserMessage.id)
-    }
-  }, [messages])
-
   const sidePanelItems = selectedChatMessage 
     ? getSidePanelItemsForMessage(selectedChatMessage)
     : getSidePanelItems()
+
+  // Auto-select the latest user message when no message is selected
+  React.useEffect(() => {
+    if (!selectedChatMessage && messages.length > 0) {
+      // Find the latest user message
+      const latestUserMessage = messages
+        .filter(msg => msg.isUser)
+        .slice(-1)[0]
+      
+      if (latestUserMessage) {
+        setSelectedChatMessage(latestUserMessage.id)
+      }
+    }
+  }, [messages, selectedChatMessage])
 
   // Auto-select first item when side panel items are available
   React.useEffect(() => {
@@ -80,12 +96,55 @@ const ChatInterface = ({
     setActiveSidePanel(null) // Reset active side panel when switching messages
   }
 
+  // Handle mouse down on resize handle
+  const handleMouseDown = useCallback((e) => {
+    setIsDragging(true)
+    e.preventDefault()
+  }, [])
+
+  // Handle mouse move during drag
+  const handleMouseMove = useCallback((e) => {
+    if (!isDragging || !containerRef.current) return
+
+    const containerRect = containerRef.current.getBoundingClientRect()
+    const newChatWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
+
+    // Constrain the width between 25% and 75%
+    const constrainedWidth = Math.min(Math.max(newChatWidth, 35), 65)
+    setChatPanelWidth(constrainedWidth)
+  }, [isDragging])
+  console.log(chatPanelWidth);
+  // Handle mouse up to stop dragging
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Add event listeners for mouse move and up
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp])
+
   return (
-    <div className={`flex h-full ${themeClasses.bg} transition-colors`}>
+    <div ref={containerRef} className={`flex h-full ${themeClasses.bg} transition-colors`}>
       {/* Main Chat Area */}
-      <div className={`flex flex-col transition-all duration-300 ${
-        sidePanelItems.length > 0 ? 'w-1/2' : 'flex-1'
-      }`}>
+      <div 
+        className="flex flex-col transition-all duration-300"
+        style={{ 
+          width: sidePanelItems.length > 0 ? `${chatPanelWidth}%` : '100%' 
+        }}
+      >
         {/* Messages Area - Scrollable with explicit height */}
         <div className="flex-1 overflow-y-auto min-h-0">
           {/* Header padding to prevent content being covered */}
@@ -143,15 +202,35 @@ const ChatInterface = ({
         />
       </div>
 
+      {/* Resize Handle */}
+      {sidePanelItems.length > 0 && (
+        <div
+          className={`w-1 ${themeClasses.border} border-l hover:bg-blue-500/20 cursor-col-resize flex-shrink-0 relative group transition-colors duration-200`}
+          onMouseDown={handleMouseDown}
+        >
+          {/* Visual indicator for the resize handle */}
+          <div className="absolute inset-y-0 left-1/2 w-0.5 bg-transparent group-hover:bg-blue-500/40 transition-colors duration-200 transform -translate-x-1/2"></div>
+          
+          {/* Expanded hover area for easier grabbing */}
+          <div className="absolute inset-y-0 -left-2 -right-2 cursor-col-resize"></div>
+        </div>
+      )}
+
       {/* Side Panel */}
       {sidePanelItems.length > 0 && (
-        <div className={`w-1/2 ${themeClasses.border} border-l transition-all duration-300 ${themeClasses.bg}`}>
+        <div 
+          className={`${themeClasses.border} transition-all duration-300 ${themeClasses.bg} flex-shrink-0`}
+          style={{ 
+            width: `${100 - chatPanelWidth}%` 
+          }}
+        >
           <SidePanel
             items={sidePanelItems}
             activeItem={activeSidePanel}
             onItemChange={setActiveSidePanel}
             selectedMessage={selectedChatMessage}
             onClearSelection={() => setSelectedChatMessage(null)}
+            onUpdateItem={handleUpdateItem}
           />
         </div>
       )}

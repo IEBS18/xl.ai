@@ -266,7 +266,7 @@ class QuadraticCSVAnalyzer:
             )
 
             # ✅ Build full SAS URL
-            sas_url = f"{account_url}/{container_name}/{blob_name}?{sas_token}"
+            sas_url = f"{account_url}/{container_name}/{blob_name}"
             logging.debug(f"🔗 SAS URL: {sas_url}")
 
             # Store SAS URL
@@ -1467,14 +1467,16 @@ Generate reports that would meet the standards of top-tier strategy consulting f
 
     4. **Image Integration Instructions**
     - {num_images} chart(s) are provided as public URLs, embed them in report as <img src="url" /> method wherever needed.
+    - Analyse the image the well in respect to the user query
     - Create sections for charts with proper figure numbering
     - Reference the figures in your text (e.g., "as shown in Figure 1")
     - Include figure captions describing what each chart shows
     - Use the actual public URLs provided for the images
-
+    
     ### HTML STRUCTURE TEMPLATE
+    Return the HTML as just HTML like below no added extra text below or the above the strcuture. The report should be generated in such a way it is minimum 7-8 pages.
 
-    ```html
+    
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -1527,7 +1529,7 @@ Generate reports that would meet the standards of top-tier strategy consulting f
         </div>
     </body>
     </html>
-    ```
+    
 
     ### ANALYSIS PARAMETERS
     - Primary Focus: {market_topic}
@@ -1538,7 +1540,7 @@ Generate reports that would meet the standards of top-tier strategy consulting f
     ### OUTPUT FORMAT
     Return ONLY the complete HTML document with embedded CSS and actual image URLs. The file should be ready to save as .html and open in any browser.
 
-    Maximum content length: 20000 words equivalent for comprehensive coverage while maintaining executive readability.
+    Minimum content length: 20000 words equivalent for comprehensive coverage while maintaining executive readability.
     """
         
         return prompt

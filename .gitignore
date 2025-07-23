@@ -60,6 +60,11 @@ dist/
 *.png
 *.xlsx
 *.jpeg
+*.docx
+*.pdf
+*.html
+*.xml
+**/conversation_history_*.json
 
 # Optional: VSCode specific Python settings
 .vscode/settings.json

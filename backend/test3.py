@@ -1,164 +1,178 @@
-import os
-import base64
-from openai import AzureOpenAI
-from pathlib import Path
-from dotenv import load_dotenv
+import requests
 
-load_dotenv()
-def encode_image_to_base64(image_path):
-    """Convert image file to base64 string."""
-    try:
-        with open(image_path, "rb") as image_file:
-            base64_string = base64.b64encode(image_file.read()).decode('utf-8')
-            return base64_string
-    except FileNotFoundError:
-        print(f"Error: Image file '{image_path}' not found.")
-        return None
-    except Exception as e:
-        print(f"Error encoding image: {str(e)}")
-        return None
+html_content = """
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Intelligence Analysis Strategic Outlook 2025-2026</title>
+    <style>
+        body {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            color: #2d3748;
+            font-family: 'Inter', 'Roboto', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+        }
 
-def analyze_image_with_azure_openai(image_base64, custom_question=None):
-    """Send base64 image to Azure OpenAI and get description."""
-    
-    # Initialize Azure OpenAI client
-    client = AzureOpenAI(
-        api_key=os.getenv("AZUREAPI"),
-        api_version=os.getenv("AZUREVERSION", "2024-02-01"),
-        azure_endpoint=os.getenv("AZUREENDPOINT")
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+        }
+
+        h1, h2, h3 {
+            color: #2d3748;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 2em;
+            margin-top: 20px;
+        }
+
+        h3 {
+            font-size: 1.5em;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            margin: 10px 0;
+        }
+
+        .table-of-contents {
+            margin: 30px 0;
+            padding: 15px;
+            background: #f0f4f8;
+            border: 1px solid #d1e0e5;
+            border-radius: 8px;
+        }
+
+        .toc-item {
+            margin-bottom: 10px;
+        }
+
+        .chart-container {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e9ecef;
+        }
+
+        .chart-image {
+            width: 100%;
+            height: auto;
+            max-width: 800px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        @media print {
+            body {
+                color: #000;
+            }
+
+            .container {
+                background: none;
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Business Intelligence Analysis Strategic Outlook 2025-2026</h1>
+
+        <div class="table-of-contents">
+            <h2>Table of Contents</h2>
+            <div class="toc-item"><a href="#executive-summary">Executive Summary</a></div>
+            <div class="toc-item"><a href="#background-objectives">Background & Objectives</a></div>
+            <div class="toc-item"><a href="#data-sources-methodology">Data Sources & Methodology</a></div>
+            <div class="toc-item"><a href="#market-trend-analysis">Market & Trend Analysis</a></div>
+            <div class="toc-item"><a href="#analysis-results">Analysis Results</a></div>
+            <div class="toc-item"><a href="#strategic-implications">Strategic Implications</a></div>
+            <div class="toc-item"><a href="#recommendations-implementation-roadmap">Recommendations & Implementation Roadmap</a></div>
+            <div class="toc-item"><a href="#risks-mitigations">Risks & Mitigations</a></div>
+            <div class="toc-item"><a href="#appendices">Appendices</a></div>
+        </div>
+
+        <h2 id="executive-summary">Executive Summary</h2>
+        <p>This report presents an extensive analysis of the data gleaned from 55,500 records over a five-year span, assessing various dimensions critical to the management of hospital resources and patient care in our healthcare system. Key findings include insights into patient demographics, billing practices, and trends in length of stay that inform strategic planning moving forward into 2025-2026. Strategic recommendations based on these insights are framed to enhance service delivery and optimize financial performance.</p>
+        <p>The analysis indicates a significant correlation between demographic factors such as age and the length of stay, with broader implications for staffing and resource allocation. Various recommendations are posited to mitigate risks associated with patient care and billing inaccuracies.</p>
+
+        <h2 id="background-objectives">Background & Objectives</h2>
+        <p>In the realm of healthcare services, effective management of resources directly contributes to improved patient outcomes and operational efficiency. This report aims to elucidate patterns and trends derived from comprehensive datasets to heighten the understanding of patient demographics, financial dynamics, and healthcare delivery mechanisms.</p>
+        
+        <h2 id="data-sources-methodology">Data Sources & Methodology</h2>
+        <p>The primary dataset comprises 55,500 records captured from May 2019 to May 2024, detailing attributes such as patient demographics, billing amounts, insurance providers, and medical conditions. Data were analyzed using statistical tools to derive insights into patient behaviors and outcomes. The methodology encompassed descriptive statistics and trend analysis.</p>
+
+        <h2 id="market-trend-analysis">Market & Trend Analysis</h2>
+        <p>Analysis reveals that the average age of patients admitted is 51.5 years, highlighting a substantial senior demographic that requires targeted healthcare strategies. The average billing amount stands at approximately $25,540, with variability dependent on factors such as length of stay and admission type.</p>
+        
+        <div class="chart-container">
+            <h3>Length of Stay by Age Group</h3>
+            <img class="chart-image" src="https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/analysis_20250723_123734/images/plot_124558_1.png" alt="Length of Stay by Age Group"/>
+            <p><strong>Figure 1:</strong> Length of Stay categorized by Age Group illustrates the trends observed across different age demographics.</p>
+        </div>
+
+        <h2 id="analysis-results">Analysis Results</h2>
+        <p>The key findings from the analysis provide clarity on trends impacting hospital management. Notably, there is an upward trend in billing amounts correlated with length of stay, highlighting the need for effective billing processes. Additionally, categorical variables such as 'Medical Condition' reveal varying lengths of stay, suggesting that particular conditions significantly impact resource allocation.</p>
+        
+        <h2 id="strategic-implications">Strategic Implications</h2>
+        <p>The insights derived from the data compel a strategic refocus on resource allocation, staffing, and financial management. The distinct relationship between demographics and healthcare needs necessitates a tailored approach to patient care that accommodates the variability in requirements based on age and medical conditions.</p>
+        
+        <h2 id="recommendations-implementation-roadmap">Recommendations & Implementation Roadmap</h2>
+        <p>To address identified areas for improvement, the following recommendations are proposed:</p>
+        <ol>
+            <li>Implement age-specific care plans to enhance patient outcomes.</li>
+            <li>Optimize billing procedures by leveraging real-time data analytics tools.</li>
+            <li>Enhance workforce management to address the staffing needs highlighted by patient demographics.</li>
+        </ol>
+
+        <h2 id="risks-mitigations">Risks & Mitigations</h2>
+        <p>Potential risks associated with executing the aforementioned recommendations include resistance to change and adoption challenges among staff. To mitigate these risks, it is advisable to conduct training sessions and stakeholder engagement to foster a culture of adaptability.</p>
+
+        <h2 id="appendices">Appendices</h2>
+        <p>Additional information, including detailed statistical models and further technical specifications regarding data analysis methodologies, are documented in the appendices.</p>
+    </div>
+</body>
+</html>
+```
+"""
+
+# Save the HTML to a file first
+with open("document.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+# Prepare the multipart/form-data payload
+with open("document.html", "rb") as html_file:
+    files = {
+        "files": ("index.html", html_file, "text/html"),
+    }
+
+    response = requests.post(
+        "http://localhost:3000/forms/chromium/convert/html",
+        files=files,
     )
-    
-    # Default question if none provided
-    question = custom_question or "What's in this image? Describe what you see in detail."
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use GPT-4 Vision model
-            messages=[
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": question
-                        }
-                    ]
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/plot_204650_1.png?sp=r&st=2025-07-21T07:04:27Z&se=2025-07-21T15:19:27Z&sv=2024-11-04&sr=b&sig=qNsCstv%2Fzwh4TZxXquOsRA0KsZkv%2FdcMNUkXV7MO680%3D"
-                            }
-                        }
-                    ]
-                }
-            ],
-            # max_tokens=1000,
-            # temperature=0.1
-        )
-        
-        return response.choices[0].message.content
-        
-    except Exception as e:
-        return f"Error analyzing image: {str(e)}"
 
-def main():
-    """Main function to demonstrate image analysis."""
-    
-    # Check for required environment variables
-    required_vars = ["AZUREAPI", "AZUREENDPOINT"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    
-    if missing_vars:
-        print("❌ Missing required environment variables:")
-        for var in missing_vars:
-            print(f"   - {var}")
-        print("\nPlease set these environment variables:")
-        print("- AZUREAPI: Your Azure OpenAI API key")
-        print("- AZUREENDPOINT: Your Azure OpenAI endpoint URL")
-        print("- AZUREVERSION: API version (optional, defaults to '2024-02-01')")
-        return
-    
-    print("🖼️  Azure OpenAI Image Analysis Tool")
-    print("=" * 50)
-    
-    # Get image path from user
-    while True:
-        image_path = input("\n📁 Enter path to your image file: ").strip()
-        
-        if image_path.lower() in ['quit', 'exit']:
-            print("👋 Goodbye!")
-            return
-            
-        if not image_path:
-            print("Please enter a valid image path or 'quit' to exit.")
-            continue
-            
-        if not Path(image_path).exists():
-            print(f"❌ File not found: {image_path}")
-            continue
-            
-        # Convert image to base64
-        print("🔄 Converting image to base64...")
-        base64_image = encode_image_to_base64(image_path)
-        
-        if not base64_image:
-            continue
-            
-        print(f"✅ Image encoded successfully ({len(base64_image):,} characters)")
-        
-        # Get custom question (optional)
-        custom_question = input("\n❓ Enter your question about the image (or press Enter for default): ").strip()
-        
-        # Analyze the image
-        print("🤖 Analyzing image with Azure OpenAI...")
-        
-        result = analyze_image_with_azure_openai(
-            base64_image, 
-            custom_question if custom_question else None
-        )
-        
-        print("\n" + "=" * 50)
-        print("🔍 ANALYSIS RESULT:")
-        print("=" * 50)
-        print(result)
-        print("=" * 50)
-        
-        # Ask if user wants to analyze another image
-        another = input("\n🔄 Analyze another image? (y/n): ").strip().lower()
-        if another not in ['y', 'yes']:
-            print("👋 Thanks for using the image analyzer!")
-            break
-
-# Example usage for direct function calls
-def analyze_single_image(image_path, question="What's in this image?"):
-    """Simplified function to analyze a single image."""
-    
-    # Encode image
-    base64_image = encode_image_to_base64(image_path)
-    if not base64_image:
-        return "Failed to encode image"
-    
-    # Analyze with Azure OpenAI
-    result = analyze_image_with_azure_openai(base64_image, question)
-    return result
-
-if __name__ == "__main__":
-    main()
-
-# Alternative: Direct usage example
-"""
-# Example of direct usage:
-if __name__ == "__main__":
-    # Set your environment variables first
-    os.environ["AZUREAPI"] = "your-api-key-here"
-    os.environ["AZUREENDPOINT"] = "https://your-endpoint.openai.azure.com/"
-    os.environ["AZUREVERSION"] = "2024-02-01"
-    
-    # Analyze an image
-    result = analyze_single_image("path/to/your/image.jpg", "What objects do you see in this image?")
-    print(result)
-"""
+# Save the resulting PDF
+if response.status_code == 200:
+    with open("output.pdf", "wb") as f:
+        f.write(response.content)
+    print("PDF saved as output.pdf")
+else:
+    print(f"Error: {response.status_code}\n{response.text}")
