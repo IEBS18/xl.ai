@@ -90,7 +90,8 @@ allowed_origins = [
     "https://preview--data-scope-ai-lens.lovable.app",
     "https://*.lovable.app",
     "http://localhost:3001",
-    "http://127.0.0.1:3001"
+    "http://127.0.0.1:3001",
+    "http://20.197.12.172"
 ]
 
 CORS(app, origins=allowed_origins, supports_credentials=True)
