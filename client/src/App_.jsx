@@ -417,7 +417,7 @@ const App = () => {
     try {
       setUploadProgress(10)
       addMessage("status", `Uploading "${file.name}"...`)
-      const response = await fetch(`${backendUrl}/upload`, {
+      const response = await fetch(`${backendUrl}/api/upload`, {
         method: "POST",
         body: formData,
         credentials: "include",

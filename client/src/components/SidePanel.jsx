@@ -10,6 +10,8 @@ import {
 } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 import html2pdf from "html2pdf.js"
+import { BACKEND_URL } from "../utils/constants"
+
 
 const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSelection, onUpdateItem }) => {
   const { themeClasses } = useTheme()
@@ -66,7 +68,7 @@ const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSe
         cleanedContent = cleanedContent.replace(/```html\s*/, '').replace(/```\s*$/, '')
       }
 
-      const response = await fetch("http://localhost:5000/generate-pdf", {
+      const response = await fetch(`${BACKEND_URL}/api/generate-pdf`, {
         method: "POST",
         headers: {
           "Content-Type": "text/plain",

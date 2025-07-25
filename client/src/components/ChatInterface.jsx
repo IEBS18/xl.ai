@@ -23,12 +23,14 @@ const ChatInterface = ({
   triggerFileUpload,
   debugSession,
   manualSessionSync,
-  onUpdateMessage // Add this prop to handle message updates
+  onUpdateMessage, // Add this prop to handle message updates
+  sessionId // Add sessionId prop
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
   const [selectedChatMessage, setSelectedChatMessage] = useState(null)
   const [chatPanelWidth, setChatPanelWidth] = useState(50) // Percentage width
   const [isDragging, setIsDragging] = useState(false)
+  const [previewMessage, setPreviewMessage] = useState(null) // Add state for file preview
   const containerRef = useRef(null)
   const { themeClasses } = useTheme()
 
@@ -39,9 +41,23 @@ const ChatInterface = ({
     }
   }, [onUpdateMessage])
 
+  // Handle showing file preview
+  const handleShowPreview = useCallback((previewData) => {
+    setPreviewMessage(previewData)
+    setSelectedChatMessage(null) // Clear chat message selection
+    setActiveSidePanel(previewData.id) // Set the preview as active
+  }, [])
+
   // Get side panel items (code, image, dataframe, report)
   const getSidePanelItems = () => {
-    return messages.filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
+    const messageItems = messages.filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
+    
+    // Add preview message if it exists
+    if (previewMessage) {
+      return [previewMessage, ...messageItems]
+    }
+    
+    return messageItems
   }
 
   // Get side panel items for a specific chat message/query
@@ -58,9 +74,16 @@ const ChatInterface = ({
     
     const endIndex = nextUserMessageIndex !== -1 ? nextUserMessageIndex : messages.length
     
-    return messages
+    const messageItems = messages
       .slice(messageIndex + 1, endIndex)
       .filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
+    
+    // Add preview message if it exists and no specific chat message is selected
+    if (previewMessage && !selectedChatMessage) {
+      return [previewMessage, ...messageItems]
+    }
+    
+    return messageItems
   }
 
   const sidePanelItems = selectedChatMessage 
@@ -69,7 +92,7 @@ const ChatInterface = ({
 
   // Auto-select the latest user message when no message is selected
   React.useEffect(() => {
-    if (!selectedChatMessage && messages.length > 0) {
+    if (!selectedChatMessage && messages.length > 0 && !previewMessage) {
       // Find the latest user message
       const latestUserMessage = messages
         .filter(msg => msg.isUser)
@@ -79,7 +102,7 @@ const ChatInterface = ({
         setSelectedChatMessage(latestUserMessage.id)
       }
     }
-  }, [messages, selectedChatMessage])
+  }, [messages, selectedChatMessage, previewMessage])
 
   // Auto-select first item when side panel items are available
   React.useEffect(() => {
@@ -94,6 +117,13 @@ const ChatInterface = ({
   const handleChatMessageClick = (messageId) => {
     setSelectedChatMessage(messageId)
     setActiveSidePanel(null) // Reset active side panel when switching messages
+    setPreviewMessage(null) // Clear preview when selecting a chat message
+  }
+
+  // Handle clear selection
+  const handleClearSelection = () => {
+    setSelectedChatMessage(null)
+    setPreviewMessage(null) // Clear preview when clearing selection
   }
 
   // Handle mouse down on resize handle
@@ -113,7 +143,7 @@ const ChatInterface = ({
     const constrainedWidth = Math.min(Math.max(newChatWidth, 35), 65)
     setChatPanelWidth(constrainedWidth)
   }, [isDragging])
-  console.log(chatPanelWidth);
+
   // Handle mouse up to stop dragging
   const handleMouseUp = useCallback(() => {
     setIsDragging(false)
@@ -178,6 +208,8 @@ const ChatInterface = ({
               fileInfo={fileInfo}
               onDebug={debugSession}
               onSync={manualSessionSync}
+              onShowPreview={handleShowPreview}
+              sessionId={sessionId}
             />
           )}
 
@@ -229,7 +261,7 @@ const ChatInterface = ({
             activeItem={activeSidePanel}
             onItemChange={setActiveSidePanel}
             selectedMessage={selectedChatMessage}
-            onClearSelection={() => setSelectedChatMessage(null)}
+            onClearSelection={handleClearSelection}
             onUpdateItem={handleUpdateItem}
           />
         </div>

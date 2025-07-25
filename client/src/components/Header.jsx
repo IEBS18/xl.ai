@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut } from "lucide-react"
+import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home } from "lucide-react"
+import { useNavigate, useLocation } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
 import ConnectionStatus from "./ConnectionStatus"
@@ -14,6 +15,18 @@ const Header = ({ isConnected }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
+
+  // ADD ROUTER FUNCTIONALITY
+  const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Extract sessionId from URL if we're in a chat session
+  const sessionId = location.pathname.startsWith('/chat/') 
+    ? location.pathname.split('/chat/')[1] 
+    : null
+  
+  // Check if we're on a session page
+  const isInSession = Boolean(sessionId)
 
   const navigationItems = [
     {
@@ -87,7 +100,14 @@ const Header = ({ isConnected }) => {
   const handleLogout = useCallback(async () => {
     await logout()
     setActiveDropdown(null)
-  }, [logout])
+    // Navigate to home after logout
+    navigate('/')
+  }, [logout, navigate])
+
+  // ADD HOME NAVIGATION FUNCTION
+  const handleGoHome = () => {
+    navigate('/')
+  }
 
   // Show loading state if still checking authentication
   if (isLoading) {
@@ -111,94 +131,117 @@ const Header = ({ isConnected }) => {
         }`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            {/* Logo */}
+            {/* Logo - UPDATED WITH HOME NAVIGATION */}
             <motion.div
-              className="flex items-center space-x-3 z-10"
+              className="flex items-center space-x-3 z-10 cursor-pointer"
               whileHover={{ scale: 1.02 }}
               transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              onClick={handleGoHome}
             >
-              <div className="flex items-center space-x-1">
-                <div className={`h-6 w-6 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
-                <div className={`h-6 w-2 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1">
+                  <div className={`h-6 w-6 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
+                  <div className={`h-6 w-2 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
+                </div>
+                <div>
+                  <span className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+                    InsiPredict
+                  </span>
+                  {/* ADD SESSION ID DISPLAY */}
+                  {/* {sessionId && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Session: {sessionId.slice(0, 8)}...
+                    </p>
+                  )} */}
+                </div>
               </div>
-              <span className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>InsiPredict</span>
+              
+              {/* ADD SESSION STATUS INDICATOR */}
+              {/* {sessionId && (
+                <div className="hidden sm:flex items-center space-x-2 px-3 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full text-sm">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span>Active Session</span>
+                </div>
+              )} */}
             </motion.div>
 
-            {/* Desktop Navigation */}
-            <nav className="hidden lg:block">
-              <div
-                className={`flex items-center rounded-full px-1 py-1 ${isDark
-                    ? "bg-gray-900/80 border border-gray-800/50 shadow-xl"
-                    : "bg-white/80 border border-gray-200/50 shadow-lg"
-                  } backdrop-blur-md`}
-              >
-                {navigationItems.map((item, index) => (
-                  <div
-                    key={item.label}
-                    className="relative"
-                    onMouseEnter={() => item.hasDropdown && setActiveDropdown(index)}
-                    onMouseLeave={() => item.hasDropdown && setActiveDropdown(null)}
-                  >
-                    {item.hasDropdown ? (
-                      <button
-                        className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
-                            ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                          } ${activeDropdown === index ? (isDark ? "text-white bg-gray-800/50" : "text-gray-900 bg-gray-100/50") : ""}`}
-                      >
-                        <span>{item.label}</span>
-                        <motion.div
-                          animate={{ rotate: activeDropdown === index ? 180 : 0 }}
-                          transition={{ duration: 0.2, ease: "easeInOut" }}
+            {/* Desktop Navigation - HIDE IN SESSION MODE */}
+            {!isInSession && (
+              <nav className="hidden lg:block">
+                <div
+                  className={`flex items-center rounded-full px-1 py-1 ${isDark
+                      ? "bg-gray-900/80 border border-gray-800/50 shadow-xl"
+                      : "bg-white/80 border border-gray-200/50 shadow-lg"
+                    } backdrop-blur-md`}
+                >
+                  {navigationItems.map((item, index) => (
+                    <div
+                      key={item.label}
+                      className="relative"
+                      onMouseEnter={() => item.hasDropdown && setActiveDropdown(index)}
+                      onMouseLeave={() => item.hasDropdown && setActiveDropdown(null)}
+                    >
+                      {item.hasDropdown ? (
+                        <button
+                          className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
+                              ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                            } ${activeDropdown === index ? (isDark ? "text-white bg-gray-800/50" : "text-gray-900 bg-gray-100/50") : ""}`}
                         >
-                          <ChevronDown className="h-4 w-4" />
-                        </motion.div>
-                      </button>
-                    ) : (
-                      <a
-                        href={item.href}
-                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
-                            ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                          }`}
-                      >
-                        {item.label}
-                      </a>
-                    )}
-
-                    {/* Dropdown Menu */}
-                    <AnimatePresence>
-                      {item.hasDropdown && activeDropdown === index && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                          transition={{ duration: 0.15, ease: "easeOut" }}
-                          className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
-                            } backdrop-blur-md`}
+                          <span>{item.label}</span>
+                          <motion.div
+                            animate={{ rotate: activeDropdown === index ? 180 : 0 }}
+                            transition={{ duration: 0.2, ease: "easeInOut" }}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </motion.div>
+                        </button>
+                      ) : (
+                        <a
+                          href={item.href}
+                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
+                              ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                            }`}
                         >
-                          <div className="p-1">
-                            {item.items.map((subItem, subIndex) => (
-                              <a
-                                key={subItem.label}
-                                href={subItem.href}
-                                className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
-                                    ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                                  }`}
-                                onClick={() => setActiveDropdown(null)}
-                              >
-                                {subItem.label}
-                              </a>
-                            ))}
-                          </div>
-                        </motion.div>
+                          {item.label}
+                        </a>
                       )}
-                    </AnimatePresence>
-                  </div>
-                ))}
-              </div>
-            </nav>
+
+                      {/* Dropdown Menu */}
+                      <AnimatePresence>
+                        {item.hasDropdown && activeDropdown === index && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                            transition={{ duration: 0.15, ease: "easeOut" }}
+                            className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
+                              } backdrop-blur-md`}
+                          >
+                            <div className="p-1">
+                              {item.items.map((subItem, subIndex) => (
+                                <a
+                                  key={subItem.label}
+                                  href={subItem.href}
+                                  className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
+                                      ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                                    }`}
+                                  onClick={() => setActiveDropdown(null)}
+                                >
+                                  {subItem.label}
+                                </a>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  ))}
+                </div>
+              </nav>
+            )}
 
             {/* Right Side Actions */}
             <div className="flex items-center space-x-3 z-10">
@@ -206,6 +249,20 @@ const Header = ({ isConnected }) => {
               <div className="hidden sm:block">
                 <ConnectionStatus isConnected={isConnected} />
               </div>
+
+              {/* ADD HOME BUTTON (if in session) */}
+              {isInSession && (
+                <button
+                  onClick={handleGoHome}
+                  className={`p-2 rounded-lg transition-colors ${isDark 
+                    ? "text-gray-300 hover:text-white hover:bg-gray-800/50" 
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                  }`}
+                  title="Go to Home"
+                >
+                  <Home className="w-5 h-5" />
+                </button>
+              )}
 
               {/* Theme Toggle */}
               <motion.button
@@ -348,99 +405,101 @@ const Header = ({ isConnected }) => {
             </div>
           </div>
 
-          {/* Mobile Navigation */}
-          <AnimatePresence>
-            {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
-                className={`lg:hidden border-t py-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}
-              >
-                <div className="space-y-3">
-                  {navigationItems.map((item) => (
-                    <div key={item.label}>
-                      {item.hasDropdown ? (
-                        <div>
-                          <button
-                            onClick={() =>
-                              setActiveDropdown(
-                                activeDropdown === `mobile-${item.label}` ? null : `mobile-${item.label}`,
-                              )
-                            }
-                            className={`flex w-full items-center justify-between font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+          {/* Mobile Navigation - HIDE IN SESSION MODE */}
+          {!isInSession && (
+            <AnimatePresence>
+              {isMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  className={`lg:hidden border-t py-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}
+                >
+                  <div className="space-y-3">
+                    {navigationItems.map((item) => (
+                      <div key={item.label}>
+                        {item.hasDropdown ? (
+                          <div>
+                            <button
+                              onClick={() =>
+                                setActiveDropdown(
+                                  activeDropdown === `mobile-${item.label}` ? null : `mobile-${item.label}`,
+                                )
+                              }
+                              className={`flex w-full items-center justify-between font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                                }`}
+                            >
+                              <span>{item.label}</span>
+                              <motion.div
+                                animate={{
+                                  rotate: activeDropdown === `mobile-${item.label}` ? 180 : 0,
+                                }}
+                                transition={{ duration: 0.2 }}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </motion.div>
+                            </button>
+                            <AnimatePresence>
+                              {activeDropdown === `mobile-${item.label}` && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: "auto" }}
+                                  exit={{ opacity: 0, height: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="ml-4 mt-2 space-y-2"
+                                >
+                                  {item.items.map((subItem) => (
+                                    <a
+                                      key={subItem.label}
+                                      href={subItem.href}
+                                      className={`block text-sm transition-colors ${isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
+                                        }`}
+                                    >
+                                      {subItem.label}
+                                    </a>
+                                  ))}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        ) : (
+                          <a
+                            href={item.href}
+                            className={`font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
                               }`}
                           >
-                            <span>{item.label}</span>
-                            <motion.div
-                              animate={{
-                                rotate: activeDropdown === `mobile-${item.label}` ? 180 : 0,
-                              }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <ChevronDown className="h-4 w-4" />
-                            </motion.div>
-                          </button>
-                          <AnimatePresence>
-                            {activeDropdown === `mobile-${item.label}` && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="ml-4 mt-2 space-y-2"
-                              >
-                                {item.items.map((subItem) => (
-                                  <a
-                                    key={subItem.label}
-                                    href={subItem.href}
-                                    className={`block text-sm transition-colors ${isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
-                                      }`}
-                                  >
-                                    {subItem.label}
-                                  </a>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      ) : (
-                        <a
-                          href={item.href}
-                          className={`font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                            {item.label}
+                          </a>
+                        )}
+                      </div>
+                    ))}
+
+                    {!isAuthenticated && (
+                      <div className={`space-y-3 border-t pt-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
+                        <button
+                          onClick={() => openAuthModal("login")}
+                          className={`w-full text-left font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
                             }`}
                         >
-                          {item.label}
-                        </a>
-                      )}
-                    </div>
-                  ))}
-
-                  {!isAuthenticated && (
-                    <div className={`space-y-3 border-t pt-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
-                      <button
-                        onClick={() => openAuthModal("login")}
-                        className={`w-full text-left font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                          }`}
-                      >
-                        Get a demo
-                      </button>
-                      <button
-                        onClick={() => openAuthModal("login")}
-                        className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${isDark
-                            ? "bg-white text-gray-900 hover:bg-gray-100"
-                            : "bg-gray-900 text-white hover:bg-gray-800"
-                          }`}
-                      >
-                        Log In
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                          Get a demo
+                        </button>
+                        <button
+                          onClick={() => openAuthModal("login")}
+                          className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${isDark
+                              ? "bg-white text-gray-900 hover:bg-gray-100"
+                              : "bg-gray-900 text-white hover:bg-gray-800"
+                            }`}
+                        >
+                          Log In
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       </header>
 

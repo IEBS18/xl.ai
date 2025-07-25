@@ -11,8 +11,7 @@ const LandingPage = ({
   isConnected, 
   onSendMessage, 
   onFileUpload,
-  fileInputRef, 
-  handleFileUpload
+  uploadProgress = 0
 }) => {
   return (
     <>
@@ -20,6 +19,7 @@ const LandingPage = ({
         isConnected={isConnected}
         onSendMessage={onSendMessage}
         onFileUpload={onFileUpload}
+        uploadProgress={uploadProgress}
       />
       
       <ConnectorsSection />
@@ -33,15 +33,6 @@ const LandingPage = ({
       <CTASection />
       
       <Footer />
-
-      {/* Hidden File Input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,.xlsx,.xls"
-        onChange={handleFileUpload}
-        className="hidden"
-      />
     </>
   )
 }

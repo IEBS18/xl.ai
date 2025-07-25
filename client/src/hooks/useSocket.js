@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { io } from "socket.io-client"
 
-export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
+export const useSocket = (backendUrl, onStreamData, onStatusUpdate, sessionId = null) => {
   const [socket, setSocket] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
   const [connectionRetries, setConnectionRetries] = useState(0)
@@ -12,7 +12,7 @@ export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
       socket.close()
     }
 
-    const newSocket = io(backendUrl, {
+    const socketOptions = {
       transports: ["polling", "websocket"],
       withCredentials: true,
       timeout: 20000,
@@ -21,12 +21,25 @@ export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
       autoConnect: true,
-    })
+    }
+
+    // Add session ID to connection query if provided
+    if (sessionId) {
+      socketOptions.query = { sessionId }
+    }
+
+    const newSocket = io(backendUrl, socketOptions)
 
     newSocket.on("connect", () => {
       setIsConnected(true)
       setConnectionRetries(0)
-      console.log("Connected to server")
+      console.log(`Connected to server${sessionId ? ` with session ${sessionId}` : ''}`)
+      
+      // Join session room if sessionId is provided
+      if (sessionId) {
+        newSocket.emit('join_session', { sessionId })
+        console.log(`Joining session room: ${sessionId}`)
+      }
     })
 
     newSocket.on("disconnect", (reason) => {
@@ -50,6 +63,7 @@ export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
     })
 
     newSocket.on("stream_data", (data) => {
+      console.log("Stream data received:", data) // Debug log
       if (onStreamData) {
         onStreamData(data)
       }
@@ -60,7 +74,7 @@ export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
     })
 
     setSocket(newSocket)
-  }, [backendUrl, connectionRetries, onStreamData, onStatusUpdate, socket])
+  }, [backendUrl, connectionRetries, onStreamData, onStatusUpdate, sessionId])
 
   useEffect(() => {
     initializeConnection()
@@ -69,13 +83,24 @@ export const useSocket = (backendUrl, onStreamData, onStatusUpdate) => {
         socket.close()
       }
     }
-  }, [])
+  }, [sessionId]) // Reconnect when sessionId changes
 
   const sendMessage = useCallback((message) => {
     if (socket && isConnected) {
-      socket.emit("send_message", { message })
+      console.log(`Sending message with sessionId: ${sessionId}`) // Debug log
+      
+      if (sessionId) {
+        // Use session-aware handler for session pages
+        socket.emit("send_message_with_session", { 
+          message,
+          sessionId 
+        })
+      } else {
+        // Use original handler for landing page
+        socket.emit("send_message", { message })
+      }
     }
-  }, [socket, isConnected])
+  }, [socket, isConnected, sessionId])
 
   return {
     socket,

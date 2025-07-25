@@ -7,7 +7,7 @@ import { getTimeBasedGreeting } from "../utils/helpers"
 import AnimatedInterface from "../components/AnimatedInterface"
 import AuthModal from "../components/AuthModal"
 
-const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
+const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress = 0 }) => {
   const { isDark, themeClasses } = useTheme()
   const { isAuthenticated, user, isLoading, login, register } = useAuth()
   const [inputMessage, setInputMessage] = useState("")
@@ -81,7 +81,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                     ? 'bg-gradient-to-r from-white/60 via-white/80 to-white/60' 
                     : 'bg-gradient-to-r from-black/60 via-black/80 to-black/60'
                   } mx-auto rounded-full shadow-lg`}></div>
-                                <p
+                <p
                   className={`text-lg ${themeClasses.textSecondary} mb-2 font-light tracking-wide`}
                   style={{ fontFamily: "SF Pro Text, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
                 >
@@ -98,7 +98,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                 </p>
               </div>
 
-<div className="w-full max-w-2xl mb-10 animate-slideIn" style={{ animationDelay: "0.3s" }}>
+              <div className="w-full max-w-2xl mb-10 animate-slideIn" style={{ animationDelay: "0.3s" }}>
                 <div className="relative group">
                   <div className={`absolute -inset-1 ${isDark 
                     ? 'bg-gradient-to-r from-white/10 via-white/5 to-white/10' 
@@ -115,9 +115,11 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                           ? "Connecting to server..."
                           : !isAuthenticated
                           ? "Sign in to upload files and analyze data..."
+                          : uploadProgress > 0
+                          ? `Uploading... ${uploadProgress}%`
                           : "Upload a file or describe what you'd like to analyze..."
                       }
-                      disabled={!isConnected}
+                      disabled={!isConnected || uploadProgress > 0}
                       className={`w-full px-6 py-4 ${isDark 
                         ? 'bg-black/20 border-white/20 text-white placeholder-gray-400' 
                         : 'bg-white/80 border-black/20 text-black placeholder-gray-600'
@@ -127,16 +129,36 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                       } disabled:opacity-50 disabled:cursor-not-allowed text-base shadow-2xl transition-all duration-300 font-light`}
                       style={{ fontFamily: "SF Pro Text, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
                     />
+                    
+                    {/* Upload Progress Bar */}
+                    {uploadProgress > 0 && (
+                      <div className="absolute bottom-0 left-0 w-full">
+                        <div className="w-full bg-transparent rounded-b-2xl overflow-hidden">
+                          <div 
+                            className="h-1 bg-blue-500 transition-all duration-300 rounded-b-2xl"
+                            style={{ width: `${uploadProgress}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 flex items-center space-x-3">
                       <button
                         onClick={handleFileUpload}
+                        disabled={uploadProgress > 0}
                         className={`p-2 ${themeClasses.textMuted} hover:${themeClasses.text} ${isDark 
                           ? 'hover:bg-white/10' 
                           : 'hover:bg-black/10'
-                        } transition-all duration-200 rounded-xl backdrop-blur-sm group-hover:scale-105 ${
+                        } transition-all duration-200 rounded-xl backdrop-blur-sm group-hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
                           !isAuthenticated ? 'relative' : ''
                         }`}
-                        title={isAuthenticated ? "Upload file" : "Sign in to upload files"}
+                        title={
+                          uploadProgress > 0 
+                            ? "Upload in progress..." 
+                            : isAuthenticated 
+                            ? "Upload file" 
+                            : "Sign in to upload files"
+                        }
                       >
                         <Paperclip size={18} />
                         {!isAuthenticated && (
@@ -147,13 +169,15 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                       </button>
                       <button
                         onClick={handleSendMessage}
-                        disabled={!inputMessage.trim() || !isConnected}
+                        disabled={!inputMessage.trim() || !isConnected || uploadProgress > 0}
                         className={`${themeClasses.button} p-2 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transform hover:scale-105 disabled:transform-none backdrop-blur-sm ${
                           !isAuthenticated && inputMessage.trim() ? 'relative' : ''
                         }`}
                         title={
                           !isConnected 
                             ? "Connecting..." 
+                            : uploadProgress > 0
+                            ? "Upload in progress..."
                             : !isAuthenticated && inputMessage.trim()
                             ? "Sign in to send messages"
                             : "Send message"
@@ -170,10 +194,22 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload }) => {
                   </div>
                   
                   {/* Authentication prompt for non-logged-in users */}
-                  {!isAuthenticated && (
+                  {!isAuthenticated && uploadProgress === 0 && (
                     <div className="mt-4 text-center">
                       <p className={`text-sm ${themeClasses.textMuted} mb-3`}>
                         Sign in to access all features
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Upload status for authenticated users */}
+                  {isAuthenticated && uploadProgress > 0 && (
+                    <div className="mt-4 text-center">
+                      <p className={`text-sm ${themeClasses.textSecondary} mb-2`}>
+                        Processing your file...
+                      </p>
+                      <p className={`text-xs ${themeClasses.textMuted}`}>
+                        You'll be redirected to the analysis interface once upload is complete
                       </p>
                     </div>
                   )}

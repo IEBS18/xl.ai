@@ -119,6 +119,23 @@ export const useMessages = () => {
     })
   }, [])
 
+  const updateMessage = useCallback((messageId, updates) => {
+    setMessages((prev) => 
+      prev.map((msg) => 
+        msg.id === messageId ? { ...msg, ...updates } : msg
+      )
+    )
+  }, [])
+
+  const removeMessage = useCallback((messageId) => {
+    setMessages((prev) => prev.filter((msg) => msg.id !== messageId))
+  }, [])
+
+  const clearMessages = useCallback(() => {
+    setMessages([])
+    setExpandedMessages(new Set())
+  }, [])
+
   const toggleMessageExpansion = useCallback((messageId) => {
     setExpandedMessages((prev) => {
       const newSet = new Set(prev)
@@ -132,7 +149,11 @@ export const useMessages = () => {
   }, [])
 
   const handleStreamData = useCallback((data) => {
-    const { type, data: content, timestamp } = data
+    const { type, data: content, timestamp, sessionId } = data
+    
+    // Log received stream data for debugging
+    console.log(`📨 Stream data received:`, { type, sessionId, timestamp })
+    
     switch (type) {
       case "status":
         addMessage("status", content)
@@ -158,18 +179,108 @@ export const useMessages = () => {
       case "output":
         addMessage("output", content)
         break
+      case "completion":
+        addMessage("success", content)
+        break
+      case "warning":
+        addMessage("warning", content)
+        break
+      case "system":
+        addMessage("system", content)
+        break
       default:
+        console.warn(`Unknown stream data type: ${type}`)
         addMessage("system", content)
         break
     }
   }, [addMessage])
+
+  const getMessagesByType = useCallback((type) => {
+    return messages.filter((msg) => msg.type === type)
+  }, [messages])
+
+  const getLastMessage = useCallback((type = null) => {
+    if (type) {
+      const filtered = messages.filter((msg) => msg.type === type)
+      return filtered[filtered.length - 1] || null
+    }
+    return messages[messages.length - 1] || null
+  }, [messages])
+
+  const getMessageCount = useCallback((type = null) => {
+    if (type) {
+      return messages.filter((msg) => msg.type === type).length
+    }
+    return messages.length
+  }, [messages])
+
+  const getUserMessages = useCallback(() => {
+    return messages.filter((msg) => msg.isUser)
+  }, [messages])
+
+  const getSystemMessages = useCallback(() => {
+    return messages.filter((msg) => !msg.isUser)
+  }, [messages])
+
+  const hasMessagesOfType = useCallback((type) => {
+    return messages.some((msg) => msg.type === type)
+  }, [messages])
+
+  const getMessagesInTimeRange = useCallback((startTime, endTime) => {
+    return messages.filter((msg) => {
+      const msgTime = new Date(msg.timestamp)
+      return msgTime >= startTime && msgTime <= endTime
+    })
+  }, [messages])
+
+  const exportMessages = useCallback((format = 'json') => {
+    if (format === 'json') {
+      return JSON.stringify(messages, null, 2)
+    }
+    
+    if (format === 'text') {
+      return messages.map((msg) => {
+        const timestamp = new Date(msg.timestamp).toLocaleString()
+        const prefix = msg.isUser ? 'USER' : msg.type.toUpperCase()
+        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+        return `[${timestamp}] ${prefix}: ${content}`
+      }).join('\n')
+    }
+    
+    if (format === 'csv') {
+      const headers = ['timestamp', 'type', 'isUser', 'content']
+      const rows = messages.map((msg) => [
+        msg.timestamp,
+        msg.type,
+        msg.isUser,
+        typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+      ])
+      
+      return [headers, ...rows].map(row => 
+        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+      ).join('\n')
+    }
+    
+    return messages
+  }, [messages])
 
   return {
     messages,
     expandedMessages,
     messagesEndRef,
     addMessage,
+    updateMessage,
+    removeMessage,
+    clearMessages,
     toggleMessageExpansion,
-    handleStreamData
+    handleStreamData,
+    getMessagesByType,
+    getLastMessage,
+    getMessageCount,
+    getUserMessages,
+    getSystemMessages,
+    hasMessagesOfType,
+    getMessagesInTimeRange,
+    exportMessages
   }
 }

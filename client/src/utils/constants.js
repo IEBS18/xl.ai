@@ -1,4 +1,4 @@
-export const BACKEND_URL = "http://localhost:5000"
+export const BACKEND_URL = ""
 
 export const SAMPLE_QUESTIONS = [
   "Add trend indicators to the data",

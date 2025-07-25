@@ -28,7 +28,7 @@ from typing import Dict, Any, List, Tuple
 import numpy as np
 
 from flask import Flask, render_template, request, jsonify, session, send_file, Response
-from flask_socketio import SocketIO, emit, disconnect, join_room
+from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import pandas as pd
@@ -46,7 +46,7 @@ from auth import auth_blueprint, init_db
 import requests
 import tempfile
 
-GOTENBERG_URL = "http://localhost:3000/forms/chromium/convert/html"
+# GOTENBERG_URL = "http://localhost:3000/forms/chromium/convert/html"
 
 # LangChain imports - optional, will handle gracefully if not available
 try:
@@ -64,6 +64,8 @@ except ImportError:
 warnings.filterwarnings('ignore')
 
 load_dotenv()
+
+GOTENBERG_URL=os.getenv('GOTENBERG_URL')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
@@ -83,6 +85,7 @@ except Exception as e:
 # Comprehensive CORS configuration for multiple frontend sources
 allowed_origins = [
     "http://localhost:5173", 
+    "http://localhost", 
     "http://127.0.0.1:5173",
     "https://preview--data-scope-ai-lens.lovable.app",
     "https://*.lovable.app",
@@ -2136,10 +2139,9 @@ def index():
 
 
 @app.route('/upload', methods=['POST', 'OPTIONS'])
-def upload_file():
-    """Handle CSV file upload with CORS support."""
+def upload_file_with_session():
+    """Handle CSV file upload and create a new session."""
     if request.method == 'OPTIONS':
-        # Handle preflight request
         response = jsonify({'status': 'ok'})
         origin = request.headers.get('Origin', '*')
         response.headers.add('Access-Control-Allow-Origin', origin)
@@ -2159,9 +2161,8 @@ def upload_file():
         return jsonify({'error': 'Please upload a CSV or Excel file'}), 400
     
     try:
-        # Generate session ID if not exists
-        if 'session_id' not in session:
-            session['session_id'] = str(uuid.uuid4())
+        # Generate new session ID for this upload
+        new_session_id = str(uuid.uuid4())
         
         # Save uploaded file
         filename = secure_filename(file.filename)
@@ -2171,28 +2172,34 @@ def upload_file():
         file.save(filepath)
         
         # Initialize analyzer for this session
-        session_id = session['session_id']
-        analyzer = StreamingAnalyzer(session_id)
+        analyzer = StreamingAnalyzer(new_session_id)
         
         # Load the CSV
         if analyzer.load_csv(filepath):
-            analyzers[session_id] = analyzer
-            session_data[session_id] = {
+            analyzers[new_session_id] = analyzer
+            session_data[new_session_id] = {
                 'filename': file.filename,
                 'filepath': filepath,
                 'upload_time': datetime.now().isoformat(),
                 'shape': analyzer.df.shape,
-                'columns': list(analyzer.df.columns)
+                'columns': list(analyzer.df.columns),
+                'created_by': session.get('user_id', 'anonymous'),  # Track user if available
+                'last_activity': datetime.now().isoformat()
             }
+            
+            print(f"✅ Created new session: {new_session_id} for file: {file.filename}")
             
             response = jsonify({
                 'success': True,
+                'sessionId': new_session_id,
                 'message': f'File uploaded successfully! Shape: {analyzer.df.shape}',
                 'data': {
                     'filename': file.filename,
                     'shape': analyzer.df.shape,
                     'columns': list(analyzer.df.columns),
-                    'preview': generate_tailwind_table(analyzer.df.head())
+                    'preview': generate_tailwind_table(analyzer.df.head()),
+                    'data': analyzer.df.head(100).to_dict('records'), 
+                    'sessionId': new_session_id
                 }
             })
             origin = request.headers.get('Origin', '*')
@@ -2203,8 +2210,9 @@ def upload_file():
             return jsonify({'error': 'Failed to load CSV file'}), 400
             
     except Exception as e:
+        print(f"❌ Upload error: {str(e)}")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
-    
+
 @app.route("/generate-pdf", methods=["POST"])
 def generate_pdf():
     html_content = request.data.decode("utf-8")  # or use request.form['html'] if using form data
@@ -2238,9 +2246,9 @@ def generate_pdf():
         if os.path.exists(tmp_html_path):
             os.remove(tmp_html_path)
 
-@app.route('/session-info', methods=['GET', 'OPTIONS'])
-def session_info():
-    """Get current session information with CORS support."""
+@app.route('/session/<session_id>/info', methods=['GET', 'OPTIONS'])
+def get_session_info(session_id):
+    """Get information about a specific session."""
     if request.method == 'OPTIONS':
         response = jsonify({'status': 'ok'})
         origin = request.headers.get('Origin', '*')
@@ -2248,26 +2256,428 @@ def session_info():
         response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
     
-    session_id = session.get('session_id')
-    if session_id and session_id in session_data:
-        # Get conversation history summary if analyzer exists
-        history_summary = {}
-        if session_id in analyzers:
-            history_summary = analyzers[session_id].conversation_history.get_summary()
+    try:
+        if session_id not in analyzers or session_id not in session_data:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found'
+            }), 404
+        
+        # Update last activity
+        session_data[session_id]['last_activity'] = datetime.now().isoformat()
+        
+        # Get session info
+        file_info = session_data[session_id]
+        analyzer = analyzers[session_id]
+        
+        # Get conversation history summary
+        history_summary = analyzer.conversation_history.get_summary()
         
         response = jsonify({
-            'connected': True,
-            'data': session_data[session_id],
-            'history_summary': history_summary
+            'success': True,
+            'sessionId': session_id,
+            'fileInfo': file_info,
+            'historyCount': len(analyzer.conversation_history.history),
+            'historySummary': history_summary,
+            'dataPreview': generate_tailwind_table(analyzer.df.head()) if analyzer.df is not None else None
         })
-    else:
-        response = jsonify({'connected': False})
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Session info error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get session info: {str(e)}'
+        }), 500
     
-    origin = request.headers.get('Origin', '*')
-    response.headers.add('Access-Control-Allow-Origin', origin)
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
+@app.route('/session/<session_id>/upload', methods=['POST', 'OPTIONS'])
+def upload_to_existing_session(session_id):
+    """Upload a file to an existing session (replace existing file)."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+        return jsonify({'error': 'Please upload a CSV or Excel file'}), 400
+    
+    try:
+        # Check if session exists
+        if session_id not in analyzers:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Update existing analyzer
+        analyzer = analyzers[session_id]
+        
+        # Load the new CSV
+        if analyzer.load_csv(filepath):
+            # Update session data
+            session_data[session_id].update({
+                'filename': file.filename,
+                'filepath': filepath,
+                'upload_time': datetime.now().isoformat(),
+                'shape': analyzer.df.shape,
+                'columns': list(analyzer.df.columns),
+                'last_activity': datetime.now().isoformat()
+            })
+            
+            print(f"✅ Updated session: {session_id} with new file: {file.filename}")
+            
+            response = jsonify({
+                'success': True,
+                'sessionId': session_id,
+                'message': f'File updated successfully! Shape: {analyzer.df.shape}',
+                'data': {
+                    'filename': file.filename,
+                    'shape': analyzer.df.shape,
+                    'columns': list(analyzer.df.columns),
+                    'preview': generate_tailwind_table(analyzer.df.head())
+                }
+            })
+            origin = request.headers.get('Origin', '*')
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            return response
+        else:
+            return jsonify({'error': 'Failed to load CSV file'}), 400
+            
+    except Exception as e:
+        print(f"❌ Session upload error: {str(e)}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+@app.route('/session/<session_id>/history', methods=['GET', 'OPTIONS'])
+def get_session_history(session_id):
+    """Get conversation history for a specific session."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        if session_id not in analyzers:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found'
+            }), 404
+        
+        # Update last activity
+        if session_id in session_data:
+            session_data[session_id]['last_activity'] = datetime.now().isoformat()
+        
+        analyzer = analyzers[session_id]
+        history = analyzer.conversation_history.history
+        summary = analyzer.conversation_history.get_summary()
+        
+        response = jsonify({
+            'success': True,
+            'sessionId': session_id,
+            'history': history,
+            'summary': summary,
+            'totalQueries': len(history)
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Session history error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get session history: {str(e)}'
+        }), 500
+
+@app.route('/session/<session_id>/delete', methods=['DELETE', 'OPTIONS'])
+def delete_session(session_id):
+    """Delete a specific session and clean up resources."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        deleted_items = []
+        
+        # Remove from analyzers
+        if session_id in analyzers:
+            # Clean up any file handles or resources
+            analyzer = analyzers[session_id]
+            if hasattr(analyzer, 'cleanup'):
+                analyzer.cleanup()
+            del analyzers[session_id]
+            deleted_items.append('analyzer')
+            print(f"🗑️  Deleted analyzer for session: {session_id}")
+        
+        # Remove from session data
+        if session_id in session_data:
+            # Optionally clean up uploaded files
+            file_path = session_data[session_id].get('filepath')
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    deleted_items.append('uploaded_file')
+                    print(f"🗑️  Deleted uploaded file: {file_path}")
+                except Exception as e:
+                    print(f"⚠️  Could not delete file {file_path}: {e}")
+            
+            del session_data[session_id]
+            deleted_items.append('session_data')
+            print(f"🗑️  Deleted session data for: {session_id}")
+        
+        if not deleted_items:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found'
+            }), 404
+        
+        response = jsonify({
+            'success': True,
+            'sessionId': session_id,
+            'message': f'Session deleted successfully',
+            'deletedItems': deleted_items
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Session deletion error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete session: {str(e)}'
+        }), 500
+    
+@app.route('/sessions', methods=['GET', 'OPTIONS'])
+def list_sessions():
+    """List all active sessions."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        sessions = []
+        current_time = datetime.now()
+        
+        for session_id in list(analyzers.keys()):  # Use list() to avoid dict changed during iteration
+            if session_id in session_data:
+                session_info = session_data[session_id]
+                
+                # Calculate session age
+                upload_time = datetime.fromisoformat(session_info.get('upload_time', current_time.isoformat()))
+                age_hours = (current_time - upload_time).total_seconds() / 3600
+                
+                # Calculate last activity
+                last_activity = session_info.get('last_activity', session_info.get('upload_time'))
+                last_activity_time = datetime.fromisoformat(last_activity)
+                inactive_hours = (current_time - last_activity_time).total_seconds() / 3600
+                
+                session_data_item = {
+                    'sessionId': session_id,
+                    'filename': session_info.get('filename'),
+                    'uploadTime': session_info.get('upload_time'),
+                    'lastActivity': last_activity,
+                    'ageHours': round(age_hours, 2),
+                    'inactiveHours': round(inactive_hours, 2),
+                    'shape': session_info.get('shape'),
+                    'conversationCount': len(analyzers[session_id].conversation_history.history),
+                    'createdBy': session_info.get('created_by', 'unknown')
+                }
+                sessions.append(session_data_item)
+        
+        # Sort by last activity (most recent first)
+        sessions.sort(key=lambda x: x['lastActivity'], reverse=True)
+        
+        response = jsonify({
+            'success': True,
+            'sessions': sessions,
+            'totalSessions': len(sessions),
+            'serverTime': current_time.isoformat()
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Sessions listing error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to list sessions: {str(e)}'
+        }), 500
+
+
+@app.route('/sessions/cleanup', methods=['POST', 'OPTIONS'])
+def cleanup_old_sessions():
+    """Clean up old inactive sessions."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        # Get cleanup parameters from request
+        data = request.get_json() or {}
+        max_age_hours = data.get('maxAgeHours', 24)  # Default: 24 hours
+        max_inactive_hours = data.get('maxInactiveHours', 6)  # Default: 6 hours inactive
+        
+        current_time = datetime.now()
+        sessions_to_delete = []
+        
+        # Find sessions to clean up
+        for session_id in list(analyzers.keys()):
+            if session_id in session_data:
+                session_info = session_data[session_id]
+                
+                # Check age
+                upload_time = datetime.fromisoformat(session_info.get('upload_time', current_time.isoformat()))
+                age_hours = (current_time - upload_time).total_seconds() / 3600
+                
+                # Check inactivity
+                last_activity = session_info.get('last_activity', session_info.get('upload_time'))
+                last_activity_time = datetime.fromisoformat(last_activity)
+                inactive_hours = (current_time - last_activity_time).total_seconds() / 3600
+                
+                # Mark for deletion if too old or inactive
+                if age_hours > max_age_hours or inactive_hours > max_inactive_hours:
+                    sessions_to_delete.append({
+                        'sessionId': session_id,
+                        'reason': 'too_old' if age_hours > max_age_hours else 'inactive',
+                        'ageHours': age_hours,
+                        'inactiveHours': inactive_hours
+                    })
+        
+        # Delete marked sessions
+        deleted_sessions = []
+        for session_info in sessions_to_delete:
+            session_id = session_info['sessionId']
+            try:
+                # Use the delete_session logic
+                if session_id in analyzers:
+                    del analyzers[session_id]
+                if session_id in session_data:
+                    # Clean up file if exists
+                    file_path = session_data[session_id].get('filepath')
+                    if file_path and os.path.exists(file_path):
+                        os.remove(file_path)
+                    del session_data[session_id]
+                
+                deleted_sessions.append(session_info)
+                print(f"🗑️  Cleaned up session: {session_id} ({session_info['reason']})")
+                
+            except Exception as e:
+                print(f"⚠️  Failed to clean up session {session_id}: {e}")
+        
+        response = jsonify({
+            'success': True,
+            'deletedSessions': deleted_sessions,
+            'totalDeleted': len(deleted_sessions),
+            'remainingSessions': len(analyzers),
+            'cleanupTime': current_time.isoformat()
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Session cleanup error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to cleanup sessions: {str(e)}'
+        }), 500
+    
+
+@app.route('/clear-session', methods=['POST', 'OPTIONS'])
+def clear_session():
+    """Clear current session data and create a new session."""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        # Get current session ID
+        current_session_id = session.get('session_id')
+        
+        # Clean up current session data
+        if current_session_id:
+            # Remove from global analyzers
+            if current_session_id in analyzers:
+                del analyzers[current_session_id]
+                print(f"🗑️  Cleared analyzer for session: {current_session_id}")
+            
+            # Remove from session data
+            if current_session_id in session_data:
+                del session_data[current_session_id]
+                print(f"🗑️  Cleared session data for: {current_session_id}")
+        
+        # Generate new session ID
+        new_session_id = str(uuid.uuid4())
+        session['session_id'] = new_session_id
+        
+        print(f"✨ Created new session: {new_session_id}")
+        
+        response = jsonify({
+            'success': True,
+            'message': 'Session cleared successfully',
+            'new_session_id': new_session_id
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error clearing session: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to clear session: {str(e)}'
+        }), 500
 
 @app.route('/conversation-history', methods=['GET', 'OPTIONS'])
 def get_conversation_history():
@@ -2305,7 +2715,7 @@ def get_conversation_history():
 
 # Add new Flask routes for LangChain functionality (keeping existing routes unchanged)
 
-@app.route('/langchain-status', methods=['GET', 'OPTIONS'])
+@app.route('/api/langchain-status', methods=['GET', 'OPTIONS'])
 def langchain_status():
     """Check LangChain integration status"""
     if request.method == 'OPTIONS':
@@ -2342,7 +2752,7 @@ def langchain_status():
         return jsonify({'error': f'Failed to get LangChain status: {str(e)}'}), 500
 
 
-@app.route('/export-langchain-conversation', methods=['GET', 'OPTIONS'])
+@app.route('/api/export-langchain-conversation', methods=['GET', 'OPTIONS'])
 def export_langchain_conversation():
     """Export LangChain conversation history"""
     if request.method == 'OPTIONS':
@@ -2462,6 +2872,94 @@ def handle_message(data):
     thread.daemon = True
     thread.start()
 
+# ADD THESE NEW HANDLERS TO YOUR app.py
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    """Handle client joining a specific session room."""
+    session_id = data.get('sessionId')
+    if session_id:
+        join_room(session_id)
+        print(f"🔌 Client joined session room: {session_id}")
+        emit('status', {'message': f'Joined session {session_id}'})
+        
+        # Update last activity
+        if session_id in session_data:
+            session_data[session_id]['last_activity'] = datetime.now().isoformat()
+    else:
+        print("❌ No session ID provided for join_session")
+        emit('error', {'message': 'No session ID provided'})
+
+@socketio.on('leave_session')
+def handle_leave_session(data):
+    """Handle client leaving a specific session room."""
+    session_id = data.get('sessionId')
+    if session_id:
+        leave_room(session_id)
+        print(f"🔌 Client left session room: {session_id}")
+        emit('status', {'message': f'Left session {session_id}'})
+
+@socketio.on('send_message_with_session')
+def handle_message_with_session(data):
+    """Handle chat messages for a specific session."""
+    session_id = data.get('sessionId')
+    query = data.get('message', '').strip()
+    
+    if not session_id:
+        emit('stream_data', {
+            'type': 'error',
+            'data': 'No session ID provided. Please refresh and try again.',
+            'timestamp': datetime.now().isoformat()
+        })
+        return
+    
+    if not query:
+        return
+    
+    print(f"💬 Processing message for session: {session_id}")
+    
+    if session_id not in analyzers:
+        emit('stream_data', {
+            'type': 'error',
+            'data': f'Session {session_id} not found. Please go back to home and upload a file.',
+            'timestamp': datetime.now().isoformat()
+        })
+        return
+    
+    # Update last activity
+    if session_id in session_data:
+        session_data[session_id]['last_activity'] = datetime.now().isoformat()
+    
+    # Process the query with session-specific analyzer
+    def process_query():
+        try:
+            analyzer = analyzers[session_id]
+            analyzer.session_id = session_id
+            
+            # Start the analysis
+            result = analyzer.analyze_query_streaming(query)
+            
+            # Send completion signal to the specific session room
+            socketio.emit('stream_data', {
+                'type': 'completion',
+                'data': 'Analysis completed successfully!',
+                'timestamp': datetime.now().isoformat(),
+                'sessionId': session_id
+            }, room=session_id)
+            
+        except Exception as e:
+            print(f"❌ Analysis error for session {session_id}: {str(e)}")
+            socketio.emit('stream_data', {
+                'type': 'error',
+                'data': f'Analysis failed: {str(e)}',
+                'timestamp': datetime.now().isoformat(),
+                'sessionId': session_id
+            }, room=session_id)
+    
+    # Run in a daemon thread
+    thread = threading.Thread(target=process_query)
+    thread.daemon = True
+    thread.start()
 
 @app.route('/debug-session')
 def debug_session():

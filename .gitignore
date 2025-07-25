@@ -65,6 +65,7 @@ dist/
 *.html
 *.xml
 **/conversation_history_*.json
+/csvai-backend
 
 # Optional: VSCode specific Python settings
 .vscode/settings.json

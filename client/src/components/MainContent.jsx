@@ -1,104 +1,112 @@
-import React, { useState, useEffect } from "react"
+import React, { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
-import { useSocket } from "../hooks/useSocket"
-import { useMessages } from "@/hooks"
-import { useFileUpload } from "../hooks/useFileUpload"
+import { useAuth } from "../context/AuthProvider"
 import { BACKEND_URL } from "../utils/constants"
 import Header from "./Header"
-import ChatInterface from "./ChatInterface"
 import LandingPage from "./LandingPage"
 
 const MainContent = () => {
   const { themeClasses } = useTheme()
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [hasUserInteraction, setHasUserInteraction] = useState(false)
+  const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const [uploadProgress, setUploadProgress] = useState(0)
   
-  const { messages, addMessage, handleStreamData, ...messageProps } = useMessages()
-  
-  const { socket, isConnected, sendMessage } = useSocket(
-    BACKEND_URL,
-    (data) => {
-      handleStreamData(data)
-      if (data.type === "success" || data.type === "error") {
-        setIsAnalyzing(false)
-      }
-    },
-    addMessage
-  )
+  const handleFileUpload = async (file) => {
+    if (!file) return
 
-  const { fileUploaded, fileInfo, checkSessionInfo, ...fileProps } = useFileUpload(
-    BACKEND_URL,
-    (type, content) => {
-      addMessage(type, content)
-      // Only set user interaction for actual user actions, not system messages
-      if (type === "success" && content.includes("Successfully loaded")) {
-        setHasUserInteraction(true)
-      }
+    // Check authentication first
+    if (!isAuthenticated) {
+      alert("Please sign in to upload files")
+      return
     }
-  )
 
-  useEffect(() => {
-    checkSessionInfo()
-  }, [checkSessionInfo])
+    const validTypes = [".csv", ".xlsx", ".xls"]
+    const fileExtension = "." + file.name.split(".").pop().toLowerCase()
+    if (!validTypes.includes(fileExtension)) {
+      alert("Please upload a CSV or Excel file (.csv, .xlsx, .xls)")
+      return
+    }
+
+    const maxSize = 50 * 1024 * 1024
+    if (file.size > maxSize) {
+      alert("File size too large. Please upload a file smaller than 50MB.")
+      return
+    }
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      setUploadProgress(10)
+      
+      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      })
+      
+      setUploadProgress(90)
+
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`)
+      }
+
+      const result = await response.json()
+      if (result.success && result.sessionId) {
+        setUploadProgress(100)
+        
+        // Small delay to show 100% before redirect
+        setTimeout(() => {
+          navigate(`/chat/${result.sessionId}`)
+        }, 500)
+      } else {
+        throw new Error(result.error || "Upload failed")
+      }
+    } catch (error) {
+      alert(`Upload failed: ${error.message}`)
+      setUploadProgress(0)
+    }
+  }
+
+  const triggerFileUpload = () => {
+    // Check authentication first
+    if (!isAuthenticated) {
+      alert("Please sign in to upload files")
+      return
+    }
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.csv,.xlsx,.xls'
+    input.onchange = (e) => handleFileUpload(e.target.files[0])
+    input.click()
+  }
 
   const handleSendMessage = (message) => {
-    if (!message.trim() || isAnalyzing) return
-
-    if (!isConnected) {
-      addMessage("error", "Not connected to server. Please check your connection.")
+    // For landing page, we don't have file context yet
+    // This would typically show a message to upload a file first
+    if (!isAuthenticated) {
+      alert("Please sign in to analyze data")
       return
     }
-
-    if (!fileUploaded) {
-      addMessage("system", "Please upload a CSV or Excel file first to start analyzing your data.")
-      return
-    }
-
-    setHasUserInteraction(true)
-    addMessage("user", message, true)
-    setIsAnalyzing(true)
-    sendMessage(message)
+    
+    alert("Please upload a file first to start analyzing your data")
   }
-
-  const handleFileUpload = () => {
-    setHasUserInteraction(true)
-    fileProps.triggerFileUpload()
-  }
-
-  // Determine if we should show chat interface
-  // Only show chat if user has actually interacted (uploaded file or sent message)
-  const userMessages = messages.filter(msg => msg.isUser)
-  const shouldShowChat = (fileUploaded && hasUserInteraction) || userMessages.length > 0
 
   return (
     <div className={`h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
-      <Header isConnected={isConnected} />
+      <Header isConnected={true} />
         
-      {/* Main Content Area - Takes remaining height after header */}
       <div className="flex-1 min-h-0">
-        {shouldShowChat ? (
-          <div className="h-full pt-2">
-            <ChatInterface
-              messages={messages}
-              isAnalyzing={isAnalyzing}
-              isConnected={isConnected}
-              fileUploaded={fileUploaded}
-              fileInfo={fileInfo}
-              onSendMessage={handleSendMessage}
-              {...messageProps}
-              {...fileProps}
-            />
-          </div>
-        ) : (
-          <div className="h-full overflow-y-auto">
-            <LandingPage
-              isConnected={isConnected}
-              onSendMessage={handleSendMessage}
-              onFileUpload={handleFileUpload}
-              {...fileProps}
-            />
-          </div>
-        )}
+        <div className="h-full overflow-y-auto">
+          <LandingPage
+            isConnected={true}
+            onSendMessage={handleSendMessage}
+            onFileUpload={triggerFileUpload}
+            uploadProgress={uploadProgress}
+          />
+        </div>
       </div>
     </div>
   )

@@ -23,7 +23,7 @@ const AuthModal = ({ isOpen, mode, onClose, onSwitchMode }) => {
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState({})
 
-  const API_BASE_URL = 'http://localhost:5000'
+  const API_BASE_URL = ''
 
   // Memoized theme styles for optimal performance
   const themeStyles = useMemo(() => ({
