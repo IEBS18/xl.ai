@@ -21,10 +21,10 @@ import RichTextReport from "./RichTextReport"
 import { useTheme } from "@/context/ThemeProvider"
 
 const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClick, isSelected }) => {
-  const { type, content, isUser, isCompleted = true, id } = message
+  const { type, content, isUser, isCompleted = true, id, queryCategory } = message
   const isCollapsible = shouldCollapseByDefault(type)
   const shouldShowContent = !isCollapsible || isExpanded
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
 
   const handleClick = () => {
     if (isUser && onChatMessageClick) {
@@ -32,7 +32,8 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     }
   }
 
-  const getStepIcon = (type, isCompleted) => {
+  // Helper functions
+  const getStepIcon = (type, isCompleted, queryCategory) => {
     if (type === "status") {
       return isCompleted ? <Check size={14} /> : <Loader2 size={14} className="animate-spin" />
     }
@@ -57,7 +58,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     }
   }
 
-  const getStepLabel = (type, isCompleted) => {
+  const getStepLabel = (type, isCompleted, queryCategory) => {
     return type === "dataframe"
       ? "Data Analysis"
       : type === "image"
@@ -67,7 +68,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
           : type === "code"
             ? "Generated Code"
             : type === "output"
-              ? "Execution Output"
+              ? "Analysis Result"
               : type === "status"
                 ? isCompleted
                   ? "Completed"
@@ -75,50 +76,86 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                 : type
   }
 
-  const getStepColorClass = (type, isCompleted) => {
-    if (type === "success") return "bg-green-500"
-    if (type === "error") return "bg-red-500"
-    if (type === "status") return isCompleted ? "bg-green-500" : "bg-blue-500"
-    return "bg-gray-500"
+  const getStepColorClass = (type, isCompleted, queryCategory) => {
+    // All step indicators use theme-based gray colors
+    return isDark ? "bg-gray-600" : "bg-gray-700"
   }
+
+  const getTextColorClass = (type) => {
+    // All text uses theme colors - no additional colors
+    return themeClasses.text
+  }
+
+  // Claude-like styling: clean chat bubbles for most interactions
+  const shouldUseClaudeStyle = (type, queryCategory) => {
+    // Use Claude-style for conversational and textual responses
+    if (queryCategory === "conversational" || queryCategory === "textual_analytical") {
+      return true
+    }
+    
+    // Use Claude-style for output messages that look conversational
+    if (type === "output" && !queryCategory) {
+      return true
+    }
+    
+    return false
+  }
+
+  const isClaudeStyle = shouldUseClaudeStyle(type, queryCategory)
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-6 animate-in slide-in-from-right duration-300">
-        <div className="flex items-start gap-3 max-w-2xl">
+      <div className="flex justify-end mb-4 animate-in slide-in-from-right duration-300">
+        <div className="flex items-end gap-2 max-w-2xl">
           <div 
-            className={`${themeClasses.button} px-4 py-3 rounded-2xl shadow-sm cursor-pointer transition-all duration-200 hover:shadow-md ${
-              isSelected ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-black' : ''
+            className={`px-4 py-3 rounded-2xl max-w-xs lg:max-w-md xl:max-w-2xl ${themeClasses.button} shadow-sm cursor-pointer transition-all duration-200 hover:shadow-md ${
+              isSelected ? `ring-2 ring-gray-400 ring-offset-2 ${isDark ? 'ring-offset-black' : 'ring-offset-white'}` : ''
             }`}
             onClick={handleClick}
           >
-            <div className="whitespace-pre-wrap">{content}</div>
-          </div>
-          <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.button} flex items-center justify-center`}>
-            <User className="w-4 h-4" />
+            <div className="whitespace-pre-wrap text-sm">{content}</div>
           </div>
         </div>
       </div>
     )
   }
 
+  // Claude-style response for conversational and simple analytical queries
+  if (isClaudeStyle) {
+    return (
+      <div className="flex justify-start mb-4 animate-in slide-in-from-left duration-300">
+        <div className="flex items-start gap-3 max-w-2xl lg:max-w-4xl">
+          <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center mt-1`}>
+            <Bot className={`w-4 h-4 ${themeClasses.textSecondary}`} />
+          </div>
+          <div className={`px-0 py-0 rounded-2xl ${themeClasses.text} max-w-none`}>
+            <div className="whitespace-pre-wrap text-sm leading-relaxed">
+              {content}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Timeline style for complex analytical queries (existing implementation)
   return (
     <div className="relative pl-6 pb-6 animate-in slide-in-from-left duration-300">
       {/* Timeline line */}
-      <div className={`absolute left-3 top-6 bottom-0 w-px ${themeClasses.border.replace('border-', 'bg-')}`}></div>
+      <div className={`absolute left-3 top-6 bottom-0 w-px ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
 
       {/* Step indicator */}
       <div
-        className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(type, isCompleted)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}
+        className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(type, isCompleted, queryCategory)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}
       >
-        {getStepIcon(type, isCompleted)}
+        {getStepIcon(type, isCompleted, queryCategory)}
       </div>
 
       {/* Content */}
       <div className="ml-6">
-        <div className={`${themeClasses.surface} rounded-xl shadow-sm ${themeClasses.border} border overflow-hidden transition-colors`}>
+        <div className={`${themeClasses.surface} rounded-xl shadow-sm border ${themeClasses.border} overflow-hidden transition-colors`}>
           {/* Header */}
-          <div className={`${themeClasses.surfaceSecondary} px-4 py-3 ${themeClasses.border} border-b`}>
+          <div className={`${themeClasses.surfaceSecondary} px-4 py-3 border-b ${themeClasses.border}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {isCollapsible && (
@@ -132,7 +169,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                 <div className="flex items-center gap-2">
                   <Bot className={`w-4 h-4 ${themeClasses.textSecondary}`} />
                   <span className={`${themeClasses.text} font-medium text-sm`}>
-                    {getStepLabel(type, isCompleted)}
+                    {getStepLabel(type, isCompleted, queryCategory)}
                   </span>
                 </div>
               </div>
@@ -159,22 +196,79 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                 type === "error" ||
                 type === "output") && (
                   <div
-                    className={`${type === "success"
-                        ? "text-green-500"
-                        : type === "error"
-                          ? "text-red-500"
-                          : type === "status"
-                            ? isCompleted
-                              ? "text-green-500"
-                              : "text-blue-500"
-                            : type === "output"
-                              ? themeClasses.text
-                              : themeClasses.text
-                      } whitespace-pre-wrap text-sm ${type === "output" ? `font-mono ${themeClasses.surface} p-3 rounded-lg` : ""}`}
+                    className={`${getTextColorClass(type)} whitespace-pre-wrap text-sm ${
+                      type === "output" 
+                        ? `font-mono ${themeClasses.surface} p-3 rounded-lg border ${themeClasses.border}` 
+                        : ""
+                    }`}
                   >
                     {content}
                   </div>
                 )}
+
+              {/* Handle code content */}
+              {type === "code" && (
+                <div className={`${themeClasses.surface} rounded-lg p-4 overflow-x-auto border ${themeClasses.border}`}>
+                  <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
+                    {content}
+                  </pre>
+                </div>
+              )}
+
+              {/* Handle dataframe content */}
+              {type === "dataframe" && content && (
+                <div className="space-y-3">
+                  {content.shape && (
+                    <div className={`text-sm ${themeClasses.textSecondary}`}>
+                      Shape: {content.shape[0]} rows × {content.shape[1]} columns
+                    </div>
+                  )}
+                  {content.preview && (
+                    <div
+                      className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} overflow-x-auto`}
+                      dangerouslySetInnerHTML={{ __html: content.preview }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Handle image content */}
+              {type === "image" && content && (
+                <div className="space-y-3">
+                  <div className={`flex items-center justify-center p-4 ${themeClasses.surface} rounded-lg`}>
+                    <img
+                      src={content.data || content.path || "/placeholder.svg"}
+                      alt={content.filename || "Generated visualization"}
+                      className="max-w-full h-auto rounded-lg shadow-sm"
+                      onError={(e) => {
+                        e.target.src = "/placeholder.svg"
+                        e.target.alt = "Image failed to load"
+                      }}
+                    />
+                  </div>
+                  {content.filename && (
+                    <div className={`text-sm ${themeClasses.textSecondary} text-center`}>
+                      {content.filename}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Handle report content */}
+              {type === "report" && content && (
+                <div className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                  {typeof content === 'string' && content.includes('<!DOCTYPE html>') ? (
+                    <div
+                      dangerouslySetInnerHTML={{ __html: content }}
+                      className={`report-content ${themeClasses.text}`}
+                    />
+                  ) : (
+                    <div className={`whitespace-pre-wrap ${themeClasses.text}`}>
+                      {typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

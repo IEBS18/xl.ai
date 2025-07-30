@@ -19,19 +19,54 @@ const ChatSession = () => {
   const [sessionValid, setSessionValid] = useState(false)
   const [loading, setLoading] = useState(true)
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
+  const [currentQueryCategory, setCurrentQueryCategory] = useState(null) // Track current query type
   
   const { messages, addMessage, handleStreamData, ...messageProps } = useMessages()
   
+  // Enhanced socket handling for different query types
   const { socket, isConnected, sendMessage } = useSocket(
     BACKEND_URL,
     (data) => {
+      console.log('Socket data received:', data) // Debug log
+      
+      // Handle different types of streaming data from enhanced backend
       handleStreamData(data)
-      if (data.type === "success" || data.type === "error") {
+      
+      // Enhanced completion handling for different query categories
+      if (data.type === "completion" || 
+          data.type === "analysis_complete" ||
+          data.type === "conversational_complete") {
+        
         setIsAnalyzing(false)
+        
+        // Extract query category from completion data
+        if (data.result && data.result.query_category) {
+          console.log('Query completed with category:', data.result.query_category)
+        }
+        
+        setCurrentQueryCategory(null) // Reset after completion
+      }
+      
+      // Handle quick responses for conversational and textual analytical
+      if (data.type === "output") {
+        setIsAnalyzing(false)
+        setCurrentQueryCategory(null)
+      }
+      
+      // Handle errors
+      if (data.type === "error") {
+        setIsAnalyzing(false)
+        setCurrentQueryCategory(null)
+      }
+      
+      // Track analysis start with category
+      if (data.type === "analysis_started") {
+        console.log('Analysis started')
+        setIsAnalyzing(true)
       }
     },
     addMessage,
-    sessionId // Pass sessionId to socket hook
+    sessionId
   )
 
   const { 
@@ -83,6 +118,7 @@ const ChatSession = () => {
     checkSessionAndAuth()
   }, [sessionId, validateSession, navigate, isAuthenticated, isLoading])
 
+  // Enhanced message sending with query classification support
   const handleSendMessage = (message) => {
     if (!message.trim() || isAnalyzing) return
 
@@ -96,8 +132,35 @@ const ChatSession = () => {
       return
     }
 
-    addMessage("user", message, true)
+    // Classify query locally for immediate UI feedback (optional)
+    const classifyQueryLocally = (query) => {
+      const lowerQuery = query.toLowerCase().trim()
+      
+      // Simple local classification for immediate UI feedback
+      if (lowerQuery.match(/^(hi|hello|hey|what can you|what do you|help|thanks|thank you|bye|goodbye)/)) {
+        return "conversational"
+      } else if (lowerQuery.match(/(what is|what's|how many|average|maximum|minimum|sum|count|total)/)) {
+        return "textual_analytical"
+      } else if (lowerQuery.match(/(generate|create|analyze|forecast|predict|report|comprehensive|detailed)/)) {
+        return "fully_analytical"
+      }
+      
+      return "unknown" // Let backend classify
+    }
+
+    const estimatedCategory = classifyQueryLocally(message)
+    console.log('Estimated query category:', estimatedCategory)
+    
+    // Set current query category for UI feedback
+    if (estimatedCategory !== "unknown") {
+      setCurrentQueryCategory(estimatedCategory)
+    }
+
+    // Add user message with estimated category
+    addMessage("user", message, true, estimatedCategory)
     setIsAnalyzing(true)
+    
+    // Send message to enhanced backend
     sendMessage(message)
   }
 
@@ -194,7 +257,12 @@ const ChatSession = () => {
   return (
     <>
       <div className={`h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
-        <Header isConnected={isConnected} sessionId={sessionId} onGoHome={handleGoHome} />
+        <Header 
+          isConnected={isConnected} 
+          sessionId={sessionId} 
+          onGoHome={handleGoHome}
+          currentQueryCategory={currentQueryCategory} // Pass query category to header
+        />
           
         <div className="flex-1 min-h-0">
           <div className="h-full pt-2">
@@ -206,6 +274,7 @@ const ChatSession = () => {
               fileInfo={fileInfo}
               onSendMessage={handleSendMessage}
               sessionId={sessionId}
+              currentQueryCategory={currentQueryCategory} // Pass to chat interface
               {...messageProps}
               {...fileProps}
             />

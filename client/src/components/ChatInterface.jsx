@@ -23,41 +23,59 @@ const ChatInterface = ({
   triggerFileUpload,
   debugSession,
   manualSessionSync,
-  onUpdateMessage, // Add this prop to handle message updates
-  sessionId // Add sessionId prop
+  onUpdateMessage,
+  sessionId,
+  currentQueryCategory // Add this prop to track current analysis type
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
   const [selectedChatMessage, setSelectedChatMessage] = useState(null)
-  const [chatPanelWidth, setChatPanelWidth] = useState(50) // Percentage width
+  const [chatPanelWidth, setChatPanelWidth] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
-  const [previewMessage, setPreviewMessage] = useState(null) // Add state for file preview
+  const [previewMessage, setPreviewMessage] = useState(null)
   const containerRef = useRef(null)
   const { themeClasses } = useTheme()
 
-  // Handle updating a specific message/item content
-  const handleUpdateItem = useCallback((itemId, newContent) => {
-    if (onUpdateMessage) {
-      onUpdateMessage(itemId, { content: newContent })
-    }
-  }, [onUpdateMessage])
+  // Enhanced message processing for different query types
+  const processMessagesForDisplay = (messages) => {
+    return messages.map(message => {
+      // Add query category context to messages
+      if (message.queryCategory) {
+        return { ...message, queryCategory: message.queryCategory }
+      }
+      
+      // Infer category from message type for backwards compatibility
+      if (message.type === "conversational") {
+        return { ...message, queryCategory: "conversational" }
+      }
+      if (message.type === "textual_analytical") {
+        return { ...message, queryCategory: "textual_analytical" }
+      }
+      
+      return message
+    })
+  }
 
-  // Handle showing file preview
-  const handleShowPreview = useCallback((previewData) => {
-    setPreviewMessage(previewData)
-    setSelectedChatMessage(null) // Clear chat message selection
-    setActiveSidePanel(previewData.id) // Set the preview as active
-  }, [])
+  const processedMessages = processMessagesForDisplay(messages)
 
-  // Get side panel items (code, image, dataframe, report)
+  // Determine which messages should show in side panel based on query category
   const getSidePanelItems = () => {
-    const messageItems = messages.filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
+    const sidePanelTypes = ['code', 'image', 'dataframe', 'report']
+    
+    // Only show side panel items for fully analytical queries
+    const analyticalMessages = processedMessages.filter(msg => {
+      // Check if message is from a fully analytical query
+      const isAnalyticalQuery = msg.queryCategory === "fully_analytical" || 
+                               (!msg.queryCategory && sidePanelTypes.includes(msg.type))
+      
+      return isAnalyticalQuery && sidePanelTypes.includes(msg.type)
+    })
     
     // Add preview message if it exists
     if (previewMessage) {
-      return [previewMessage, ...messageItems]
+      return [previewMessage, ...analyticalMessages]
     }
     
-    return messageItems
+    return analyticalMessages
   }
 
   // Get side panel items for a specific chat message/query
@@ -65,16 +83,26 @@ const ChatInterface = ({
     if (!messageId) return []
     
     // Find the user message and get items that came after it until the next user message
-    const messageIndex = messages.findIndex(msg => msg.id === messageId)
+    const messageIndex = processedMessages.findIndex(msg => msg.id === messageId)
     if (messageIndex === -1) return []
     
-    const nextUserMessageIndex = messages.findIndex((msg, idx) => 
+    const userMessage = processedMessages[messageIndex]
+    
+    // Only show side panel for fully analytical queries
+    if (userMessage.queryCategory !== "fully_analytical" && 
+        !processedMessages.slice(messageIndex + 1).some(msg => 
+          ['code', 'image', 'dataframe', 'report'].includes(msg.type)
+        )) {
+      return []
+    }
+    
+    const nextUserMessageIndex = processedMessages.findIndex((msg, idx) => 
       idx > messageIndex && msg.isUser
     )
     
-    const endIndex = nextUserMessageIndex !== -1 ? nextUserMessageIndex : messages.length
+    const endIndex = nextUserMessageIndex !== -1 ? nextUserMessageIndex : processedMessages.length
     
-    const messageItems = messages
+    const messageItems = processedMessages
       .slice(messageIndex + 1, endIndex)
       .filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
     
@@ -90,19 +118,34 @@ const ChatInterface = ({
     ? getSidePanelItemsForMessage(selectedChatMessage)
     : getSidePanelItems()
 
-  // Auto-select the latest user message when no message is selected
+  // Handle updating a specific message/item content
+  const handleUpdateItem = useCallback((itemId, newContent) => {
+    if (onUpdateMessage) {
+      onUpdateMessage(itemId, { content: newContent })
+    }
+  }, [onUpdateMessage])
+
+  // Handle showing file preview
+  const handleShowPreview = useCallback((previewData) => {
+    setPreviewMessage(previewData)
+    setSelectedChatMessage(null)
+    setActiveSidePanel(previewData.id)
+  }, [])
+
+  // Auto-select the latest analytical user message when no message is selected
   React.useEffect(() => {
-    if (!selectedChatMessage && messages.length > 0 && !previewMessage) {
-      // Find the latest user message
-      const latestUserMessage = messages
+    if (!selectedChatMessage && processedMessages.length > 0 && !previewMessage) {
+      // Find the latest user message that has analytical content
+      const analyticalUserMessages = processedMessages
         .filter(msg => msg.isUser)
-        .slice(-1)[0]
+        .filter(msgId => getSidePanelItemsForMessage(msgId.id).length > 0)
       
-      if (latestUserMessage) {
-        setSelectedChatMessage(latestUserMessage.id)
+      if (analyticalUserMessages.length > 0) {
+        const latestAnalyticalMessage = analyticalUserMessages.slice(-1)[0]
+        setSelectedChatMessage(latestAnalyticalMessage.id)
       }
     }
-  }, [messages, selectedChatMessage, previewMessage])
+  }, [processedMessages, selectedChatMessage, previewMessage])
 
   // Auto-select first item when side panel items are available
   React.useEffect(() => {
@@ -115,16 +158,70 @@ const ChatInterface = ({
 
   // Handle chat message selection
   const handleChatMessageClick = (messageId) => {
-    setSelectedChatMessage(messageId)
-    setActiveSidePanel(null) // Reset active side panel when switching messages
-    setPreviewMessage(null) // Clear preview when selecting a chat message
+    const itemsForMessage = getSidePanelItemsForMessage(messageId)
+    
+    // Only set selection if message has analytical content
+    if (itemsForMessage.length > 0) {
+      setSelectedChatMessage(messageId)
+      setActiveSidePanel(null)
+      setPreviewMessage(null)
+    }
   }
 
   // Handle clear selection
   const handleClearSelection = () => {
     setSelectedChatMessage(null)
-    setPreviewMessage(null) // Clear preview when clearing selection
+    setPreviewMessage(null)
   }
+
+  // Enhanced sample questions based on query categories
+  const enhancedSampleQuestions = [
+    // Conversational
+    { 
+      question: "Hi, what can you help me with?",
+      category: "conversational",
+      description: "Start a conversation"
+    },
+    { 
+      question: "What capabilities do you have?",
+      category: "conversational", 
+      description: "Learn about features"
+    },
+    
+    // Textual Analytical
+    { 
+      question: "What is the average sales value?",
+      category: "textual_analytical",
+      description: "Quick data answer"
+    },
+    { 
+      question: "How many rows are in my dataset?",
+      category: "textual_analytical",
+      description: "Simple data query"
+    },
+    { 
+      question: "What's the maximum revenue?",
+      category: "textual_analytical",
+      description: "Find maximum value"
+    },
+    
+    // Fully Analytical  
+    { 
+      question: "Generate a comprehensive sales analysis",
+      category: "fully_analytical",
+      description: "Detailed analysis with charts"
+    },
+    { 
+      question: "Create a 12-month forecast model",
+      category: "fully_analytical",
+      description: "Predictive modeling"
+    },
+    { 
+      question: "Show me trends and correlations in the data",
+      category: "fully_analytical",
+      description: "Pattern analysis"
+    }
+  ]
 
   // Handle mouse down on resize handle
   const handleMouseDown = useCallback((e) => {
@@ -139,7 +236,6 @@ const ChatInterface = ({
     const containerRect = containerRef.current.getBoundingClientRect()
     const newChatWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
 
-    // Constrain the width between 25% and 75%
     const constrainedWidth = Math.min(Math.max(newChatWidth, 35), 65)
     setChatPanelWidth(constrainedWidth)
   }, [isDragging])
@@ -166,6 +262,22 @@ const ChatInterface = ({
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
+  // Filter timeline messages (exclude side panel items for conversational/textual queries)
+  const getTimelineMessages = () => {
+    return processedMessages.filter(msg => {
+      // Always show user messages
+      if (msg.isUser) return true
+      
+      // For conversational and textual analytical, exclude code/dataframe/image/report
+      if (msg.queryCategory === "conversational" || msg.queryCategory === "textual_analytical") {
+        return !['code', 'dataframe', 'image', 'report'].includes(msg.type)
+      }
+      
+      // For fully analytical, show all messages in timeline but they'll also appear in side panel
+      return true
+    })
+  }
+
   return (
     <div ref={containerRef} className={`flex h-full ${themeClasses.bg} transition-colors`}>
       {/* Main Chat Area */}
@@ -181,22 +293,26 @@ const ChatInterface = ({
           <div className="h-16"></div>
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <MessageTimeline
-              messages={messages.filter(msg => !['code', 'image', 'dataframe', 'report'].includes(msg.type))}
+              messages={getTimelineMessages()}
               isAnalyzing={isAnalyzing}
               expandedMessages={expandedMessages}
               toggleMessageExpansion={toggleMessageExpansion}
               messagesEndRef={messagesEndRef}
               onChatMessageClick={handleChatMessageClick}
               selectedChatMessage={selectedChatMessage}
+              currentQueryCategory={currentQueryCategory}
             />
           </div>
         </div>
 
         {/* Bottom UI Elements - Fixed at bottom */}
         <div className={`flex-shrink-0 ${themeClasses.border} border-t transition-colors`}>
-          {/* Sample Questions */}
+          {/* Enhanced Sample Questions */}
           {fileUploaded && messages.filter((m) => m.isUser).length === 0 && (
-            <SampleQuestions onSelectQuestion={(question) => onSendMessage(question)} />
+            <EnhancedSampleQuestions 
+              questions={enhancedSampleQuestions}
+              onSelectQuestion={(question) => onSendMessage(question)} 
+            />
           )}
 
           {/* Upload Progress */}
@@ -248,7 +364,7 @@ const ChatInterface = ({
         </div>
       )}
 
-      {/* Side Panel */}
+      {/* Side Panel - Only for fully analytical queries */}
       {sidePanelItems.length > 0 && (
         <div 
           className={`${themeClasses.border} transition-all duration-300 ${themeClasses.bg} flex-shrink-0`}
@@ -266,6 +382,85 @@ const ChatInterface = ({
           />
         </div>
       )}
+    </div>
+  )
+}
+
+// Enhanced Sample Questions Component with Categories
+const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
+  const { themeClasses } = useTheme()
+  const [selectedCategory, setSelectedCategory] = useState("all")
+
+  const categories = [
+    { id: "all", label: "All", icon: "🎯" },
+    { id: "conversational", label: "Chat", icon: "💬" },
+    { id: "textual_analytical", label: "Quick Q&A", icon: "⚡" },
+    { id: "fully_analytical", label: "Deep Analysis", icon: "🧠" }
+  ]
+
+  const filteredQuestions = selectedCategory === "all" 
+    ? questions 
+    : questions.filter(q => q.category === selectedCategory)
+
+  return (
+    <div className={`p-4 ${themeClasses.surface} ${themeClasses.border} border-b`}>
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-4">
+          <h3 className={`text-sm font-medium ${themeClasses.text} mb-2`}>
+            Try these example queries:
+          </h3>
+          
+          {/* Category Filters */}
+          <div className="flex gap-2 mb-3">
+            {categories.map(category => (
+              <button
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedCategory === category.id
+                    ? `${themeClasses.button} ${themeClasses.text}`
+                    : `${themeClasses.surface} ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                }`}
+              >
+                <span className="mr-1">{category.icon}</span>
+                {category.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Questions Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          {filteredQuestions.map((item, index) => (
+            <button
+              key={index}
+              onClick={() => onSelectQuestion(item.question)}
+              className={`text-left p-3 rounded-lg border ${themeClasses.border} ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group`}
+            >
+              <div className="flex items-start gap-2">
+                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                  item.category === "conversational" 
+                    ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                    : item.category === "textual_analytical"
+                    ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+                    : "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
+                }`}>
+                  {item.category === "conversational" ? "💬" : 
+                   item.category === "textual_analytical" ? "⚡" : "🧠"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm ${themeClasses.text} font-medium mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors`}>
+                    {item.question}
+                  </div>
+                  <div className={`text-xs ${themeClasses.textSecondary}`}>
+                    {item.description}
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
