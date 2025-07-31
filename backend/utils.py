@@ -838,7 +838,7 @@ DATA OUTPUT PRIORITIES:
 4. Category classifications and performance metrics
 5. Statistical measures and derived insights
  
-CSV Data Context:
+Data Context:
 {self.csv_info}
  
 EXAMPLE OUTPUT PATTERNS:
@@ -916,7 +916,710 @@ RESULT STRUCTURE:
  
 REQUEST TYPE: {data_request['type']}
 """
+        if is_forecasting:
+            base_requirements = base_requirements + """
+FORECASTING-SPECIFIC REQUIREMENTS:
+- Create a separate DataFrame with future predictions
+- Include future dates beyond the last date in dataset
+- Provide confidence intervals or prediction ranges
+- Return forecasted_data_df with columns: [Date, Predicted_Value, Confidence_Lower, Confidence_Upper]
+- Show both historical trend analysis and future predictions
+
+FORECASTING OUTPUT:
+- Original data with trend indicators added
+- Separate forecast DataFrame for future periods
+- Combined visualization showing historical + predicted
+
+===============================================
+FORECASTING FUNDAMENTALS & CRITICAL DEFINITIONS
+===============================================
+ 
+FORECASTING DEFINITION:
+Forecasting = Predicting FUTURE values that extend BEYOND the existing dataset's time range.
+- Historical data: Used for training models
+- Future predictions: Generated for periods AFTER the last date in the dataset
+- NEVER predict on known historical values when asked to "forecast"
+ 
+TIME SERIES FORECASTING MODELS & THEIR LOGIC:
+ 
+1. LINEAR REGRESSION FORECASTING:
+```
+Pseudo-code:
+1. Create time index (0, 1, 2, ..., n-1) for historical data
+2. Fit: y = ax + b where x = time_index
+3. For future predictions:
+   - future_time_indices = [n, n+1, n+2, ..., n+forecast_periods-1]
+   - future_values = model.predict(future_time_indices)
+4. Convert future_time_indices back to actual future dates
+```
+ 
+2. MOVING AVERAGE FORECASTING:
+```
+Pseudo-code:
+1. Simple Moving Average: forecast = mean(last_N_values)
+2. Weighted Moving Average: forecast = sum(weights * last_N_values)
+3. Exponential Moving Average:
+   - alpha = smoothing_factor (0.1 to 0.3)
+   - forecast = alpha * last_value + (1-alpha) * previous_forecast
+```
+ 
+3. AUTOREGRESSIVE (AR) MODELS:
+```
+Pseudo-code:
+1. AR(p): y_t = c + φ₁*y_{{t-1}} + φ₂*y_{{t-2}} + ... + φ_p*y_{{t-p}} + ε_t
+2. For forecasting:
+   - Use last p values to predict next value
+   - Recursively use predictions to forecast multiple periods ahead
+3. Implementation: Use statsmodels.tsa.ar_model.AutoReg
+```
+ 
+4. ARIMA FORECASTING:
+```
+Pseudo-code:
+1. ARIMA(p,d,q): Combines AR(p) + Integration(d) + MA(q)
+2. Auto-detect parameters using auto_arima or AIC/BIC
+3. For forecasting:
+   - model.fit(historical_data)
+   - forecast = model.forecast(steps=forecast_periods)
+4. Implementation: Use statsmodels.tsa.arima.ARIMA
+```
+ 
+5. XGBOOST TIME SERIES FORECASTING:
+```
+Pseudo-code:
+1. Create lagged features: [y_{{t-1}}, y_{{t-2}}, ..., y_{{t-window_size}}]
+2. Feature matrix X: Each row = [lag1, lag2, ..., lag_window]
+3. Target y: y_t (current value to predict)
+4. Train: XGBRegressor.fit(X, y)
+5. For multi-step forecasting:
+   a. Predict next value using last window
+   b. Add prediction to window, remove oldest value
+   c. Repeat for each future period
+```
+ 
+6. LSTM NEURAL NETWORK FORECASTING:
+```
+Pseudo-code:
+1. Reshape data: (samples, window_size, features)
+2. Architecture: Input -> LSTM(50-100 units) -> Dense(1)
+3. Training: Minimize MSE between predicted and actual
+4. For forecasting:
+   a. Use last window_size values as input
+   b. Predict next value
+   c. Update window with prediction
+   d. Repeat for multiple periods
+```
+ 
+===============================================
+MANDATORY FORECASTING IMPLEMENTATION RULES
+===============================================
+ 
+STEP 1: DATA PREPARATION
+```python
+# Always start with data exploration
+print("=== DATA EXPLORATION ===")
+print(f"DataFrame shape: {{df.shape}}")
+print(f"Columns: {{df.columns.tolist()}}")
+print(df.info())
+print(df.head())
+ 
+# Identify time and target columns
+date_columns = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower() or 'year' in col.lower()]
+numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+print(f"Potential date columns: {{date_columns}}")
+print(f"Numeric columns: {{numeric_columns}}")
+```
+ 
+STEP 2: TIME SERIES PREPARATION
+```python
+# Clean and prepare time series
+def prepare_time_series(df, date_col, target_col):
+    # Convert date column
+    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+   
+    # Clean target column
+    if df[target_col].dtype == 'object':
+        df[target_col] = df[target_col].astype(str).str.replace(',', '').str.replace('$', '').str.strip()
+    df[target_col] = pd.to_numeric(df[target_col], errors='coerce')
+   
+    # Remove missing values
+    df = df.dropna(subset=[date_col, target_col])
+   
+    # Sort by date
+    df = df.sort_values(date_col).reset_index(drop=True)
+   
+    return df
+```
+============================
+XGBOOST ALGORITHM TEMPLATE
+============================
+- Use below code as template for xgboost algorithm: 
+
+import pandas as pd
+import numpy as np
+from xgboost import XGBRegressor
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+print("=== STEP 1: DATA PREPARATION ===")
+# Convert date and prepare data
+df['Date'] = pd.to_datetime(df['Date'])
+
+
+# Aggregate by date to create time series
+daily_data = df.groupby('Date').agg({{
+    'Revenue': 'sum',
+    'Units Sold': 'sum',
+    'Profit': 'sum'
+}}).reset_index()
+
+# Choose target variable (Revenue is primary choice)
+target_col = 'Revenue'
+print(f"Target variable: {{target_col}}")
+print(f"Date range: {{daily_data['Date'].min()}} to {{daily_data['Date'].max()}}")
+print(f"Data points: {{len(daily_data)}}")
+
+print("=== STEP 2: FEATURE ENGINEERING ===")
+def create_features(data, target_column, n_lags=7):
+    features_df = data.copy()
+    
+    # Time-based features
+    features_df['year'] = features_df['Date'].dt.year
+    features_df['month'] = features_df['Date'].dt.month
+    features_df['day'] = features_df['Date'].dt.day
+    features_df['dayofweek'] = features_df['Date'].dt.dayofweek
+    features_df['quarter'] = features_df['Date'].dt.quarter
+    features_df['is_weekend'] = features_df['dayofweek'].isin([5, 6]).astype(int)
+    
+    # Lag features (previous values)
+    for lag in range(1, n_lags + 1):
+        features_df[f'{{target_column}}_lag_{{lag}}'] = features_df[target_column].shift(lag)
+    
+    # Rolling window features (moving averages)
+    for window in [3, 7, 14, 30]:
+        features_df[f'{{target_column}}_rolling_{{window}}'] = features_df[target_column].rolling(window).mean()
+        features_df[f'{{target_column}}_rolling_std_{{window}}'] = features_df[target_column].rolling(window).std()
+    
+    # Growth rate features
+    features_df[f'{{target_column}}_growth_1d'] = features_df[target_column].pct_change(1)
+    features_df[f'{{target_column}}_growth_7d'] = features_df[target_column].pct_change(7)
+    
+    return features_df
+
+# Create features
+featured_data = create_features(daily_data, target_col, n_lags=14)
+# Remove rows with NaN (due to lag features)
+featured_data = featured_data.dropna().reset_index(drop=True)
+print(f"Features created. Final shape: {{featured_data.shape}}")
+
+print("=== STEP 3: MODEL TRAINING ===")
+# Prepare feature columns
+feature_columns = [col for col in featured_data.columns if col not in ['Date', target_col]]
+X = featured_data[feature_columns]
+y = featured_data[target_col]
+
+# Split data (use last 20% for validation)
+split_idx = int(len(featured_data) * 0.8)
+X_train, X_test = X[:split_idx], X[split_idx:]
+y_train, y_test = y[:split_idx], y[split_idx:]
+
+print(f"Training set: {{len(X_train)}} samples")
+print(f"Test set: {{len(X_test)}} samples")
+
+# Train XGBoost model with robust parameters
+model = XGBRegressor(
+    n_estimators=200,
+    max_depth=6,
+    learning_rate=0.1,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42,
+    n_jobs=-1
+)
+
+model.fit(X_train, y_train)
+
+# Evaluate model performance
+train_pred = model.predict(X_train)
+test_pred = model.predict(X_test)
+
+train_rmse = np.sqrt(mean_squared_error(y_train, train_pred))
+test_rmse = np.sqrt(mean_squared_error(y_test, test_pred))
+train_mae = mean_absolute_error(y_train, train_pred)
+test_mae = mean_absolute_error(y_test, test_pred)
+
+print(f"Model Performance:")
+print(f"Train RMSE: {{train_rmse:.2f}}, MAE: {{train_mae:.2f}}")
+print(f"Test RMSE: {{test_rmse:.2f}}, MAE: {{test_mae:.2f}}")
+
+print("=== STEP 4: GENERATE 12-MONTH FORECAST ===")
+# Generate future dates (365 days = 12 months)
+last_date = featured_data['Date'].max()
+future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=365, freq='D')
+print(f"Forecasting from {{future_dates[0]}} to {{future_dates[-1]}}")
+
+# Multi-step forecasting
+forecast_predictions = []
+forecast_lower = []
+forecast_upper = []
+
+# Get recent data for context
+recent_data = featured_data.tail(30).copy()
+all_predictions = list(featured_data[target_col].tail(14))
+
+for i, future_date in enumerate(future_dates):
+    # Create time-based features
+    future_features = {{
+        'year': future_date.year,
+        'month': future_date.month,
+        'day': future_date.day,
+        'dayofweek': future_date.dayofweek,
+        'quarter': future_date.quarter,
+        'is_weekend': int(future_date.dayofweek in [5, 6])
+    }}
+    
+    # Get recent values (combine historical + previous predictions)
+    recent_values = all_predictions[-30:]  # Last 30 values
+    
+    # Create lag features
+    for lag in range(1, 15):
+        if lag <= len(recent_values):
+            future_features[f'{{target_col}}_lag_{{lag}}'] = recent_values[-lag]
+        else:
+            future_features[f'{{target_col}}_lag_{{lag}}'] = recent_values[-1]
+    
+    # Create rolling features
+    for window in [3, 7, 14, 30]:
+        if len(recent_values) >= window:
+            future_features[f'{{target_col}}_rolling_{{window}}'] = np.mean(recent_values[-window:])
+            future_features[f'{{target_col}}_rolling_std_{{window}}'] = np.std(recent_values[-window:])
+        else:
+            future_features[f'{{target_col}}_rolling_{{window}}'] = np.mean(recent_values)
+            future_features[f'{{target_col}}_rolling_std_{{window}}'] = np.std(recent_values)
+    
+    # Create growth features
+    if len(recent_values) >= 2:
+        future_features[f'{{target_col}}_growth_1d'] = (recent_values[-1] - recent_values[-2]) / recent_values[-2]
+    else:
+        future_features[f'{{target_col}}_growth_1d'] = 0
         
+    if len(recent_values) >= 8:
+        future_features[f'{{target_col}}_growth_7d'] = (recent_values[-1] - recent_values[-8]) / recent_values[-8]
+    else:
+        future_features[f'{{target_col}}_growth_7d'] = 0
+    
+    # Create feature vector (ensure same order as training)
+    feature_vector = pd.DataFrame([future_features])
+    feature_vector = feature_vector.reindex(columns=feature_columns, fill_value=0)
+    
+    # Make prediction
+    prediction = model.predict(feature_vector)[0]
+    
+    # Add some uncertainty bounds (±15% based on test error)
+    error_margin = test_rmse * 1.5
+    lower_bound = max(0, prediction - error_margin)
+    upper_bound = prediction + error_margin
+    
+    # Store predictions
+    forecast_predictions.append(prediction)
+    forecast_lower.append(lower_bound)
+    forecast_upper.append(upper_bound)
+    all_predictions.append(prediction)
+
+print(f"Generated {{len(forecast_predictions)}} daily forecasts")
+
+print("=== STEP 5: CREATE FORECASTED DATA ===")
+# Create detailed forecasted_data DataFrame
+forecasted_data = pd.DataFrame({{
+'Date': future_dates,
+'Predicted_Value': forecast_predictions,
+'Confidence_Lower': forecast_lower,
+'Confidence_Upper': forecast_upper,
+'Model_Used': 'XGBoost',
+'Target_Variable': target_col,
+'Forecast_Day': range(1, len(future_dates) + 1)
+}})
+
+# Add monthly aggregation for easier interpretation
+forecasted_data['Year_Month'] = forecasted_data['Date'].dt.to_period('M')
+monthly_forecast = forecasted_data.groupby('Year_Month').agg({{
+    'Predicted_Value': 'sum',
+    'Confidence_Lower': 'sum',
+    'Confidence_Upper': 'sum'
+}}).reset_index()
+
+print("FORECAST SUMMARY:")
+print(f"Daily average forecast: {{forecasted_data['Predicted_Value'].mean():.2f}}")
+print(f"Monthly forecast range: {{monthly_forecast['Predicted_Value'].min():.2f}} - {{monthly_forecast['Predicted_Value'].max():.2f}}")
+print(f"Total 12-month forecast: {{forecasted_data['Predicted_Value'].sum():.2f}}")
+
+print("=== STEP 6: MANDATORY VISUALIZATIONS ===")
+
+# Create comprehensive visualization
+fig, axes = plt.subplots(2, 2, figsize=(20, 12))
+
+# 1. Historical vs Forecast (Daily)
+ax1 = axes[0, 0]
+# Plot last 90 days of historical data
+recent_historical = daily_data.tail(90)
+ax1.plot(recent_historical['Date'], recent_historical[target_col], 
+         label='Historical (Last 90 days)', color='blue', linewidth=2)
+ax1.plot(forecasted_data['Date'], forecasted_data['Predicted_Value'], 
+         label='XGBoost Forecast (12 months)', color='red', linewidth=2, linestyle='--')
+ax1.fill_between(forecasted_data['Date'], 
+                forecasted_data['Confidence_Lower'], 
+                forecasted_data['Confidence_Upper'], 
+                alpha=0.2, color='red', label='Confidence Interval')
+ax1.set_title('Daily Forecast: Historical vs Predicted', fontsize=14, fontweight='bold')
+ax1.set_xlabel('Date')
+ax1.set_ylabel(target_col)
+ax1.legend()
+ax1.grid(True, alpha=0.3)
+ax1.tick_params(axis='x', rotation=45)
+
+# 2. Monthly Aggregated Forecast
+ax2 = axes[0, 1]
+monthly_historical = daily_data.groupby(daily_data['Date'].dt.to_period('M'))[target_col].sum().tail(12)
+ax2.bar(range(len(monthly_historical)), monthly_historical.values, 
+        label='Historical (Last 12 months)', color='skyblue', alpha=0.7)
+ax2.bar(range(len(monthly_historical), len(monthly_historical) + len(monthly_forecast)), 
+        monthly_forecast['Predicted_Value'], 
+        label='Forecasted (Next 12 months)', color='orange', alpha=0.7)
+ax2.set_title('Monthly Forecast Comparison', fontsize=14, fontweight='bold')
+ax2.set_xlabel('Month')
+ax2.set_ylabel(f'Monthly {{target_col}}')
+ax2.legend()
+ax2.grid(True, alpha=0.3)
+
+# 3. Feature Importance
+ax3 = axes[1, 0]
+feature_importance = model.feature_importances_
+top_features = sorted(zip(feature_columns, feature_importance), key=lambda x: x[1], reverse=True)[:10]
+features, importances = zip(*top_features)
+ax3.barh(range(len(features)), importances, color='green', alpha=0.7)
+ax3.set_yticks(range(len(features)))
+ax3.set_yticklabels(features)
+ax3.set_title('Top 10 Feature Importance (XGBoost)', fontsize=14, fontweight='bold')
+ax3.set_xlabel('Importance Score')
+ax3.grid(True, alpha=0.3)
+
+# 4. Forecast Distribution
+ax4 = axes[1, 1]
+ax4.hist(forecasted_data['Predicted_Value'], bins=30, color='purple', alpha=0.7, edgecolor='black')
+ax4.axvline(forecasted_data['Predicted_Value'].mean(), color='red', linestyle='--', linewidth=2, 
+        label=f'Mean: {{forecasted_data["Predicted_Value"].mean():.2f}}')
+ax4.set_title('Distribution of Daily Forecasted Values', fontsize=14, fontweight='bold')
+ax4.set_xlabel(f'Predicted {{target_col}}')
+ax4.set_ylabel('Frequency')
+ax4.legend()
+ax4.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+============================
+PROPHET ALGORITHM TEMPLATE
+============================
+- Use below code as template for prophet algorithm: 
+
+import pandas as pd
+from prophet import Prophet
+import matplotlib.pyplot as plt
+import re
+
+def detect_date_column(df):
+    # Look for columns with datetime-like names or datetime types
+    for col in df.columns:
+        if df[col].dtype == 'datetime64[ns]':
+            return col
+        if 'date' in col.lower() or 'time' in col.lower():
+            try:
+                df[col] = pd.to_datetime(df[col])
+                return col
+            except:
+                continue
+    raise ValueError("Could not find a valid date column.")
+
+def detect_target_column(df, user_query):
+    # Try to match column name from query
+    user_query_lower = user_query.lower()
+    for col in df.columns:
+        if col.lower() in user_query_lower:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                return col
+    # Fallback: choose first numeric column
+    numeric_cols = df.select_dtypes(include='number').columns
+    if len(numeric_cols) > 0:
+        return numeric_cols[0]
+    raise ValueError("Could not find a numeric target column.")
+
+def extract_periods(user_query):
+    # Default to 12 months
+    match = re.search(r'next (\d+)\s*(day|week|month|year)', user_query.lower())
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        freq_map = {
+            'day': ('D', num),
+            'week': ('W', num),
+            'month': ('M', num),
+            'year': ('Y', num)
+        }
+        return freq_map[unit]
+    return 'M', 12  # Default: 12 months
+
+def forecast_from_user_query(file_path, user_query):
+    df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
+
+    # Detect columns
+    date_col = detect_date_column(df)
+    target_col = detect_target_column(df, user_query)
+    freq, periods = extract_periods(user_query)
+
+    df = df[[date_col, target_col]].dropna()
+    df.rename(columns={date_col: 'ds', target_col: 'y'}, inplace=True)
+    df['ds'] = pd.to_datetime(df['ds'])
+
+    # Fit Prophet
+    model = Prophet()
+    model.fit(df)
+
+    future = model.make_future_dataframe(periods=periods, freq=freq)
+    forecast = model.predict(future)
+
+    # Plot forecast
+    model.plot(forecast)
+    plt.title(f"Forecast for '{{target_col}}'")
+    plt.grid(True)
+    plt.show()
+
+    # Plot components
+    model.plot_components(forecast)
+    plt.show()
+
+    return forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(periods)
+
+============================
+ARIMA/SARIMA/SARIMAX ALGORITHM TEMPLATE
+============================
+- Use below code as template for arima/sarima/sarimax algorithm:  
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.seasonal import STL
+from pandas.tseries.frequencies import to_offset
+
+# 1. Detect the date column
+def detect_date_column(df):
+    for col in df.columns:
+        if df[col].dtype == 'datetime64[ns]':
+            return col
+        if 'date' in col.lower() or 'time' in col.lower():
+            try:
+                df[col] = pd.to_datetime(df[col])
+                return col
+            except:
+                continue
+    raise ValueError("No valid date column found.")
+
+# 2. Detect the target column from query or numerics
+def detect_target_column(df, query):
+    query_lower = query.lower()
+    for col in df.columns:
+        if col.lower() in query_lower and pd.api.types.is_numeric_dtype(df[col]):
+            return col
+    numeric_cols = df.select_dtypes(include='number').columns
+    if len(numeric_cols) > 0:
+        return numeric_cols[0]
+    raise ValueError("No numeric target column found.")
+
+# 3. Detect forecast period and frequency
+def extract_forecast_params(query):
+    match = re.search(r'next (\d+)\s*(day|week|month|year)', query.lower())
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        freq_map = {
+            'day': ('D', num),
+            'week': ('W', num),
+            'month': ('M', num),
+            'year': ('Y', num)
+        }
+        return freq_map[unit]
+    return 'M', 12  # default to 12 months
+
+# 4. Detect if seasonality is present (for SARIMA)
+def detect_seasonality(y, period):
+    stl = STL(y, period=period)
+    result = stl.fit()
+    seasonal_strength = np.var(result.seasonal) / (np.var(result.seasonal) + np.var(result.resid))
+    return seasonal_strength > 0.1  # Arbitrary threshold
+
+# 5. Main ARIMA pipeline
+def forecast_with_arima(file_path, user_query):
+    df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
+    date_col = detect_date_column(df)
+    target_col = detect_target_column(df, user_query)
+    freq, periods = extract_forecast_params(user_query)
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    df = df[[date_col, target_col]].dropna()
+    df.set_index(date_col, inplace=True)
+    df = df.asfreq(to_offset(freq))
+    y = df[target_col]
+
+    # Check for seasonality
+    seasonal = detect_seasonality(y, period=12 if freq in ['M', 'W'] else 7)
+
+    if seasonal:
+        print("Using SARIMA model (seasonal)")
+        model = SARIMAX(y, order=(1,1,1), seasonal_order=(1,1,1,12), enforce_stationarity=False, enforce_invertibility=False)
+    else:
+        print("Using ARIMA model (no seasonality)")
+        model = SARIMAX(y, order=(1,1,1), seasonal_order=(0,0,0,0))
+
+    results = model.fit(disp=False)
+
+    forecast = results.get_forecast(steps=periods)
+    forecast_df = forecast.summary_frame()
+    forecast_index = pd.date_range(start=y.index[-1] + to_offset(freq), periods=periods, freq=freq)
+    forecast_df.index = forecast_index
+
+    # Plot forecast
+    plt.figure(figsize=(10, 5))
+    plt.plot(y, label='Observed')
+    plt.plot(forecast_df['mean'], label='Forecast')
+    plt.fill_between(forecast_df.index, forecast_df['mean_ci_lower'], forecast_df['mean_ci_upper'], color='lightblue', alpha=0.4)
+    plt.title(f"{'SARIMA' if seasonal else 'ARIMA'} Forecast of '{target_col}'")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    return forecast_df[['mean', 'mean_ci_lower', 'mean_ci_upper']]
+
+============================
+LSTM ALGORITHM TEMPLATE
+============================
+- Use below code as template for lstm algorithm: 
+
+import pandas as pd
+import numpy as np
+import re
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, GRU, Dense
+from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping
+
+def detect_date_column(df):
+    for col in df.columns:
+        if df[col].dtype == 'datetime64[ns]':
+            return col
+        if 'date' in col.lower() or 'time' in col.lower():
+            try:
+                df[col] = pd.to_datetime(df[col])
+                return col
+            except:
+                continue
+    raise ValueError("No valid date column found.")
+
+def detect_target_column(df, query):
+    query = query.lower()
+    for col in df.columns:
+        if col.lower() in query and pd.api.types.is_numeric_dtype(df[col]):
+            return col
+    numeric_cols = df.select_dtypes(include='number').columns
+    if len(numeric_cols) > 0:
+        return numeric_cols[0]
+    raise ValueError("No numeric target column found.")
+
+def extract_forecast_params(query):
+    match = re.search(r'next (\d+)\s*(day|week|month|year)', query.lower())
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        freq_map = {
+            'day': ('D', num),
+            'week': ('W', num * 7),
+            'month': ('M', num * 30),
+            'year': ('Y', num * 365)
+        }
+        return freq_map[unit]
+    return 'D', 30  # default: next 30 days
+
+def create_sequences(data, window_size):
+    X, y = [], []
+    for i in range(len(data) - window_size):
+        X.append(data[i:i+window_size])
+        y.append(data[i+window_size])
+    return np.array(X), np.array(y)
+
+def forecast_with_lstm_or_gru(file_path, user_query, model_type='lstm', window_size=30):
+    df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
+
+    date_col = detect_date_column(df)
+    target_col = detect_target_column(df, user_query)
+    freq, forecast_steps = extract_forecast_params(user_query)
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    df.sort_values(by=date_col, inplace=True)
+    df = df[[date_col, target_col]].dropna().set_index(date_col)
+    df = df.asfreq(freq)
+
+    data = df[target_col].values.reshape(-1, 1)
+    scaler = MinMaxScaler()
+    data_scaled = scaler.fit_transform(data)
+
+    # Create sequences
+    X, y = create_sequences(data_scaled, window_size)
+    X = X.reshape((X.shape[0], X.shape[1], 1))  # (samples, timesteps, features)
+
+    # Build model
+    model = Sequential()
+    if model_type.lower() == 'gru':
+        model.add(GRU(64, input_shape=(window_size, 1)))
+    else:
+        model.add(LSTM(64, input_shape=(window_size, 1)))
+    model.add(Dense(1))
+    model.compile(loss='mse', optimizer=Adam(learning_rate=0.001))
+    model.fit(X, y, epochs=50, batch_size=16, verbose=0, callbacks=[EarlyStopping(patience=5)])
+
+    # Forecast next values
+    last_sequence = data_scaled[-window_size:].reshape(1, window_size, 1)
+    forecast_scaled = []
+    for _ in range(forecast_steps):
+        pred = model.predict(last_sequence)[0][0]
+        forecast_scaled.append(pred)
+        last_sequence = np.append(last_sequence[:,1:,:], [[[pred]]], axis=1)
+
+    forecast = scaler.inverse_transform(np.array(forecast_scaled).reshape(-1, 1)).flatten()
+
+    # Build forecast DataFrame
+    future_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(1, unit=freq), periods=forecast_steps, freq=freq)
+    forecast_df = pd.DataFrame({'ds': future_dates, 'forecast': forecast})
+
+    # Plot forecast
+    plt.figure(figsize=(10, 5))
+    plt.plot(df.index, df[target_col], label='History')
+    plt.plot(forecast_df['ds'], forecast_df['forecast'], label='Forecast')
+    plt.title(f"{model_type.upper()} Forecast for '{target_col}'")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    return forecast_df
+
+
+"""
+        else:
+            base_requirements = base_requirements
+        
+   
         # Check for stop signal before generating code
         self.check_stop_signal()
         
@@ -935,7 +1638,7 @@ REQUEST TYPE: {data_request['type']}
             model=self.MODEL,
             messages=[
                 {"role": "system", "content": self._create_system_prompt()},
-                {"role": "user",   "content": prompt_with_context}
+                {"role": "assistant",   "content": prompt_with_context}
             ],
         )
         
@@ -1366,11 +2069,11 @@ REQUEST TYPE: {data_request['type']}
                 elif "```" in regenerated_code:
                     regenerated_code = regenerated_code.split("```")[1].split("```")[0].strip()
                 
-                print(f"Regenerated code (attempt {attempt + 1}):")
+                # print(f"Regenerated code (attempt {attempt + 1}):")
                 print(regenerated_code)
                 print("-" * 50)
                 
-                self.emit_stream('code', f"Regenerated code (attempt {attempt + 1}):\n{regenerated_code}")
+                self.emit_stream('code', f"{regenerated_code}")
                 
                 # Check for stop signal before execution
                 self.check_stop_signal()
