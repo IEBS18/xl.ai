@@ -333,31 +333,51 @@ class QuadraticCSVAnalyzer:
             return ""
        
     def load_csv(self, file_path: str) -> bool:
-        """Load CSV file and analyze its structure."""
+        """Load CSV or Excel file and analyze its structure."""
         try:
             self.original_file_path = file_path
-            try:
-                self.df = pd.read_csv(file_path, encoding='utf-8')
-                self.csv_info = self._generate_csv_info()
-            except:
-                self.df = pd.read_excel(file_path, engine='openpyxl')
-                self.csv_info = self._generate_csv_info()
-            print(f"✅ CSV loaded successfully!")
+            file_ext = os.path.splitext(file_path)[-1].lower()
+
+            if file_ext == ".csv":
+                self.df = pd.read_csv(file_path, encoding="utf-8")
+            elif file_ext in [".xlsx", ".xlsm", ".xltx", ".xltm"]:
+                self.df = pd.read_excel(file_path, engine="openpyxl")
+            elif file_ext == ".xls":
+                self.df = pd.read_excel(file_path, engine="xlrd")
+            elif file_ext == ".ods":
+                self.df = pd.read_excel(file_path, engine="odf")
+            elif file_ext == ".xlsb":
+                import pyxlsb  # Ensure it's installed
+                self.df = pd.read_excel(file_path, engine="pyxlsb")
+            else:
+                raise ValueError(f"Unsupported file extension: {file_ext}")
+            
+            # Convert all data (including datetime) to strings and fill nulls with ""
+
+            self.df.columns = self.df.columns.astype(str)
+            self.df.index = self.df.index.astype(str)
+
+            # Convert data values to strings
+            self.df = self.df.applymap(lambda x: "" if pd.isna(x) else str(x))
+            logging.info(self.df.dtypes)
+            self.csv_info = self._generate_csv_info()
+
+            print(f"✅ File loaded successfully!")
             print(f"📊 Shape: {self.df.shape}")
             print(f"🔍 Columns: {list(self.df.columns)}")
             print(f"📈 Data types: {dict(self.df.dtypes)}")
-           
+
             # Store original data for comparison
             self.original_df = self.df.copy()
-           
+
             # Automatically generate basic trend metrics (stored, not reported)
             self._generate_basic_trends()
+
             return True
-           
+
         except Exception as e:
-            print(f"❌ Error loading CSV: {str(e)}")
+            print(f"❌ Error loading file: {str(e)}")
             return False
-   
     def _generate_basic_trends(self):
         """Generate basic trend metrics without generating reports."""
         try:

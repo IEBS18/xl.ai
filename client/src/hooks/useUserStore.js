@@ -1,8 +1,9 @@
 // hooks/useUserStore.js
+import { BACKEND_URL } from '@/utils/constants'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-const API_BASE_URL = ''
+const API_BASE_URL = BACKEND_URL
 
 export const useUserStore = create(
   persist(

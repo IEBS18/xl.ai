@@ -59,6 +59,7 @@ dist/
 *.csv
 *.png
 *.xlsx
+*.xls
 *.jpeg
 *.docx
 *.pdf
