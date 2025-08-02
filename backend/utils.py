@@ -802,6 +802,7 @@ MANDATORY REQUIREMENTS:
 4. ALWAYS create charts/visualizations using matplotlib for EVERY analysis
 5. Return results as DataFrames with meaningful column names
 6. Use the 'df' variable (DataFrame is already loaded - NEVER use pd.read_csv())
+7. Detect the header of the attached file. it is not important that the first attached file will be the header. 
 
 VISUALIZATION REQUIREMENTS (MANDATORY):
 - ALWAYS create at least one chart for every analysis
@@ -810,6 +811,7 @@ VISUALIZATION REQUIREMENTS (MANDATORY):
 - Use Pie charts for revenue/profit breakdowns by category/SKU
 - Save all plots using plt.savefig() and plt.show()
 - Include proper titles, labels, and legends
+- Use subtle, cleaned legends and labels along x-axis and y-axis. 
 
 SUCCESS CRITERIA FOR EVERY RESPONSE:
 ✓ Code runs completely without errors
@@ -864,6 +866,80 @@ Return DataFrames that enhance the original dataset with new insights, predictio
 Show exactly what data would be added to the original file.
 You MUST complete the entire analysis with visualizations in one code block.
 Focus on creating NEW DATA that enhances the original dataset.
+
+----------------- PYTHON BASICS DOCUMENTATION (FOR REFERENCE) -----------------
+
+# Common Python Structures:
+my_list = [1, 2, 3]
+my_dict = {{'key': 'value'}}
+for item in my_list:
+    print(item)
+
+if x > 0:
+    print("Positive")
+elif x < 0:
+    print("Negative")
+else:
+    print("Zero")
+
+def my_func(x):
+    return x * 2
+
+# DataFrame Basics:
+df.head()
+df.info()
+df.describe()
+df['column_name']
+df[['col1', 'col2']]
+df[df['col'] > 10]
+df.groupby('category').mean()
+df['new'] = df['old'] * 0.1
+
+# Plotting with matplotlib:
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 6))
+plt.plot(df['date'], df['value'])  # or plt.bar(), plt.pie()
+plt.title("Trend Over Time")
+plt.xlabel("Date")
+plt.ylabel("Value")
+plt.legend(["Series A"])
+plt.savefig("trend_plot.png")
+plt.show()
+
+# Handling Missing Values:
+df.dropna()
+df.fillna(0)
+df['col'].isna().sum()
+
+# Type Conversion:
+df['col'] = df['col'].astype(float)
+df['date'] = pd.to_datetime(df['date'])
+
+# Statistical Methods:
+df['col'].mean()
+df['col'].median()
+df['col'].std()
+df.corr()
+
+# Forecasting Example with Prophet:
+from prophet import Prophet
+
+df_prophet = df.rename(columns={{'date': 'ds', 'value': 'y'}})
+model = Prophet()
+model.fit(df_prophet)
+future = model.make_future_dataframe(periods=30)
+forecast = model.predict(future)
+
+---------------- SYNTAX SAFETY CHECKLIST (MANDATORY FOR EVERY CODE) ----------------
+
+✓ NO unexpected indent or over-indented lines
+✓ All brackets ((), [], {{}}) and quotes ('' or "") are closed properly
+✓ ALL import statements at the top
+✓ No use of undefined variables or functions (e.g., using plt without import)
+✓ Function definitions and loops are correctly indented (4 spaces)
+✓ Each line is syntactically complete (e.g., no unclosed `if`, `for`, or `def`)
+✓ Save and display all plots with both `plt.savefig()` AND `plt.show()`
 """
     
     def _streaming_print(self, *args, **kwargs):
@@ -1842,28 +1918,15 @@ def forecast_with_lstm_or_gru(file_path, user_query, model_type='lstm', window_s
             
             exec_locals = {}
             
-            # Execute with timeout and stop checking
+            # Execute all code at once with timeout
             try:
-                # Split code into lines for periodic stop checking
-                code_lines = code.split('\n')
-                current_code = ""
-                
-                for i, line in enumerate(code_lines):
-                    # Check for stop signal every few lines
-                    if i % 5 == 0:
-                        self.check_stop_signal()
+                if platform.system() != 'Windows':
+                    with timeout_context(120):  # 2 minute timeout for entire execution
+                        exec(code, exec_globals, exec_locals)
+                else:
+                    # On Windows, execute without signal-based timeout
+                    exec(code, exec_globals, exec_locals)
                     
-                    current_code += line + '\n'
-                    
-                    # Execute in chunks for better stop responsiveness
-                    if i % 10 == 9 or i == len(code_lines) - 1:
-                        if platform.system() != 'Windows':
-                            with timeout_context(30):  # 30 second timeout per chunk
-                                exec(current_code, exec_globals, exec_locals)
-                        else:
-                            exec(current_code, exec_globals, exec_locals)
-                        current_code = ""
-                        
             except TimeoutError as e:
                 return {
                     "success": False,

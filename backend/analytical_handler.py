@@ -22,9 +22,11 @@ class AnalyticalHandler:
         self.openai_client = AzureOpenAI(
             api_key=os.getenv('AZUREAPI'),
             api_version=os.getenv('AZUREVERSION'),
-            azure_endpoint=os.getenv('AZUREENDPOINT')
+            azure_endpoint=os.getenv('AZUREENDPOINT'),
+            # azure_model=os.getenv('AZURE_OPENAI_MODEL')
         )
-        self.MODEL = "gpt-4o-mini"
+        # self.MODEL =os.getenv('AZUREMODEL')
+        self.MODEL='gpt-4o-mini'
     
     def emit_stream(self, message_type: str, data: str):
         """Emit streaming data to the frontend."""
