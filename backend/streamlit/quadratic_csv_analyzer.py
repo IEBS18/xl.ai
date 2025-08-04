@@ -41,7 +41,7 @@ class QuadraticCSVAnalyzer:
             self.logger.error(f"❌ Failed to initialize Azure OpenAI client: {str(e)}")
             raise
         
-        self.MODEL = "gpt-4o-mini"
+        self.MODEL =os.getenv('AZUREMODEL')
         self.df = None
         self.csv_info = ""
         self.execution_history = []

@@ -580,7 +580,8 @@ class StreamingAnalyzer(QuadraticCSVAnalyzer):
                     self.emit_stream('image', {
                         'filename': image_filename,
                         'data': f"data:image/png;base64,{img_data}",
-                        'path': str(image_path)
+                        'path': str(image_path),
+                        'thisis': 1
                     })
                     
                     print(f"📸 Saved and streamed plot: {image_filename}")

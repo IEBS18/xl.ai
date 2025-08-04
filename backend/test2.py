@@ -16,6 +16,8 @@ import base64
 from io import BytesIO
 import shutil
 import pickle
+from werkzeug.utils import secure_filename
+
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 warnings.filterwarnings('ignore')
  
@@ -143,7 +145,7 @@ class QuadraticCSVAnalyzer:
             azure_endpoint=os.getenv("AZUREENDPOINT")
         )
         # self.MODEL = os.getenv('AZUREMODEL')
-        self.MODEL='gpt-4o-mini'
+        self.MODEL =os.getenv('AZUREMODEL')
         self.df = None
         self.csv_info = ""
         self.original_file_path = None
@@ -332,7 +334,228 @@ class QuadraticCSVAnalyzer:
         except Exception as e:
             logging.exception(f"⚠️ Exception occurred during file upload: {str(e)}")
             return ""
-       
+    
+
+    def _upload_file_to_blob_direct(self, file_stream, original_filename: str, blob_subfolder: str) -> str:
+        """
+        Upload file stream directly to Azure Blob Storage without saving locally.
+        Returns the blob name for SAS generation.
+        """
+        try:
+            logging.info(f"🧪 Uploading file stream: {original_filename}")
+
+            # Validate required instance variables
+            if not self.analysis_folder_name or not self.container_name:
+                logging.error("❌ Missing required configuration in class instance.")
+                return ""
+
+            # Build the blob path with timestamp to avoid conflicts
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_filename = secure_filename(original_filename)
+            file_name = f"{timestamp}_{safe_filename}"
+            blob_name = f"{self.analysis_folder_name}/{blob_subfolder}/{file_name}".strip('/')
+            
+            logging.debug(f"📁 Target blob path: {blob_name}")
+
+            # Ensure blob_service_client is initialized
+            if not self.blob_service_client:
+                logging.error("❌ BlobServiceClient is not initialized.")
+                return ""
+
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+
+            # Reset stream position and upload directly
+            file_stream.seek(0)
+            blob_client.upload_blob(
+                file_stream,
+                overwrite=True,
+                content_settings=ContentSettings(content_type="application/octet-stream")
+            )
+            
+            logging.info(f"📤 Uploaded file to blob: {self.container_name}/{blob_name}")
+            return blob_name
+
+        except Exception as e:
+            logging.exception(f"⚠️ Exception occurred during direct file upload: {str(e)}")
+            return ""
+    
+    def _generate_sas_token_url(self, blob_name: str, expiry_hours: int = 168) -> str:
+        """Generate a SAS token URL for secure access to the blob file."""
+        try:
+            if not self.blob_service_client:
+                logging.error("❌ BlobServiceClient is not initialized.")
+                return ""
+            
+            # Get account key for SAS generation
+            account_key = os.getenv('AZURE_STORAGE_ACCOUNT_KEY')
+            account_name = os.getenv('AZURE_STORAGE_ACCOUNT_NAME')
+            
+            if not account_key or not account_name:
+                # Try to extract from blob service client
+                if hasattr(self.blob_service_client, 'account_name'):
+                    account_name = self.blob_service_client.account_name
+                if hasattr(self.blob_service_client.credential, 'account_key'):
+                    account_key = self.blob_service_client.credential.account_key
+            
+            if not account_key or not account_name:
+                logging.error("❌ Account credentials not available for SAS token generation.")
+                return ""
+            
+            # Generate SAS token with longer expiry for analysis purposes
+            sas_token = generate_blob_sas(
+                account_name=account_name,
+                container_name=self.container_name,
+                blob_name=blob_name,
+                account_key=account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.utcnow() + timedelta(hours=expiry_hours)
+            )
+            
+            # Construct full URL with SAS token
+            blob_url = f"https://{account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
+            sas_url = f"{blob_url}?{sas_token}"
+            
+            logging.info(f"🔐 Generated SAS token URL (expires in {expiry_hours}h)")
+            return sas_url
+            
+        except Exception as e:
+            logging.exception(f"⚠️ Exception occurred during SAS token generation: {str(e)}")
+            return ""
+
+    def upload_stream_and_get_sas_url(self, file_stream, original_filename: str, blob_subfolder: str = None, expiry_hours: int = 168) -> dict:
+        """Upload file stream directly to blob storage and return SAS token URL."""
+        if blob_subfolder is None:
+            blob_subfolder = self.session_id
+            
+        try:
+            # Upload file stream directly to blob
+            blob_name = self._upload_file_to_blob_direct(file_stream, original_filename, blob_subfolder)
+            
+            if not blob_name:
+                return {
+                    'success': False,
+                    'error': 'Failed to upload file to blob storage',
+                    'sas_url': '',
+                    'blob_name': ''
+                }
+            
+            # Generate SAS token URL
+            sas_url = self._generate_sas_token_url(blob_name, expiry_hours)
+            
+            if not sas_url:
+                return {
+                    'success': False,
+                    'error': 'Failed to generate SAS token URL',
+                    'sas_url': '',
+                    'blob_name': blob_name
+                }
+            
+            return {
+                'success': True,
+                'sas_url': sas_url,
+                'blob_name': blob_name,
+                'expiry_hours': expiry_hours,
+                'expires_at': (datetime.utcnow() + timedelta(hours=expiry_hours)).isoformat()
+            }
+            
+        except Exception as e:
+            logging.exception(f"⚠️ Exception in upload_stream_and_get_sas_url: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'sas_url': '',
+                'blob_name': ''
+            }
+
+    def load_csv_from_sas_url(self, sas_url: str, file_extension: str = None) -> bool:
+        """Load CSV or Excel file directly from SAS URL without local storage."""
+        try:
+            # Store the SAS URL for future operations
+            self.blob_sas_url = sas_url
+            self.original_file_path = sas_url
+            
+            # Determine file type
+            if file_extension:
+                file_ext = file_extension.lower()
+            else:
+                # Try to extract from URL (remove query parameters first)
+                clean_url = sas_url.split('?')[0]
+                file_ext = os.path.splitext(clean_url)[-1].lower()
+            
+            logging.info(f"📥 Loading file directly from SAS URL")
+            logging.info(f"📄 File extension: {file_ext}")
+
+            # Load file directly from URL based on extension
+            if file_ext == ".csv":
+                self.df = pd.read_csv(sas_url, encoding="utf-8")
+            elif file_ext in [".xlsx", ".xlsm", ".xltx", ".xltm"]:
+                self.df = pd.read_excel(sas_url, engine="openpyxl")
+            elif file_ext == ".xls":
+                self.df = pd.read_excel(sas_url, engine="xlrd")
+            elif file_ext == ".ods":
+                self.df = pd.read_excel(sas_url, engine="odf")
+            elif file_ext == ".xlsb":
+                import pyxlsb
+                self.df = pd.read_excel(sas_url, engine="pyxlsb")
+            else:
+                raise ValueError(f"Unsupported file extension: {file_ext}")
+            
+            # Convert all data to strings and fill nulls
+            self.df.columns = self.df.columns.astype(str)
+            self.df.index = self.df.index.astype(str)
+            self.df = self.df.applymap(lambda x: "" if pd.isna(x) else str(x))
+            
+            self.csv_info = self._generate_csv_info()
+
+            print(f"✅ File loaded successfully from blob storage!")
+            print(f"📊 Shape: {self.df.shape}")
+            print(f"🔍 Columns: {list(self.df.columns)}")
+
+            # Store original data for comparison
+            self.original_df = self.df.copy()
+            self._generate_basic_trends()
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Error loading file from SAS URL: {str(e)}")
+            logging.exception("Detailed error loading file from SAS URL")
+            return False
+
+    def get_data_subset_from_blob(self, rows: int = 1000) -> pd.DataFrame:
+        """
+        Get a subset of data directly from blob storage for operations that don't need full dataset.
+        This saves memory and processing time.
+        """
+        try:
+            if not self.blob_sas_url:
+                logging.warning("No blob SAS URL available, using loaded DataFrame")
+                return self.df.head(rows) if self.df is not None else pd.DataFrame()
+            
+            # Determine file extension
+            clean_url = self.blob_sas_url.split('?')[0]
+            file_ext = os.path.splitext(clean_url)[-1].lower()
+            
+            if file_ext == ".csv":
+                # For CSV, we can read only first N rows
+                subset_df = pd.read_csv(self.blob_sas_url, encoding="utf-8", nrows=rows)
+            else:
+                # For Excel files, read all and take subset (Excel engines don't support nrows well)
+                subset_df = pd.read_excel(self.blob_sas_url, engine="openpyxl").head(rows)
+            
+            # Apply same transformations as main load
+            subset_df.columns = subset_df.columns.astype(str)
+            subset_df = subset_df.applymap(lambda x: "" if pd.isna(x) else str(x))
+            
+            return subset_df
+            
+        except Exception as e:
+            logging.exception(f"Error getting data subset from blob: {str(e)}")
+            return self.df.head(rows) if self.df is not None else pd.DataFrame()
+
     def load_csv(self, file_path: str) -> bool:
         """Load CSV or Excel file and analyze its structure."""
         try:
@@ -379,6 +602,8 @@ class QuadraticCSVAnalyzer:
         except Exception as e:
             print(f"❌ Error loading file: {str(e)}")
             return False
+    
+    
     def _generate_basic_trends(self):
         """Generate basic trend metrics without generating reports."""
         try:

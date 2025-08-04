@@ -24,8 +24,8 @@ class TextualAnalyticalHandler:
             api_version=os.getenv('AZUREVERSION'),
             azure_endpoint=os.getenv('AZUREENDPOINT')
         )
-        # self.MODEL = os.getenv("AZUREMODEL")
-        self.MODEL='gpt-4o-mini'
+        self.MODEL = os.getenv("AZUREMODEL")
+        # self.MODEL='gpt-4o-mini'
     
     def emit_stream(self, message_type: str, data: str):
         """Emit streaming data to the frontend."""

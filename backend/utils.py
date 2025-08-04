@@ -2011,7 +2011,8 @@ def forecast_with_lstm_or_gru(file_path, user_query, model_type='lstm', window_s
                     self.emit_stream('image', {
                         'filename': image_filename,
                         'data': f"data:image/png;base64,{img_data}",
-                        'path': str(image_path)
+                        'path': str(image_path),
+                        'thisis': 2
                     })
                     
                     print(f"Saved and streamed plot: {image_filename}")
