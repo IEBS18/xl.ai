@@ -1,178 +1,510 @@
-import requests
+import os
+import time
+from openai import AzureOpenAI
+from dotenv import load_dotenv
 
-html_content = """
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Business Intelligence Analysis Strategic Outlook 2025-2026</title>
-    <style>
-        body {
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-            color: #2d3748;
-            font-family: 'Inter', 'Roboto', Arial, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 20px;
-        }
+# Load environment variables
+load_dotenv()
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            padding: 40px;
-        }
-
-        h1, h2, h3 {
-            color: #2d3748;
-        }
-
-        h1 {
-            font-size: 2.5em;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        h2 {
-            font-size: 2em;
-            margin-top: 20px;
-        }
-
-        h3 {
-            font-size: 1.5em;
-            margin-top: 15px;
-            margin-bottom: 10px;
-        }
-
-        p {
-            margin: 10px 0;
-        }
-
-        .table-of-contents {
-            margin: 30px 0;
-            padding: 15px;
-            background: #f0f4f8;
-            border: 1px solid #d1e0e5;
-            border-radius: 8px;
-        }
-
-        .toc-item {
-            margin-bottom: 10px;
-        }
-
-        .chart-container {
-            background: #ffffff;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-            border: 1px solid #e9ecef;
-        }
-
-        .chart-image {
-            width: 100%;
-            height: auto;
-            max-width: 800px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        @media print {
-            body {
-                color: #000;
-            }
-
-            .container {
-                background: none;
-                box-shadow: none;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Business Intelligence Analysis Strategic Outlook 2025-2026</h1>
-
-        <div class="table-of-contents">
-            <h2>Table of Contents</h2>
-            <div class="toc-item"><a href="#executive-summary">Executive Summary</a></div>
-            <div class="toc-item"><a href="#background-objectives">Background & Objectives</a></div>
-            <div class="toc-item"><a href="#data-sources-methodology">Data Sources & Methodology</a></div>
-            <div class="toc-item"><a href="#market-trend-analysis">Market & Trend Analysis</a></div>
-            <div class="toc-item"><a href="#analysis-results">Analysis Results</a></div>
-            <div class="toc-item"><a href="#strategic-implications">Strategic Implications</a></div>
-            <div class="toc-item"><a href="#recommendations-implementation-roadmap">Recommendations & Implementation Roadmap</a></div>
-            <div class="toc-item"><a href="#risks-mitigations">Risks & Mitigations</a></div>
-            <div class="toc-item"><a href="#appendices">Appendices</a></div>
-        </div>
-
-        <h2 id="executive-summary">Executive Summary</h2>
-        <p>This report presents an extensive analysis of the data gleaned from 55,500 records over a five-year span, assessing various dimensions critical to the management of hospital resources and patient care in our healthcare system. Key findings include insights into patient demographics, billing practices, and trends in length of stay that inform strategic planning moving forward into 2025-2026. Strategic recommendations based on these insights are framed to enhance service delivery and optimize financial performance.</p>
-        <p>The analysis indicates a significant correlation between demographic factors such as age and the length of stay, with broader implications for staffing and resource allocation. Various recommendations are posited to mitigate risks associated with patient care and billing inaccuracies.</p>
-
-        <h2 id="background-objectives">Background & Objectives</h2>
-        <p>In the realm of healthcare services, effective management of resources directly contributes to improved patient outcomes and operational efficiency. This report aims to elucidate patterns and trends derived from comprehensive datasets to heighten the understanding of patient demographics, financial dynamics, and healthcare delivery mechanisms.</p>
-        
-        <h2 id="data-sources-methodology">Data Sources & Methodology</h2>
-        <p>The primary dataset comprises 55,500 records captured from May 2019 to May 2024, detailing attributes such as patient demographics, billing amounts, insurance providers, and medical conditions. Data were analyzed using statistical tools to derive insights into patient behaviors and outcomes. The methodology encompassed descriptive statistics and trend analysis.</p>
-
-        <h2 id="market-trend-analysis">Market & Trend Analysis</h2>
-        <p>Analysis reveals that the average age of patients admitted is 51.5 years, highlighting a substantial senior demographic that requires targeted healthcare strategies. The average billing amount stands at approximately $25,540, with variability dependent on factors such as length of stay and admission type.</p>
-        
-        <div class="chart-container">
-            <h3>Length of Stay by Age Group</h3>
-            <img class="chart-image" src="https://datastorageblobieb.blob.core.windows.net/insi-predict-dev/analysis_20250723_123734/images/plot_124558_1.png" alt="Length of Stay by Age Group"/>
-            <p><strong>Figure 1:</strong> Length of Stay categorized by Age Group illustrates the trends observed across different age demographics.</p>
-        </div>
-
-        <h2 id="analysis-results">Analysis Results</h2>
-        <p>The key findings from the analysis provide clarity on trends impacting hospital management. Notably, there is an upward trend in billing amounts correlated with length of stay, highlighting the need for effective billing processes. Additionally, categorical variables such as 'Medical Condition' reveal varying lengths of stay, suggesting that particular conditions significantly impact resource allocation.</p>
-        
-        <h2 id="strategic-implications">Strategic Implications</h2>
-        <p>The insights derived from the data compel a strategic refocus on resource allocation, staffing, and financial management. The distinct relationship between demographics and healthcare needs necessitates a tailored approach to patient care that accommodates the variability in requirements based on age and medical conditions.</p>
-        
-        <h2 id="recommendations-implementation-roadmap">Recommendations & Implementation Roadmap</h2>
-        <p>To address identified areas for improvement, the following recommendations are proposed:</p>
-        <ol>
-            <li>Implement age-specific care plans to enhance patient outcomes.</li>
-            <li>Optimize billing procedures by leveraging real-time data analytics tools.</li>
-            <li>Enhance workforce management to address the staffing needs highlighted by patient demographics.</li>
-        </ol>
-
-        <h2 id="risks-mitigations">Risks & Mitigations</h2>
-        <p>Potential risks associated with executing the aforementioned recommendations include resistance to change and adoption challenges among staff. To mitigate these risks, it is advisable to conduct training sessions and stakeholder engagement to foster a culture of adaptability.</p>
-
-        <h2 id="appendices">Appendices</h2>
-        <p>Additional information, including detailed statistical models and further technical specifications regarding data analysis methodologies, are documented in the appendices.</p>
-    </div>
-</body>
-</html>
-```
-"""
-
-# Save the HTML to a file first
-with open("document.html", "w", encoding="utf-8") as f:
-    f.write(html_content)
-
-# Prepare the multipart/form-data payload
-with open("document.html", "rb") as html_file:
-    files = {
-        "files": ("index.html", html_file, "text/html"),
+class AzureOpenAIDataAnalyzer:
+    """
+    Data analyzer using Azure OpenAI Assistants API with Code Interpreter
+    Supports CSV, Excel, JSON, and other data formats
+    """
+    
+    # Supported file formats
+    SUPPORTED_FORMATS = {
+        '.csv': 'CSV',
+        '.xlsx': 'Excel',
+        '.xls': 'Excel',
+        '.json': 'JSON',
+        '.txt': 'Text',
+        '.tsv': 'Tab-separated values',
+        '.parquet': 'Parquet',
+        '.pkl': 'Pickle',
+        '.pickle': 'Pickle',
+        '.xml': 'XML',
+        '.yaml': 'YAML',
+        '.yml': 'YAML'
     }
+    
+    def __init__(self):
+        """Initialize the Azure OpenAI client"""
+        self.client = self._setup_azure_client()
+        self.assistant_id = None
+        self.thread_id = None
+        self.file_id = None
+        self.file_format = None
+        
+    def _setup_azure_client(self) -> AzureOpenAI:
+        """Setup Azure OpenAI client"""
+        return AzureOpenAI(
+            api_key=os.getenv("AZUREAPI"),
+            api_version=os.getenv("AZUREVERSION", "2024-08-01-preview"),
+            azure_endpoint=os.getenv("AZUREENDPOINT")
+        )
+    
+    def _detect_file_format(self, file_path: str) -> str:
+        """Detect file format from extension"""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        return self.SUPPORTED_FORMATS.get(file_ext, 'Unknown')
+    
+    def _validate_file(self, file_path: str) -> bool:
+        """Validate if file format is supported"""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext not in self.SUPPORTED_FORMATS:
+            print(f"❌ Unsupported file format: {file_ext}")
+            print(f"✅ Supported formats: {', '.join(self.SUPPORTED_FORMATS.keys())}")
+            return False
+        return True
+    
+    def create_assistant(self, name: str = "Data Analyst") -> str:
+        """Create an assistant with code interpreter capabilities"""
+        try:
+            deployment_name = os.getenv("AZUREMODEL")
+            if not deployment_name:
+                raise ValueError("AZUREMODEL environment variable must be set to your deployment name")
+            
+            print(f"Creating assistant with deployment: {deployment_name}")
+            
+            assistant = self.client.beta.assistants.create(
+                name=name,
+                instructions="""You are a professional data analyst assistant with code interpreter capabilities. 
 
-    response = requests.post(
-        "http://localhost:3000/forms/chromium/convert/html",
-        files=files,
-    )
+You can analyze various file formats including:
+- CSV files
+- Excel files (.xlsx, .xls)
+- JSON files
+- Text files
+- Parquet files
+- Pickle files
+- XML files
+- YAML files
 
-# Save the resulting PDF
-if response.status_code == 200:
-    with open("output.pdf", "wb") as f:
-        f.write(response.content)
-    print("PDF saved as output.pdf")
-else:
-    print(f"Error: {response.status_code}\n{response.text}")
+When analyzing data:
+1. First identify the file format and examine its structure
+2. Load the data using appropriate libraries (pandas, json, openpyxl, etc.)
+3. Examine data shape, columns, data types, and basic statistics
+4. Check for missing values and data quality issues
+5. Create meaningful visualizations using matplotlib/seaborn
+6. Provide clear insights and actionable recommendations
+7. Explain findings in simple, business-friendly terms
+
+For Excel files:
+- Check for multiple sheets and analyze each if relevant
+- Handle merged cells and formatting appropriately
+
+For JSON files:
+- Parse nested structures and flatten if needed for analysis
+- Handle arrays and objects appropriately
+
+For visualizations:
+- Use clear, descriptive titles and labels
+- Choose appropriate chart types for the data
+- Use professional styling with seaborn
+- Create publication-ready plots
+- Always use plt.show() to display plots
+
+Always provide executive summaries and key takeaways.""",
+                tools=[{"type": "code_interpreter"}],
+                model=deployment_name
+            )
+            
+            self.assistant_id = assistant.id
+            print(f"✅ Assistant created! ID: {self.assistant_id}")
+            return self.assistant_id
+            
+        except Exception as e:
+            print(f"❌ Error creating assistant: {e}")
+            print("\n🔧 Troubleshooting:")
+            print("1. Check that AZUREMODEL is your deployment name")
+            print("2. Verify deployment exists in Azure AI Foundry portal")
+            print("3. Ensure API version is 2024-08-01-preview or newer")
+            print("4. Confirm your region supports Assistants API")
+            raise
+    
+    def upload_data_file(self, file_path: str) -> str:
+        """Upload data file to Azure OpenAI"""
+        try:
+            # Validate file format
+            if not self._validate_file(file_path):
+                raise ValueError("Unsupported file format")
+            
+            self.file_format = self._detect_file_format(file_path)
+            file_name = os.path.basename(file_path)
+            
+            print(f"📁 Uploading {self.file_format} file: {file_name}")
+            
+            with open(file_path, "rb") as file:
+                uploaded_file = self.client.files.create(
+                    file=file,
+                    purpose="assistants"
+                )
+            
+            self.file_id = uploaded_file.id
+            print(f"✅ {self.file_format} file uploaded! ID: {self.file_id}")
+            return self.file_id
+            
+        except Exception as e:
+            print(f"❌ Error uploading file: {e}")
+            raise
+    
+    def create_thread(self) -> str:
+        """Create a conversation thread"""
+        try:
+            thread = self.client.beta.threads.create()
+            self.thread_id = thread.id
+            print(f"✅ Thread created! ID: {self.thread_id}")
+            return self.thread_id
+            
+        except Exception as e:
+            print(f"❌ Error creating thread: {e}")
+            raise
+    
+    def add_file_to_thread(self, message: str) -> None:
+        """Add the uploaded file to the thread"""
+        try:
+            # Customize message based on file format
+            format_specific_message = f"{message}\n\nThis is a {self.file_format} file. Please use appropriate methods to load and analyze the data."
+            
+            self.client.beta.threads.messages.create(
+                thread_id=self.thread_id,
+                role="user",
+                content=format_specific_message,
+                attachments=[{
+                    "file_id": self.file_id,
+                    "tools": [{"type": "code_interpreter"}]
+                }]
+            )
+            print(f"✅ {self.file_format} file attached to thread!")
+            
+        except Exception as e:
+            print(f"❌ Error adding file to thread: {e}")
+            raise
+    
+    def ask_question(self, question: str) -> str:
+        """Ask a question about the data"""
+        try:
+            # Add user message
+            self.client.beta.threads.messages.create(
+                thread_id=self.thread_id,
+                role="user",
+                content=question
+            )
+            
+            # Run the assistant
+            run = self.client.beta.threads.runs.create(
+                thread_id=self.thread_id,
+                assistant_id=self.assistant_id
+            )
+            
+            # Wait for completion
+            print("🤔 Processing...")
+            while run.status in ['queued', 'in_progress', 'cancelling']:
+                time.sleep(1)
+                run = self.client.beta.threads.runs.retrieve(
+                    thread_id=self.thread_id,
+                    run_id=run.id
+                )
+            
+            if run.status == 'completed':
+                # Get the response
+                messages = self.client.beta.threads.messages.list(
+                    thread_id=self.thread_id
+                )
+                
+                # Get the latest assistant message
+                for message in messages.data:
+                    if message.role == "assistant":
+                        response_text = ""
+                        for content in message.content:
+                            if content.type == "text":
+                                response_text += content.text.value + "\n"
+                        return response_text.strip()
+            else:
+                return f"❌ Run failed with status: {run.status}"
+                
+        except Exception as e:
+            return f"❌ Error processing question: {e}"
+    
+    def download_generated_files(self) -> list:
+        """Download any files generated by the assistant (plots, reports, etc.)"""
+        try:
+            # Get the latest run
+            runs = self.client.beta.threads.runs.list(thread_id=self.thread_id)
+            if not runs.data:
+                return []
+            
+            latest_run = runs.data[0]
+            
+            # Get run steps to find generated files
+            run_steps = self.client.beta.threads.runs.steps.list(
+                thread_id=self.thread_id,
+                run_id=latest_run.id
+            )
+            
+            downloaded_files = []
+            
+            for step in run_steps.data:
+                if hasattr(step.step_details, 'tool_calls'):
+                    for tool_call in step.step_details.tool_calls:
+                        if (tool_call.type == "code_interpreter" and 
+                            hasattr(tool_call.code_interpreter, 'outputs')):
+                            
+                            for output in tool_call.code_interpreter.outputs:
+                                if output.type == "image":
+                                    # Download images (plots/charts)
+                                    file_data = self.client.files.content(output.image.file_id)
+                                    file_name = f"plot_{output.image.file_id}.png"
+                                    
+                                    with open(file_name, "wb") as f:
+                                        f.write(file_data.content)
+                                    
+                                    downloaded_files.append(file_name)
+                                    print(f"📊 Downloaded image: {file_name}")
+                                    
+                                elif output.type == "logs":
+                                    # Check if logs contain file references
+                                    if hasattr(output, 'logs') and 'sandbox:/mnt/data/' in output.logs:
+                                        print("📄 Found file reference in logs - trying to download...")
+            
+            # Also check for files in the thread messages
+            messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
+            
+            for message in messages.data:
+                if message.role == "assistant":
+                    for content in message.content:
+                        if content.type == "text" and hasattr(content.text, 'annotations'):
+                            for annotation in content.text.annotations:
+                                if hasattr(annotation, 'file_path'):
+                                    try:
+                                        # Try to download the file
+                                        file_id = annotation.file_path.file_id
+                                        file_data = self.client.files.content(file_id)
+                                        
+                                        # Determine file extension based on content
+                                        content_str = file_data.content.decode('utf-8', errors='ignore')
+                                        if content_str.strip().startswith('<!DOCTYPE html>') or '<html>' in content_str:
+                                            file_name = f"report_{file_id}.html"
+                                        elif content_str.strip().startswith('{') or content_str.strip().startswith('['):
+                                            file_name = f"data_{file_id}.json"
+                                        else:
+                                            file_name = f"report_{file_id}.txt"
+                                        
+                                        with open(file_name, "wb") as f:
+                                            f.write(file_data.content)
+                                        
+                                        downloaded_files.append(file_name)
+                                        print(f"📄 Downloaded file: {file_name}")
+                                        
+                                    except Exception as file_error:
+                                        print(f"⚠️ Could not download file {annotation.file_path.file_id}: {file_error}")
+            
+            # If no files found through normal methods, try to get all files from the run
+            if not downloaded_files:
+                try:
+                    # List all files created during this conversation
+                    all_files = self.client.files.list()
+                    print(f"🔍 Checking {len(all_files.data)} total files...")
+                    
+                    # Look for recently created files (created in last hour)
+                    current_time = int(time.time())
+                    recent_files = [f for f in all_files.data if current_time - f.created_at < 3600]
+                    
+                    for file_obj in recent_files[:5]:  # Limit to 5 most recent files
+                        try:
+                            file_data = self.client.files.content(file_obj.id)
+                            
+                            # Determine file type
+                            if file_obj.filename:
+                                file_name = f"downloaded_{file_obj.filename}"
+                            else:
+                                file_name = f"file_{file_obj.id}.txt"
+                            
+                            with open(file_name, "wb") as f:
+                                f.write(file_data.content)
+                            
+                            downloaded_files.append(file_name)
+                            print(f"📁 Downloaded recent file: {file_name}")
+                            
+                        except Exception as e:
+                            continue
+                            
+                except Exception as e:
+                    print(f"⚠️ Could not list files: {e}")
+            
+            return downloaded_files
+            
+        except Exception as e:
+            print(f"❌ Error downloading files: {e}")
+            return []
+    
+    def cleanup(self):
+        """Clean up Azure resources"""
+        try:
+            if self.file_id:
+                self.client.files.delete(self.file_id)
+                print("🗑️ File deleted")
+            
+            if self.assistant_id:
+                self.client.beta.assistants.delete(self.assistant_id)
+                print("🗑️ Assistant deleted")
+                
+        except Exception as e:
+            print(f"❌ Error during cleanup: {e}")
+
+def setup_environment():
+    """Check environment variables"""
+    required_vars = ["AZUREAPI", "AZUREENDPOINT", "AZUREMODEL"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print("❌ Missing environment variables:")
+        for var in missing_vars:
+            print(f"  - {var}")
+        
+        print("\n📝 Create a .env file with:")
+        print("AZUREAPI=your-azure-openai-api-key")
+        print("AZUREENDPOINT=https://your-resource.openai.azure.com/")
+        print("AZUREVERSION=2024-08-01-preview")
+        print("AZUREMODEL=your-deployment-name")
+        
+        print("\n" + "="*60)
+        print("🚨 CRITICAL: AZUREMODEL MUST BE YOUR DEPLOYMENT NAME")
+        print("="*60)
+        print("❌ DON'T use: AZUREMODEL=gpt-4o")
+        print("✅ DO use: AZUREMODEL=my-gpt4-deployment")
+        print("\n📍 Find your deployment name in:")
+        print("   Azure AI Foundry → Deployments → Model deployments")
+        print("   Look for the 'Deployment name' column")
+        print("="*60)
+        
+        print("\n⚠️ Requirements:")
+        print("- Assistants API enabled (preview)")
+        print("- Code Interpreter tool enabled")
+        print("- GPT-4 or GPT-4o deployment in supported region")
+        print("- API version 2024-08-01-preview or newer")
+        return False
+    
+    # Validate deployment name format
+    model_value = os.getenv("AZUREMODEL")
+    if model_value in ["gpt-4", "gpt-4o", "gpt-35-turbo", "gpt-3.5-turbo"]:
+        print("⚠️  WARNING: AZUREMODEL looks like a model name, not deployment name")
+        print(f"   Current value: {model_value}")
+        print("   This might cause 'Unsupported data type' error")
+        print("   Please use your actual deployment name from Azure portal")
+    
+    return True
+
+def main():
+    """Main function"""
+    print("🤖 Azure OpenAI Data Analyzer")
+    print("📊 Supports CSV, Excel, JSON, and more!")
+    print("=" * 50)
+    
+    if not setup_environment():
+        return
+    
+    # Show supported formats
+    analyzer = AzureOpenAIDataAnalyzer()
+    print(f"📁 Supported formats: {', '.join(analyzer.SUPPORTED_FORMATS.keys())}")
+    
+    # Get data file
+    file_path = input("\n📁 Enter data file path: ").strip()
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
+        return
+    
+    analyzer_instance = None
+    
+    try:
+        # Initialize
+        analyzer_instance = AzureOpenAIDataAnalyzer()
+        analyzer_instance.create_assistant()
+        analyzer_instance.upload_data_file(file_path)
+        analyzer_instance.create_thread()
+        analyzer_instance.add_file_to_thread(f"Analyze this {analyzer_instance.file_format} file and provide a comprehensive summary.")
+        
+        # Initial analysis
+        print("\n" + "="*50)
+        print("📊 INITIAL DATA ANALYSIS")
+        print("="*50)
+        
+        initial_prompt = f"Please analyze this {analyzer_instance.file_format} file and provide:\n1. Data structure overview\n2. Basic statistics\n3. Data quality assessment\n4. Key insights\n5. Recommendations for further analysis"
+        
+        response = analyzer_instance.ask_question(initial_prompt)
+        print(response)
+        
+        # Interactive loop
+        print("\n" + "="*50)
+        print("💬 ASK QUESTIONS ABOUT YOUR DATA")
+        print("Commands: 'examples', 'download', 'quit'")
+        print("="*50)
+        
+        examples = [
+            "What are the basic statistics?",
+            "Are there any missing values?",
+            "Create a histogram of numeric columns",
+            "Generate a correlation heatmap",
+            "Show distribution of categorical variables",
+            "Identify outliers in the data",
+            "What patterns and trends do you see?",
+            "Create a comprehensive dashboard",
+            "Generate an executive summary report",
+            "What insights would be valuable for business decisions?"
+        ]
+        
+        # Add format-specific examples
+        if analyzer_instance.file_format == "Excel":
+            examples.extend([
+                "Analyze all sheets in the Excel file",
+                "Compare data across different sheets",
+                "Check for formatting issues in Excel"
+            ])
+        elif analyzer_instance.file_format == "JSON":
+            examples.extend([
+                "Parse nested JSON structures",
+                "Flatten the JSON data for analysis",
+                "Identify the data hierarchy"
+            ])
+        
+        while True:
+            question = input("\n💭 Your question: ").strip()
+            
+            if question.lower() in ['quit', 'exit', 'q']:
+                break
+            elif question.lower() == 'examples':
+                print("\n📋 Example questions:")
+                for i, ex in enumerate(examples, 1):
+                    print(f"{i}. {ex}")
+            elif question.lower() == 'download':
+                files = analyzer_instance.download_generated_files()
+                if files:
+                    print(f"📥 Downloaded: {', '.join(files)}")
+                else:
+                    print("📭 No files to download")
+            elif question:
+                response = analyzer_instance.ask_question(question)
+                print(f"\n🤖 {response}")
+                
+                # Auto-download plots and reports
+                files = analyzer_instance.download_generated_files()
+                if files:
+                    print(f"\n📊 New files: {', '.join(files)}")
+            else:
+                print("❓ Please enter a question or command")
+        
+        print("\n👋 Goodbye!")
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+    
+    finally:
+        # Cleanup
+        if analyzer_instance:
+            cleanup = input("\n🗑️ Clean up Azure resources? (y/n): ").lower()
+            if cleanup == 'y':
+                analyzer_instance.cleanup()
+
+if __name__ == "__main__":
+    main()

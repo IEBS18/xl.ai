@@ -47,6 +47,55 @@ const MessageTimeline = ({
 
   const analyzingInfo = getAnalyzingMessage(currentQueryCategory)
 
+  // Helper function to sort messages with output messages last for each user query
+  const sortMessagesWithOutputLastPerQuery = (messages) => {
+    const result = []
+    let currentQueryMessages = []
+    
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i]
+      
+      if (message.isUser) {
+        // If we have accumulated messages from previous query, sort and add them
+        if (currentQueryMessages.length > 0) {
+          const sortedQueryMessages = sortSingleQueryMessages(currentQueryMessages)
+          result.push(...sortedQueryMessages)
+          currentQueryMessages = []
+        }
+        // Add the user message
+        result.push(message)
+      } else {
+        // Accumulate system messages for current query
+        currentQueryMessages.push(message)
+      }
+    }
+    
+    // Handle remaining messages after the last user query
+    if (currentQueryMessages.length > 0) {
+      const sortedQueryMessages = sortSingleQueryMessages(currentQueryMessages)
+      result.push(...sortedQueryMessages)
+    }
+    
+    return result
+  }
+
+  // Helper function to sort messages within a single query response
+  const sortSingleQueryMessages = (messages) => {
+    const outputMessages = []
+    const nonOutputMessages = []
+    
+    messages.forEach(message => {
+      if (message.type === "output") {
+        outputMessages.push(message)
+      } else {
+        nonOutputMessages.push(message)
+      }
+    })
+    
+    // Return non-output messages first, then output messages
+    return [...nonOutputMessages, ...outputMessages]
+  }
+
   // Filter messages for cleaner Claude-like experience
   const getCleanedMessages = (messages) => {
     const cleaned = []
@@ -133,14 +182,16 @@ const MessageTimeline = ({
     return null
   }
 
+  // First clean the messages, then sort them with output messages last per query
   const cleanedMessages = getCleanedMessages(messages)
+  const sortedMessages = sortMessagesWithOutputLastPerQuery(cleanedMessages)
 
   return (
     <div className="space-y-6 pb-6">
       {/* Add some top padding for better visual spacing */}
       <div className="h-4"></div>
       
-      {cleanedMessages.map((message) => (
+      {sortedMessages.map((message) => (
         <MessageItem
           key={message.id}
           message={message}

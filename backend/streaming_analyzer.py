@@ -3,6 +3,7 @@
 Streaming Analyzer module for real-time CSV analysis with Flask integration
 """
 
+import logging
 import os
 import json
 import base64
@@ -186,7 +187,7 @@ class StreamingAnalyzer(QuadraticCSVAnalyzer):
             for var_name, var_value in result["variables"].items():
                 if isinstance(var_value, pd.DataFrame):
                     dataframes_found[var_name] = var_value
-                    print(f"📊 Found DataFrame: {var_name} (Shape: {var_value.shape})")
+                    logging.info(f"📊 Found DataFrame: {var_name} (Shape: {var_value.shape})")
                     
                     # Stream the dataframe data
                     self.emit_stream('dataframe', {
@@ -194,7 +195,8 @@ class StreamingAnalyzer(QuadraticCSVAnalyzer):
                         'shape': var_value.shape,
                         'columns': list(var_value.columns),
                         'preview': generate_tailwind_table(var_value.head()),
-                        'data': var_value.to_dict('records')[:100] if len(var_value) > 0 else []
+                        'data': var_value.to_dict('records')[:100] if len(var_value) > 0 else [],
+                        'thisis': "4"
                     })
         
         # Prepare the result

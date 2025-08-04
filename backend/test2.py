@@ -16,8 +16,6 @@ import base64
 from io import BytesIO
 import shutil
 import pickle
-from werkzeug.utils import secure_filename
-
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient, ContentSettings, generate_blob_sas, BlobSasPermissions
 warnings.filterwarnings('ignore')
  
@@ -144,8 +142,7 @@ class QuadraticCSVAnalyzer:
             api_version=os.getenv("AZUREVERSION"),
             azure_endpoint=os.getenv("AZUREENDPOINT")
         )
-        # self.MODEL = os.getenv('AZUREMODEL')
-        self.MODEL =os.getenv('AZUREMODEL')
+        self.MODEL = "gpt-4o-mini"
         self.df = None
         self.csv_info = ""
         self.original_file_path = None
@@ -334,228 +331,7 @@ class QuadraticCSVAnalyzer:
         except Exception as e:
             logging.exception(f"⚠️ Exception occurred during file upload: {str(e)}")
             return ""
-    
-
-    def _upload_file_to_blob_direct(self, file_stream, original_filename: str, blob_subfolder: str) -> str:
-        """
-        Upload file stream directly to Azure Blob Storage without saving locally.
-        Returns the blob name for SAS generation.
-        """
-        try:
-            logging.info(f"🧪 Uploading file stream: {original_filename}")
-
-            # Validate required instance variables
-            if not self.analysis_folder_name or not self.container_name:
-                logging.error("❌ Missing required configuration in class instance.")
-                return ""
-
-            # Build the blob path with timestamp to avoid conflicts
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_filename = secure_filename(original_filename)
-            file_name = f"{timestamp}_{safe_filename}"
-            blob_name = f"{self.analysis_folder_name}/{blob_subfolder}/{file_name}".strip('/')
-            
-            logging.debug(f"📁 Target blob path: {blob_name}")
-
-            # Ensure blob_service_client is initialized
-            if not self.blob_service_client:
-                logging.error("❌ BlobServiceClient is not initialized.")
-                return ""
-
-            blob_client = self.blob_service_client.get_blob_client(
-                container=self.container_name,
-                blob=blob_name
-            )
-
-            # Reset stream position and upload directly
-            file_stream.seek(0)
-            blob_client.upload_blob(
-                file_stream,
-                overwrite=True,
-                content_settings=ContentSettings(content_type="application/octet-stream")
-            )
-            
-            logging.info(f"📤 Uploaded file to blob: {self.container_name}/{blob_name}")
-            return blob_name
-
-        except Exception as e:
-            logging.exception(f"⚠️ Exception occurred during direct file upload: {str(e)}")
-            return ""
-    
-    def _generate_sas_token_url(self, blob_name: str, expiry_hours: int = 168) -> str:
-        """Generate a SAS token URL for secure access to the blob file."""
-        try:
-            if not self.blob_service_client:
-                logging.error("❌ BlobServiceClient is not initialized.")
-                return ""
-            
-            # Get account key for SAS generation
-            account_key = os.getenv('AZURE_STORAGE_ACCOUNT_KEY')
-            account_name = os.getenv('AZURE_STORAGE_ACCOUNT_NAME')
-            
-            if not account_key or not account_name:
-                # Try to extract from blob service client
-                if hasattr(self.blob_service_client, 'account_name'):
-                    account_name = self.blob_service_client.account_name
-                if hasattr(self.blob_service_client.credential, 'account_key'):
-                    account_key = self.blob_service_client.credential.account_key
-            
-            if not account_key or not account_name:
-                logging.error("❌ Account credentials not available for SAS token generation.")
-                return ""
-            
-            # Generate SAS token with longer expiry for analysis purposes
-            sas_token = generate_blob_sas(
-                account_name=account_name,
-                container_name=self.container_name,
-                blob_name=blob_name,
-                account_key=account_key,
-                permission=BlobSasPermissions(read=True),
-                expiry=datetime.utcnow() + timedelta(hours=expiry_hours)
-            )
-            
-            # Construct full URL with SAS token
-            blob_url = f"https://{account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
-            sas_url = f"{blob_url}?{sas_token}"
-            
-            logging.info(f"🔐 Generated SAS token URL (expires in {expiry_hours}h)")
-            return sas_url
-            
-        except Exception as e:
-            logging.exception(f"⚠️ Exception occurred during SAS token generation: {str(e)}")
-            return ""
-
-    def upload_stream_and_get_sas_url(self, file_stream, original_filename: str, blob_subfolder: str = None, expiry_hours: int = 168) -> dict:
-        """Upload file stream directly to blob storage and return SAS token URL."""
-        if blob_subfolder is None:
-            blob_subfolder = self.session_id
-            
-        try:
-            # Upload file stream directly to blob
-            blob_name = self._upload_file_to_blob_direct(file_stream, original_filename, blob_subfolder)
-            
-            if not blob_name:
-                return {
-                    'success': False,
-                    'error': 'Failed to upload file to blob storage',
-                    'sas_url': '',
-                    'blob_name': ''
-                }
-            
-            # Generate SAS token URL
-            sas_url = self._generate_sas_token_url(blob_name, expiry_hours)
-            
-            if not sas_url:
-                return {
-                    'success': False,
-                    'error': 'Failed to generate SAS token URL',
-                    'sas_url': '',
-                    'blob_name': blob_name
-                }
-            
-            return {
-                'success': True,
-                'sas_url': sas_url,
-                'blob_name': blob_name,
-                'expiry_hours': expiry_hours,
-                'expires_at': (datetime.utcnow() + timedelta(hours=expiry_hours)).isoformat()
-            }
-            
-        except Exception as e:
-            logging.exception(f"⚠️ Exception in upload_stream_and_get_sas_url: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e),
-                'sas_url': '',
-                'blob_name': ''
-            }
-
-    def load_csv_from_sas_url(self, sas_url: str, file_extension: str = None) -> bool:
-        """Load CSV or Excel file directly from SAS URL without local storage."""
-        try:
-            # Store the SAS URL for future operations
-            self.blob_sas_url = sas_url
-            self.original_file_path = sas_url
-            
-            # Determine file type
-            if file_extension:
-                file_ext = file_extension.lower()
-            else:
-                # Try to extract from URL (remove query parameters first)
-                clean_url = sas_url.split('?')[0]
-                file_ext = os.path.splitext(clean_url)[-1].lower()
-            
-            logging.info(f"📥 Loading file directly from SAS URL")
-            logging.info(f"📄 File extension: {file_ext}")
-
-            # Load file directly from URL based on extension
-            if file_ext == ".csv":
-                self.df = pd.read_csv(sas_url, encoding="utf-8")
-            elif file_ext in [".xlsx", ".xlsm", ".xltx", ".xltm"]:
-                self.df = pd.read_excel(sas_url, engine="openpyxl")
-            elif file_ext == ".xls":
-                self.df = pd.read_excel(sas_url, engine="xlrd")
-            elif file_ext == ".ods":
-                self.df = pd.read_excel(sas_url, engine="odf")
-            elif file_ext == ".xlsb":
-                import pyxlsb
-                self.df = pd.read_excel(sas_url, engine="pyxlsb")
-            else:
-                raise ValueError(f"Unsupported file extension: {file_ext}")
-            
-            # Convert all data to strings and fill nulls
-            self.df.columns = self.df.columns.astype(str)
-            self.df.index = self.df.index.astype(str)
-            self.df = self.df.applymap(lambda x: "" if pd.isna(x) else str(x))
-            
-            self.csv_info = self._generate_csv_info()
-
-            print(f"✅ File loaded successfully from blob storage!")
-            print(f"📊 Shape: {self.df.shape}")
-            print(f"🔍 Columns: {list(self.df.columns)}")
-
-            # Store original data for comparison
-            self.original_df = self.df.copy()
-            self._generate_basic_trends()
-
-            return True
-
-        except Exception as e:
-            print(f"❌ Error loading file from SAS URL: {str(e)}")
-            logging.exception("Detailed error loading file from SAS URL")
-            return False
-
-    def get_data_subset_from_blob(self, rows: int = 1000) -> pd.DataFrame:
-        """
-        Get a subset of data directly from blob storage for operations that don't need full dataset.
-        This saves memory and processing time.
-        """
-        try:
-            if not self.blob_sas_url:
-                logging.warning("No blob SAS URL available, using loaded DataFrame")
-                return self.df.head(rows) if self.df is not None else pd.DataFrame()
-            
-            # Determine file extension
-            clean_url = self.blob_sas_url.split('?')[0]
-            file_ext = os.path.splitext(clean_url)[-1].lower()
-            
-            if file_ext == ".csv":
-                # For CSV, we can read only first N rows
-                subset_df = pd.read_csv(self.blob_sas_url, encoding="utf-8", nrows=rows)
-            else:
-                # For Excel files, read all and take subset (Excel engines don't support nrows well)
-                subset_df = pd.read_excel(self.blob_sas_url, engine="openpyxl").head(rows)
-            
-            # Apply same transformations as main load
-            subset_df.columns = subset_df.columns.astype(str)
-            subset_df = subset_df.applymap(lambda x: "" if pd.isna(x) else str(x))
-            
-            return subset_df
-            
-        except Exception as e:
-            logging.exception(f"Error getting data subset from blob: {str(e)}")
-            return self.df.head(rows) if self.df is not None else pd.DataFrame()
-
+       
     def load_csv(self, file_path: str) -> bool:
         """Load CSV or Excel file and analyze its structure."""
         try:
@@ -602,8 +378,6 @@ class QuadraticCSVAnalyzer:
         except Exception as e:
             print(f"❌ Error loading file: {str(e)}")
             return False
-    
-    
     def _generate_basic_trends(self):
         """Generate basic trend metrics without generating reports."""
         try:
@@ -863,7 +637,7 @@ Statistical Summary:
         return info
    
     def _create_system_prompt(self) -> str:
-        """Create system prompt focused on DataFrame results and data updates."""
+        """Create system prompt focused on DataFrame results and data updates, with Python basics and error protections."""
         return f"""
 You are a Python code generator that MUST create COMPLETE, EXECUTABLE data analysis solutions.
 
@@ -890,7 +664,6 @@ SUCCESS CRITERIA FOR EVERY RESPONSE:
 ✓ Returns complete analysis (not just exploration)
 ✓ Includes proper data insights
 
-
 CORE PHILOSOPHY:
 - Focus on returning ACTIONABLE DATA as DataFrames
 - Create new columns, calculated fields, or enhanced datasets
@@ -911,7 +684,7 @@ DATA OUTPUT PRIORITIES:
 4. Category classifications and performance metrics
 5. Statistical measures and derived insights
  
-CSV Data Context:
+Data Context:
 {self.csv_info}
  
 EXAMPLE OUTPUT PATTERNS:
@@ -935,7 +708,85 @@ DATA CLEANING RULES:
 EXECUTION FOCUS:
 Return DataFrames that enhance the original dataset with new insights, predictions, or calculated fields.
 Show exactly what data would be added to the original file.
+You MUST complete the entire analysis with visualizations in one code block.
+Focus on creating NEW DATA that enhances the original dataset.
+
+----------------- PYTHON BASICS DOCUMENTATION (FOR REFERENCE) -----------------
+
+# Common Python Structures:
+my_list = [1, 2, 3]
+my_dict = {{'key': 'value'}}
+for item in my_list:
+    print(item)
+
+if x > 0:
+    print("Positive")
+elif x < 0:
+    print("Negative")
+else:
+    print("Zero")
+
+def my_func(x):
+    return x * 2
+
+# DataFrame Basics:
+df.head()
+df.info()
+df.describe()
+df['column_name']
+df[['col1', 'col2']]
+df[df['col'] > 10]
+df.groupby('category').mean()
+df['new'] = df['old'] * 0.1
+
+# Plotting with matplotlib:
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 6))
+plt.plot(df['date'], df['value'])  # or plt.bar(), plt.pie()
+plt.title("Trend Over Time")
+plt.xlabel("Date")
+plt.ylabel("Value")
+plt.legend(["Series A"])
+plt.savefig("trend_plot.png")
+plt.show()
+
+# Handling Missing Values:
+df.dropna()
+df.fillna(0)
+df['col'].isna().sum()
+
+# Type Conversion:
+df['col'] = df['col'].astype(float)
+df['date'] = pd.to_datetime(df['date'])
+
+# Statistical Methods:
+df['col'].mean()
+df['col'].median()
+df['col'].std()
+df.corr()
+
+# Forecasting Example with Prophet:
+from prophet import Prophet
+
+df_prophet = df.rename(columns={{'date': 'ds', 'value': 'y'}})
+model = Prophet()
+model.fit(df_prophet)
+future = model.make_future_dataframe(periods=30)
+forecast = model.predict(future)
+
+---------------- SYNTAX SAFETY CHECKLIST (MANDATORY FOR EVERY CODE) ----------------
+
+✓ NO unexpected indent or over-indented lines
+✓ All brackets ((), [], {{}}) and quotes ('' or "") are closed properly
+✓ ALL import statements at the top
+✓ No use of undefined variables or functions (e.g., using plt without import)
+✓ Function definitions and loops are correctly indented (4 spaces)
+✓ Each line is syntactically complete (e.g., no unclosed `if`, `for`, or `def`)
+✓ Save and display all plots with both `plt.savefig()` AND `plt.show()`
+
 """
+
    
     def _capture_matplotlib_plots(self) -> List[str]:
         logging.info("capture started")
@@ -1522,12 +1373,21 @@ ANALYSIS OUTPUT:
         return analysis_result
  
     def _extract_market_topic(self, query: str) -> str:
-        """Extract market topic from user query."""
+        """Extract market topic from user query using AI-powered analysis."""
+        import re
+        
         query_lower = query.lower()
-       
+        
+        # First, try to extract a specific topic from the query using pattern matching
+        topic_title = self._generate_dynamic_report_title(query)
+        
+        if topic_title and topic_title != "Business Intelligence Analysis":
+            return topic_title
+        
+        # Fallback to keyword matching if AI generation fails
         topic_keywords = {
             'sales': 'Sales Performance Analysis',
-            'revenue': 'Revenue Growth Analysis',
+            'revenue': 'Revenue Growth Analysis', 
             'profit': 'Profitability Analysis',
             'market': 'Market Analysis',
             'customer': 'Customer Analytics',
@@ -1538,12 +1398,103 @@ ANALYSIS OUTPUT:
             'demand': 'Demand Forecasting',
             'supply': 'Supply Chain Analysis'
         }
-       
+        
         for keyword, topic in topic_keywords.items():
             if keyword in query_lower:
                 return topic
-       
+        
         return "Business Intelligence Analysis"
+
+    def _generate_dynamic_report_title(self, query: str) -> str:
+        """Generate dynamic report title based on user query using AI."""
+        try:
+            # Create a prompt to generate a professional report title
+            title_prompt = f"""
+            Based on the following user query, generate a professional strategic report title that would be appropriate for an executive-level business report.
+            
+            User Query: "{query}"
+            
+            Requirements:
+            - Keep it concise (3-7 words)
+            - Make it professional and executive-friendly
+            - Focus on the main business objective or analysis type
+            - Avoid generic terms like "Business Intelligence" unless specifically relevant
+            - Examples of good titles: "Q4 Sales Performance Analysis", "Customer Retention Strategy Review", "Market Expansion Feasibility Study"
+            
+            Return ONLY the title, no additional text or explanations.
+            """
+            
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert business analyst who creates professional report titles."},
+                    {"role": "user", "content": title_prompt}
+                ],
+                max_tokens=50,
+                temperature=0.3
+            )
+            
+            generated_title = response.choices[0].message.content.strip()
+            
+            # Clean up the title (remove quotes, ensure proper capitalization)
+            generated_title = generated_title.strip('"\'')
+            
+            # Validate the title isn't too long or generic
+            if len(generated_title.split()) <= 8 and "analysis" in generated_title.lower() or "report" in generated_title.lower() or any(word in generated_title.lower() for word in ["strategy", "performance", "forecast", "review", "study"]):
+                return generated_title
+            else:
+                return self._extract_title_from_query_patterns(query)
+                
+        except Exception as e:
+            print(f"AI title generation failed: {e}")
+            return self._extract_title_from_query_patterns(query)
+
+    def _extract_title_from_query_patterns(self, query: str) -> str:
+        """Extract title using pattern matching as fallback."""
+        query_lower = query.lower()
+        
+        # Pattern-based title extraction
+        patterns = [
+            # Forecast patterns
+            (r'forecast.*?(\w+(?:\s+\w+)*)', r'\1 Forecasting Analysis'),
+            # Analysis patterns  
+            (r'analyz[e|ing].*?(\w+(?:\s+\w+)*)', r'\1 Strategic Analysis'),
+            # Report patterns
+            (r'report.*?on.*?(\w+(?:\s+\w+)*)', r'\1 Performance Report'),
+            # Predict patterns
+            (r'predict.*?(\w+(?:\s+\w+)*)', r'\1 Predictive Analysis'),
+            # Compare patterns
+            (r'compar[e|ing].*?(\w+(?:\s+\w+)*)', r'\1 Comparative Analysis'),
+            # Trend patterns
+            (r'trend.*?(\w+(?:\s+\w+)*)', r'\1 Trend Analysis'),
+        ]
+        
+        for pattern, replacement in patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                subject = match.group(1).title()
+                title = replacement.replace(r'\1', subject)
+                return title
+        
+        # If no patterns match, try to extract key business terms
+        business_terms = []
+        key_words = ['sales', 'revenue', 'profit', 'market', 'customer', 'product', 
+                    'financial', 'growth', 'performance', 'strategy', 'forecast',
+                    'demand', 'supply', 'pricing', 'competition', 'efficiency']
+        
+        words = query_lower.split()
+        for word in words:
+            if word in key_words:
+                business_terms.append(word.title())
+        
+        if business_terms:
+            if len(business_terms) == 1:
+                return f"{business_terms[0]} Strategic Analysis"
+            else:
+                return f"{' & '.join(business_terms[:2])} Analysis"
+        
+        return "Business Intelligence Analysis"
+
  
     def _extract_target_variable(self, query: str) -> str:
         """Extract target variable from user query."""
@@ -1727,6 +1678,7 @@ CRITICAL REQUIREMENTS:
 - Reference figures properly in text (e.g., "Figure 1 shows...")
 - Include generated DataFrames as styled HTML tables in the report
 - Integrate data tables seamlessly with analysis narrative
+-remove ```html``` tags 
 
 AVAILABLE RESOURCES:
 - Data Context: Comprehensive dataset analysis provided
@@ -1756,11 +1708,24 @@ Generate reports that would meet the standards of top-tier strategy consulting f
 """
 
     def _create_report_prompt(self, data_context: str, client_name: str, market_topic: str,
-                         forecast_periods: int, target_variable: str = None, image_urls: Dict[str, str] = None, 
-                         dataframes_section: str = None) -> str:
-        """Create comprehensive report prompt with HTML/CSS output including DataFrames."""
+                     forecast_periods: int, target_variable: str = None, image_urls: Dict[str, str] = None, 
+                     dataframes_section: str = None) -> str:
+        """Create comprehensive report prompt with dynamic title."""
         current_year = pd.Timestamp.now().year
         end_year = current_year + (forecast_periods // 12) + 1
+        
+        # Generate dynamic subtitle based on time horizon
+        if forecast_periods <= 6:
+            time_horizon = "Short-term Outlook"
+        elif forecast_periods <= 12:
+            time_horizon = "Annual Strategic Outlook" 
+        elif forecast_periods <= 24:
+            time_horizon = "Medium-term Strategic Outlook"
+        else:
+            time_horizon = "Long-term Strategic Outlook"
+        
+        # Create the full report title
+        full_report_title = f"{market_topic}: {time_horizon} {current_year}-{end_year}"
         
         # Count available images and dataframes for reference in prompt
         num_images = len(image_urls) if image_urls else 0
@@ -1789,7 +1754,7 @@ Generate reports that would meet the standards of top-tier strategy consulting f
     - Responsive design for various screen sizes
 
     2. **Report Sections** (in order):
-    - Cover Page with title: "{market_topic} Strategic Outlook {current_year}-{end_year}"
+    - Cover Page with title: "{full_report_title}"
     - Executive Summary (≤2 pages equivalent)
     - Table of Contents with clickable navigation
     - Background & Objectives

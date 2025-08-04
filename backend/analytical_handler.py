@@ -208,8 +208,8 @@ Key Insights:
                     {"role": "system", "content": "You are a business analyst providing key insights from data analysis results."},
                     {"role": "user", "content": insight_prompt}
                 ],
-                temperature=0.3,
-                max_tokens=300
+                temperature=0.3
+                # max_tokens=300
             )
             
             return response.choices[0].message.content.strip()

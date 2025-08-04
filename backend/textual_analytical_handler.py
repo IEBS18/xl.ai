@@ -133,8 +133,8 @@ Generate clean, executable Python code that stores the answer in 'result':
                     {"role": "system", "content": "You are a Python code generator. Generate concise code that answers data questions directly. Always store the final answer in a 'result' variable."},
                     {"role": "user", "content": code_generation_prompt}
                 ],
-                temperature=0.1,
-                max_tokens=500
+                temperature=0.1
+                # max_tokens=500
             )
             
             generated_code = response.choices[0].message.content.strip()
