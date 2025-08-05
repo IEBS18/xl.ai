@@ -15,16 +15,16 @@ import {
   Copy,
   User,
   Bot,
-  File,
-  Download,
-  Play,
-  Zap,
-  HelpCircle,
-  ExternalLink
 } from "lucide-react"
 import { shouldCollapseByDefault, getStepColor, copyToClipboard, renderMarkdown } from "../utils/helpers"
 import RichTextReport from "./RichTextReport"
 import { useTheme } from "@/context/ThemeProvider"
+
+const renderSafeContent = (value) => {
+  if (typeof value === "string") return value
+  if (typeof value === "object") return JSON.stringify(value, null, 2)
+  return String(value)
+}
 
 const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClick, isSelected }) => {
   const { type, content, isUser, isCompleted = true, id, queryCategory } = message
@@ -38,166 +38,51 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     }
   }
 
-  // Helper functions
   const getStepIcon = (type, isCompleted, queryCategory) => {
     if (type === "status") {
       return isCompleted ? <Check size={14} /> : <Loader2 size={14} className="animate-spin" />
     }
-
     switch (type) {
-      case "code":
-        return <Code size={14} />
-      case "dataframe":
-        return <Database size={14} />
-      case "image":
-        return <Image size={14} />
-      case "file":
-        return <File size={14} />
-      case "report":
-        return <FileText size={14} />
-      case "output":
-      case "response":
-        return <FileOutput size={14} />
-      case "success":
-        return <CheckCircle size={14} />
-      case "error":
-        return <AlertCircle size={14} />
-      case "function_call":
-        return <Play size={14} />
-      case "step_start":
-        return <Zap size={14} />
-      case "warning":
-        return <AlertCircle size={14} />
-      case "system":
-        return <BarChart3 size={14} />
-      case "unknown":
-        return <HelpCircle size={14} />
-      default:
-        return <BarChart3 size={14} />
+      case "code": return <Code size={14} />
+      case "dataframe": return <Database size={14} />
+      case "image": return <Image size={14} />
+      case "report": return <FileText size={14} />
+      case "output": return <FileOutput size={14} />
+      case "success": return <CheckCircle size={14} />
+      case "error": return <AlertCircle size={14} />
+      default: return <BarChart3 size={14} />
     }
   }
 
   const getStepLabel = (type, isCompleted, queryCategory) => {
-    switch (type) {
-      case "dataframe":
-        return "Data Analysis"
-      case "image":
-        return "Visualization"
-      case "file":
-        return "Generated File"
-      case "report":
-        return "Strategic Report"
-      case "code":
-        return "Generated Code"
-      case "output":
-        return "Analysis Result"
-      case "response":
-        return "Assistant Response"
-      case "function_call":
-        return "Function Call"
-      case "step_start":
-        return "Step Started"
-      case "status":
-        return isCompleted ? "Completed" : "Processing"
-      case "warning":
-        return "Warning"
-      case "system":
-        return "System Message"
-      case "unknown":
-        return "Unknown Message"
-      default:
-        return type.charAt(0).toUpperCase() + type.slice(1)
-    }
+    return type === "dataframe"
+      ? "Data Analysis"
+      : type === "image"
+        ? "Visualization"
+        : type === "report"
+          ? "Strategic Report"
+          : type === "code"
+            ? "Generated Code"
+            : type === "output"
+              ? "Analysis Result"
+              : type === "status"
+                ? isCompleted
+                  ? "Completed"
+                  : "Processing"
+                : type
   }
 
   const getStepColorClass = (type, isCompleted, queryCategory) => {
-    // Color coding based on message type
-    switch (type) {
-      case "error":
-        return "bg-red-600"
-      case "success":
-        return "bg-green-600"
-      case "warning":
-        return "bg-yellow-600"
-      case "code":
-        return "bg-blue-600"
-      case "image":
-        return "bg-purple-600"
-      case "file":
-        return "bg-orange-600"
-      case "dataframe":
-        return "bg-indigo-600"
-      case "report":
-        return "bg-emerald-600"
-      case "function_call":
-        return "bg-pink-600"
-      case "step_start":
-        return "bg-cyan-600"
-      default:
-        return isDark ? "bg-gray-600" : "bg-gray-700"
-    }
+    return isDark ? "bg-gray-600" : "bg-gray-700"
   }
 
   const getTextColorClass = (type) => {
     return themeClasses.text
   }
 
-  // Helper function to determine file type from filename or mime type
-  const getFileType = (filename, mimeType) => {
-    if (mimeType) {
-      if (mimeType.startsWith('image/')) return 'image'
-      if (mimeType.includes('pdf')) return 'pdf'
-      if (mimeType.includes('text')) return 'text'
-      if (mimeType.includes('csv')) return 'csv'
-      if (mimeType.includes('json')) return 'json'
-    }
-    
-    if (filename) {
-      const ext = filename.toLowerCase().split('.').pop()
-      switch (ext) {
-        case 'png':
-        case 'jpg':
-        case 'jpeg':
-        case 'gif':
-        case 'svg':
-          return 'image'
-        case 'pdf':
-          return 'pdf'
-        case 'txt':
-        case 'md':
-          return 'text'
-        case 'csv':
-          return 'csv'
-        case 'json':
-          return 'json'
-        case 'html':
-          return 'html'
-        default:
-          return 'unknown'
-      }
-    }
-    
-    return 'unknown'
-  }
-
-  // Helper function to format file size
-  const formatFileSize = (bytes) => {
-    if (!bytes) return 'Unknown size'
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  // Claude-like styling determination
   const shouldUseClaudeStyle = (type, queryCategory) => {
-    if (queryCategory === "conversational" || queryCategory === "textual_analytical") {
-      return true
-    }
-    
-    if ((type === "output" || type === "response") && !queryCategory) {
-      return true
-    }
-    
+    if (queryCategory === "conversational" || queryCategory === "textual_analytical") return true
+    if (type === "output" && !queryCategory) return true
     return false
   }
 
@@ -220,7 +105,6 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     )
   }
 
-  // Claude-style response for conversational and simple analytical queries
   if (isClaudeStyle) {
     return (
       <div className="flex justify-start mb-4 animate-in slide-in-from-left duration-300">
@@ -230,7 +114,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
           </div>
           <div className={`px-0 py-0 rounded-2xl ${themeClasses.text} max-w-none`}>
             <div className="whitespace-pre-wrap text-sm leading-relaxed">
-              {content}
+              {renderSafeContent(content)}
             </div>
           </div>
         </div>
@@ -238,31 +122,19 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     )
   }
 
-  // Timeline style for complex analytical queries (enhanced)
   return (
     <div className="relative pl-6 pb-6 animate-in slide-in-from-left duration-300">
-      {/* Timeline line */}
       <div className={`absolute left-3 top-6 bottom-0 w-px ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
-
-      {/* Step indicator */}
-      <div
-        className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(type, isCompleted, queryCategory)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}
-      >
+      <div className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(type, isCompleted, queryCategory)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}>
         {getStepIcon(type, isCompleted, queryCategory)}
       </div>
-
-      {/* Content */}
       <div className="ml-6">
         <div className={`${themeClasses.surface} rounded-xl shadow-sm border ${themeClasses.border} overflow-hidden transition-colors`}>
-          {/* Header */}
           <div className={`${themeClasses.surfaceSecondary} px-4 py-3 border-b ${themeClasses.border}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {isCollapsible && (
-                  <button
-                    onClick={() => onToggleExpansion(id)}
-                    className={`${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors`}
-                  >
+                  <button onClick={() => onToggleExpansion(id)} className={`${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors`}>
                     {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
                 )}
@@ -274,11 +146,11 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {(type === "code" || type === "output") && shouldShowContent && (
+                {type === "code" && shouldShowContent && (
                   <button
                     onClick={() => copyToClipboard(content)}
                     className={`${themeClasses.textSecondary} hover:${themeClasses.text} p-1 rounded hover:${themeClasses.surfaceSecondary} transition-colors`}
-                    title="Copy content"
+                    title="Copy code"
                   >
                     <Copy size={14} />
                   </button>
@@ -286,74 +158,20 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
               </div>
             </div>
           </div>
-
-          {/* Body - Only show if expanded or not collapsible */}
           {shouldShowContent && (
             <div className="p-4">
-              {/* Handle text-based content */}
-              {(type === "system" ||
-                type === "status" ||
-                type === "success" ||
-                type === "error" ||
-                type === "warning" ||
-                type === "output" ||
-                type === "response" ||
-                type === "step_start" ||
-                type === "unknown") && (
-                  <div
-                    className={`${getTextColorClass(type)} whitespace-pre-wrap text-sm ${
-                      (type === "output" || type === "response") 
-                        ? `font-mono ${themeClasses.surface} p-3 rounded-lg border ${themeClasses.border}` 
-                        : ""
-                    } ${
-                      type === "error" || type === "warning"
-                        ? "text-red-600 dark:text-red-400"
-                        : ""
-                    } ${
-                      type === "unknown"
-                        ? "text-orange-600 dark:text-orange-400 italic"
-                        : ""
-                    }`}
-                  >
-                    {content}
-                  </div>
-                )}
-
-              {/* Handle code content */}
+              {(type === "system" || type === "status" || type === "success" || type === "error" || type === "output") && (
+                <div className={`${getTextColorClass(type)} whitespace-pre-wrap text-sm ${type === "output" ? `font-mono ${themeClasses.surface} p-3 rounded-lg border ${themeClasses.border}` : ""}`}>
+                  {content}
+                </div>
+              )}
               {type === "code" && (
                 <div className={`${themeClasses.surface} rounded-lg p-4 overflow-x-auto border ${themeClasses.border}`}>
                   <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
-                    {content}
+                    {typeof content === "object" && content.code ? content.code : renderSafeContent(content)}
                   </pre>
                 </div>
               )}
-
-              {/* Handle function call content */}
-              {type === "function_call" && content && (
-                <div className="space-y-3">
-                  <div className={`${themeClasses.surface} rounded-lg p-4 border ${themeClasses.border}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Play className="w-4 h-4 text-pink-600" />
-                      <span className="font-medium">Function Call</span>
-                    </div>
-                    {message.functionInfo && (
-                      <div className="space-y-2">
-                        <div><strong>Name:</strong> {message.functionInfo.name}</div>
-                        {message.functionInfo.arguments && (
-                          <div>
-                            <strong>Arguments:</strong>
-                            <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
-                              {JSON.stringify(message.functionInfo.arguments, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Handle dataframe content */}
               {type === "dataframe" && content && (
                 <div className="space-y-3">
                   {content.shape && (
@@ -362,15 +180,10 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                     </div>
                   )}
                   {content.preview && (
-                    <div
-                      className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} overflow-x-auto`}
-                      dangerouslySetInnerHTML={{ __html: content.preview }}
-                    />
+                    <div className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} overflow-x-auto`} dangerouslySetInnerHTML={{ __html: content.preview }} />
                   )}
                 </div>
               )}
-
-              {/* Handle image content */}
               {type === "image" && content && (
                 <div className="space-y-3">
                   <div className={`flex items-center justify-center p-4 ${themeClasses.surface} rounded-lg`}>
@@ -391,15 +204,10 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                   )}
                 </div>
               )}
-
-              {/* Handle report content */}
               {type === "report" && content && (
                 <div className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''}`}>
                   {typeof content === 'string' && content.includes('<!DOCTYPE html>') ? (
-                    <div
-                      dangerouslySetInnerHTML={{ __html: content }}
-                      className={`report-content ${themeClasses.text}`}
-                    />
+                    <div dangerouslySetInnerHTML={{ __html: content }} className={`report-content ${themeClasses.text}`} />
                   ) : (
                     <div className={`whitespace-pre-wrap ${themeClasses.text}`}>
                       {typeof content === 'string' ? content : JSON.stringify(content, null, 2)}

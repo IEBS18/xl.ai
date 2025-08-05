@@ -1841,10 +1841,11 @@ def handle_join_session(data):
         print("No session ID provided for join_session")
         emit('error', {'message': 'No session ID provided'})
 
+# app.py - UPDATED socket handler to properly handle DataFrames and code
 
 @socketio.on('send_message_with_session')
 def handle_message_with_session(data):
-    """FIXED Handle chat messages for a specific session - ENHANCED for Assistants API"""
+    """FIXED Handle chat messages for a specific session - ENHANCED for proper DataFrame and code handling"""
     session_id = data.get('sessionId')
     query = data.get('message', '').strip()
     
@@ -1883,7 +1884,7 @@ def handle_message_with_session(data):
     # Clear any existing stop signals
     clear_stop_signal_for_session(session_id)
     
-    # Process the query with ENHANCED analyzer (now with Assistants API integration)
+    # Process the query with ENHANCED analyzer (now with proper DataFrame/code handling)
     def process_query():
         try:
             analyzer = analyzers[session_id]
@@ -1897,13 +1898,13 @@ def handle_message_with_session(data):
                 'sessionId': session_id
             }, room=session_id)
             
-            # Start the ENHANCED analysis (with Assistants API integration)
+            # Start the ENHANCED analysis (with proper DataFrame/code return)
             result = analyzer.analyze_query_streaming(user_query=query)
 
             if result is None:
                 result = {}
             
-            # FIXED: Handle different result types properly
+            # FIXED: Handle different result types with proper DataFrame and code handling
             if result.get("type") == "conversational":
                 # Conversational response - simple completion
                 completion_data = {
@@ -1915,12 +1916,17 @@ def handle_message_with_session(data):
                         'success': result.get('success', False),
                         'type': result.get('type', 'conversational'),
                         'response': result.get('response', ''),
-                        'requires_analysis': False
+                        'requires_analysis': False,
+                        'has_dataframes': False,
+                        'has_code': False
                     }
                 }
                 
             elif result.get("type") == "textual_analytical":
-                # Simple analysis - text response with some data
+                # Simple analysis - text response with potential DataFrames and code
+                dataframes = result.get('dataframes', {})
+                generated_code = result.get('generated_code', '')
+                
                 completion_data = {
                     'type': 'completion',
                     'data': 'Analysis completed!',
@@ -1930,13 +1936,25 @@ def handle_message_with_session(data):
                         'success': result.get('success', False),
                         'type': result.get('type', 'textual_analytical'),
                         'response': result.get('response', ''),
-                        'dataframes_count': len(result.get('dataframes', {})),
-                        'analysis_type': result.get('analysis_type', 'general')
+                        'dataframes_count': len(dataframes),
+                        'analysis_type': result.get('analysis_type', 'general'),
+                        'has_dataframes': len(dataframes) > 0,
+                        'has_code': bool(_extract_code_string(generated_code)),
+                        'code_lines': _count_code_lines(generated_code)
                     }
                 }
                 
+                # FIXED: Emit DataFrames with proper structure
+                _emit_dataframes_to_frontend(dataframes, session_id, socketio)
+                
+                # FIXED: Emit generated code with proper structure  
+                _emit_code_to_frontend(generated_code, session_id, socketio)
+                
             elif result.get("type") == "report":
-                # FIXED: Report generation - return HTML report
+                # FIXED: Report generation - return HTML report with DataFrames and code
+                dataframes = result.get('dataframes', {})
+                generated_code = result.get('generated_code', '')
+                
                 completion_data = {
                     'type': 'report_completion',  # Special type for reports
                     'data': 'Report generated successfully!',
@@ -1950,7 +1968,11 @@ def handle_message_with_session(data):
                         'report_url': result.get('report_url', ''),
                         'report_filename': result.get('report_filename', ''),
                         'images_count': len(result.get('generated_images', [])),
-                        'files_generated': result.get('generated_files', {})
+                        'files_generated': result.get('generated_files', {}),
+                        'dataframes_count': len(dataframes),
+                        'has_dataframes': len(dataframes) > 0,
+                        'has_code': bool(_extract_code_string(generated_code)),
+                        'code_lines': _count_code_lines(generated_code)
                     }
                 }
                 
@@ -1967,8 +1989,17 @@ def handle_message_with_session(data):
                         'sessionId': session_id
                     }, room=session_id)
                 
+                # FIXED: Emit DataFrames for reports
+                _emit_dataframes_to_frontend(dataframes, session_id, socketio)
+                
+                # FIXED: Emit generated code for reports
+                _emit_code_to_frontend(generated_code, session_id, socketio)
+                
             elif result.get("type") == "fully_analytical":
-                # Complex analysis - full streaming with visualizations
+                # Complex analysis - full streaming with visualizations, DataFrames, and code
+                dataframes = result.get('dataframes', {})
+                generated_code = result.get('generated_code', '')
+                
                 completion_data = {
                     'type': 'completion',
                     'data': 'Complex analysis completed successfully!',
@@ -1978,11 +2009,14 @@ def handle_message_with_session(data):
                         'success': result.get('success', False),
                         'type': result.get('type', 'fully_analytical'),
                         'response': result.get('response', ''),
-                        'dataframes_count': len(result.get('dataframes', {})),
+                        'dataframes_count': len(dataframes),
                         'images_count': len(result.get('generated_images', [])),
                         'generated_files': result.get('generated_files', {}),
                         'assistants_used': result.get('assistant_used', False),
-                        'thread_id': result.get('thread_id', None)
+                        'thread_id': result.get('thread_id', None),
+                        'has_dataframes': len(dataframes) > 0,
+                        'has_code': bool(_extract_code_string(generated_code)),
+                        'code_lines': _count_code_lines(generated_code)
                     }
                 }
                 
@@ -2001,6 +2035,12 @@ def handle_message_with_session(data):
                             'sessionId': session_id
                         }, room=session_id)
                 
+                # FIXED: Emit DataFrames with proper structure
+                _emit_dataframes_to_frontend(dataframes, session_id, socketio)
+                
+                # FIXED: Emit generated code with proper structure
+                _emit_code_to_frontend(generated_code, session_id, socketio)
+                
             elif result.get("stopped_by_user"):
                 # Analysis was stopped
                 socketio.emit('stream_data', {
@@ -2012,7 +2052,10 @@ def handle_message_with_session(data):
                 return
                 
             else:
-                # Default/fallback completion
+                # Default/fallback completion with DataFrame and code support
+                dataframes = result.get('dataframes', {})
+                generated_code = result.get('generated_code', '')
+                
                 completion_data = {
                     'type': 'completion',
                     'data': 'Analysis completed!',
@@ -2022,10 +2065,17 @@ def handle_message_with_session(data):
                         'success': result.get('success', False),
                         'type': result.get('type', 'unknown'),
                         'response': result.get('response', 'Analysis completed'),
-                        'dataframes_count': len(result.get('dataframes', {})),
-                        'images_count': len(result.get('generated_images', []))
+                        'dataframes_count': len(dataframes),
+                        'images_count': len(result.get('generated_images', [])),
+                        'has_dataframes': len(dataframes) > 0,
+                        'has_code': bool(_extract_code_string(generated_code)),
+                        'code_lines': _count_code_lines(generated_code)
                     }
                 }
+                
+                # Emit DataFrames and code for fallback cases too
+                _emit_dataframes_to_frontend(dataframes, session_id, socketio)
+                _emit_code_to_frontend(generated_code, session_id, socketio)
             
             # Send final completion signal
             socketio.emit('stream_data', completion_data, room=session_id)
@@ -2048,6 +2098,154 @@ def handle_message_with_session(data):
     thread.daemon = True
     thread.start()
 
+
+# NEW: Helper functions to properly handle DataFrames and code emission
+
+def _emit_dataframes_to_frontend(dataframes: dict, session_id: str, socketio_instance):
+    """
+    NEW: Emit DataFrames to frontend with proper structure and type identification.
+    
+    This function ensures DataFrames are sent to the frontend in the correct format
+    while preserving the actual DataFrame objects in the backend.
+    """
+    try:
+        if not dataframes:
+            return
+        
+        for df_name, df_info in dataframes.items():
+            if isinstance(df_info, dict) and df_info.get('type') == 'dataframe':
+                # Structured DataFrame info
+                df_data = df_info.get('data')
+                if isinstance(df_data, pd.DataFrame):
+                    socketio_instance.emit('stream_data', {
+                        'type': 'dataframe',
+                        'data': {
+                            'name': df_name,
+                            'type': 'dataframe',
+                            'shape': df_info.get('shape', df_data.shape),
+                            'columns': df_info.get('columns', list(df_data.columns)),
+                            'preview': df_info.get('preview', ''),
+                            'json_data': df_info.get('json_data', df_data.head(100).to_dict('records')),
+                            'summary': {
+                                'rows': len(df_data),
+                                'columns': len(df_data.columns),
+                                'memory_usage': df_data.memory_usage(deep=True).sum(),
+                                'dtypes': df_data.dtypes.to_dict()
+                            },
+                            'thisis': 5  # Enhanced analyzer generated
+                        },
+                        'timestamp': datetime.now().isoformat(),
+                        'sessionId': session_id
+                    }, room=session_id)
+                    
+                    print(f"📊 Emitted DataFrame '{df_name}' to frontend: {df_data.shape}")
+                    
+            elif isinstance(df_info, pd.DataFrame):
+                # Direct DataFrame object
+                socketio_instance.emit('stream_data', {
+                    'type': 'dataframe',
+                    'data': {
+                        'name': df_name,
+                        'type': 'dataframe',
+                        'shape': df_info.shape,
+                        'columns': list(df_info.columns),
+                        'preview': _generate_simple_table_preview(df_info),
+                        'json_data': df_info.head(100).to_dict('records'),
+                        'summary': {
+                            'rows': len(df_info),
+                            'columns': len(df_info.columns),
+                            'memory_usage': df_info.memory_usage(deep=True).sum(),
+                            'dtypes': df_info.dtypes.to_dict()
+                        },
+                        'thisis': 5  # Enhanced analyzer generated
+                    },
+                    'timestamp': datetime.now().isoformat(),
+                    'sessionId': session_id
+                }, room=session_id)
+                
+                print(f"📊 Emitted DataFrame '{df_name}' to frontend: {df_info.shape}")
+                
+    except Exception as e:
+        logging.error(f"Error emitting DataFrames to frontend: {e}")
+        print(f"❌ Failed to emit DataFrames: {e}")
+
+
+def _emit_code_to_frontend(generated_code, session_id: str, socketio_instance):
+    """
+    NEW: Emit generated code to frontend with proper structure and type identification.
+    
+    This function ensures generated code is sent to the frontend in the correct format
+    while preserving the actual code string in the backend.
+    """
+    try:
+        if not generated_code:
+            return
+        
+        # Extract actual code string
+        if isinstance(generated_code, dict):
+            code_string = generated_code.get('code', '')
+            code_type = generated_code.get('type', 'code')
+            language = generated_code.get('language', 'python')
+            lines = generated_code.get('lines', 0)
+        else:
+            code_string = str(generated_code)
+            code_type = 'code'
+            language = 'python'
+            lines = len(code_string.split('\n')) if code_string else 0
+        
+        if code_string.strip():
+            socketio_instance.emit('stream_data', {
+                'type': 'code',
+                'data': {
+                    'code': code_string,
+                    'type': code_type,
+                    'language': language,
+                    'lines': lines,
+                    'preview': code_string[:500] + '...' if len(code_string) > 500 else code_string,
+                    'summary': {
+                        'total_lines': lines,
+                        'non_empty_lines': len([line for line in code_string.split('\n') if line.strip()]),
+                        'imports': len([line for line in code_string.split('\n') if line.strip().startswith('import')]),
+                        'functions': len([line for line in code_string.split('\n') if line.strip().startswith('def ')]),
+                        'size_bytes': len(code_string.encode('utf-8'))
+                    },
+                    'thisis': 'generated_code'
+                },
+                'timestamp': datetime.now().isoformat(),
+                'sessionId': session_id
+            }, room=session_id)
+            
+            print(f"💻 Emitted generated code to frontend: {lines} lines")
+            
+    except Exception as e:
+        logging.error(f"Error emitting code to frontend: {e}")
+        print(f"❌ Failed to emit code: {e}")
+
+
+def _extract_code_string(generated_code) -> str:
+    """Extract actual code string from various formats"""
+    if isinstance(generated_code, dict):
+        return generated_code.get('code', '')
+    elif isinstance(generated_code, str):
+        return generated_code
+    else:
+        return str(generated_code) if generated_code else ''
+
+
+def _count_code_lines(generated_code) -> int:
+    """Count lines in generated code"""
+    code_string = _extract_code_string(generated_code)
+    return len(code_string.split('\n')) if code_string else 0
+
+
+def _generate_simple_table_preview(df: pd.DataFrame) -> str:
+    """Generate a simple HTML preview for DataFrame"""
+    try:
+        from utils.utils import generate_simple_table
+        return generate_simple_table(df.head(10))
+    except Exception as e:
+        print(f"Error generating table preview: {e}")
+        return f"<p>DataFrame with {df.shape[0]} rows and {df.shape[1]} columns</p>"
 
 @socketio.on('stop_analysis')
 def handle_stop_analysis(data):

@@ -74,6 +74,11 @@ export const useMessages = () => {
         return [...prev, newMessage]
       }
 
+      if (type === "response" && !isUser) {
+        console.log(`Creating new output message with category: ${queryCategory}`)
+        return [...prev, newMessage]
+      }
+
       // Special handling for status messages
       if (type === "status" && !isUser) {
         const updatedMessages = prev.map((msg, index) => {
