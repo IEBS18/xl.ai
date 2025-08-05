@@ -1,5 +1,5 @@
 import React from "react"
-import { Loader2, MessageSquare, Zap, Brain } from "lucide-react"
+import { Loader2, MessageSquare, Zap, Brain, Bot, Code, Database, Play } from "lucide-react"
 import MessageItem from "./MessageItem"
 import { useTheme } from "@/context/ThemeProvider"
 
@@ -11,7 +11,7 @@ const MessageTimeline = ({
   messagesEndRef,
   onChatMessageClick,
   selectedChatMessage,
-  currentQueryCategory // Add this prop to track current analysis type
+  currentQueryCategory // Track current analysis type
 }) => {
   const { themeClasses } = useTheme()
 
@@ -22,81 +22,36 @@ const MessageTimeline = ({
         return {
           icon: <MessageSquare size={14} className="animate-pulse" />,
           text: "Thinking about your message...",
-          color: "bg-green-500"
+          color: "bg-green-500",
+          description: "Processing conversational query"
         }
       case "textual_analytical":
         return {
           icon: <Zap size={14} className="animate-pulse" />,
           text: "Analyzing your data quickly...",
-          color: "bg-blue-500"
+          color: "bg-blue-500",
+          description: "Running quick data analysis"
         }
       case "fully_analytical":
         return {
           icon: <Brain size={14} className="animate-pulse" />,
           text: "Performing comprehensive analysis...",
-          color: "bg-purple-500"
+          color: "bg-purple-500",
+          description: "Running complex analysis with code execution"
         }
       default:
         return {
           icon: <Loader2 size={14} className="animate-spin" />,
           text: "Processing your request...",
-          color: "bg-blue-500"
+          color: "bg-blue-500",
+          description: "Determining best approach"
         }
     }
   }
 
   const analyzingInfo = getAnalyzingMessage(currentQueryCategory)
 
-  // Helper function to sort messages with output messages last for each user query
-  const sortMessagesWithOutputLastPerQuery = (messages) => {
-    const result = []
-    let currentQueryMessages = []
-    
-    for (let i = 0; i < messages.length; i++) {
-      const message = messages[i]
-      
-      if (message.isUser) {
-        // If we have accumulated messages from previous query, sort and add them
-        if (currentQueryMessages.length > 0) {
-          const sortedQueryMessages = sortSingleQueryMessages(currentQueryMessages)
-          result.push(...sortedQueryMessages)
-          currentQueryMessages = []
-        }
-        // Add the user message
-        result.push(message)
-      } else {
-        // Accumulate system messages for current query
-        currentQueryMessages.push(message)
-      }
-    }
-    
-    // Handle remaining messages after the last user query
-    if (currentQueryMessages.length > 0) {
-      const sortedQueryMessages = sortSingleQueryMessages(currentQueryMessages)
-      result.push(...sortedQueryMessages)
-    }
-    
-    return result
-  }
-
-  // Helper function to sort messages within a single query response
-  const sortSingleQueryMessages = (messages) => {
-    const outputMessages = []
-    const nonOutputMessages = []
-    
-    messages.forEach(message => {
-      if (message.type === "output") {
-        outputMessages.push(message)
-      } else {
-        nonOutputMessages.push(message)
-      }
-    })
-    
-    // Return non-output messages first, then output messages
-    return [...nonOutputMessages, ...outputMessages]
-  }
-
-  // Filter messages for cleaner Claude-like experience
+  // Enhanced message cleaning for better Claude-like experience
   const getCleanedMessages = (messages) => {
     const cleaned = []
     let i = 0
@@ -118,7 +73,7 @@ const MessageTimeline = ({
         
         const userMessage = cleaned[userMessageIndex]
         const queryCategory = message.queryCategory || userMessage.queryCategory
-        
+
         // Different handling based on query category
         if (queryCategory === "conversational") {
           // For conversational: only show final response, skip all status messages
@@ -145,8 +100,10 @@ const MessageTimeline = ({
             i++
           }
         } else {
-          // For fully analytical: show all messages (existing behavior)
-          cleaned.push(message)
+          // For fully analytical: show relevant messages (enhanced filtering)
+          if (shouldShowMessageInTimeline(message, queryCategory)) {
+            cleaned.push(message)
+          }
           i++
         }
       }
@@ -155,13 +112,55 @@ const MessageTimeline = ({
     return cleaned
   }
 
+  // Helper function to determine if message should show in timeline
+  const shouldShowMessageInTimeline = (message, queryCategory) => {
+    const { type } = message
+    
+    // Always show these types
+    const alwaysShow = [
+      'output', 'response', 'code', 'dataframe', 'image', 'file', 
+      'report', 'error', 'success', 'function_call'
+    ]
+    
+    if (alwaysShow.includes(type)) {
+      return true
+    }
+    
+    // Show status for complex analysis only
+    if (type === 'status' && queryCategory === 'fully_analytical') {
+      return true
+    }
+    
+    // Show step_start for detailed tracking
+    if (type === 'step_start') {
+      return true
+    }
+    
+    // Show warnings and system messages
+    if (['warning', 'system'].includes(type)) {
+      return true
+    }
+    
+    // Hide completion messages (they're redundant)
+    if (['completion', 'simple_completion'].includes(type)) {
+      return false
+    }
+    
+    // Show unknown types for debugging
+    if (type === 'unknown') {
+      return true
+    }
+    
+    return false
+  }
+
   // Helper function to find final conversational response
   const findFinalConversationalResponse = (messages, startIndex) => {
     for (let j = startIndex; j < messages.length; j++) {
       const msg = messages[j]
       if (msg.isUser) break // Stop at next user message
       
-      if (msg.type === "output" || msg.type === "conversational" || 
+      if (msg.type === "output" || msg.type === "response" || msg.type === "conversational" || 
           (msg.type === "success" && msg.content && !msg.content.includes("Analysis completed"))) {
         return msg
       }
@@ -175,23 +174,97 @@ const MessageTimeline = ({
       const msg = messages[j]
       if (msg.isUser) break // Stop at next user message
       
-      if (msg.type === "output" || msg.type === "textual_analytical") {
+      if (msg.type === "output" || msg.type === "response" || msg.type === "textual_analytical") {
         return msg
       }
     }
     return null
   }
 
-  // First clean the messages, then sort them with output messages last per query
   const cleanedMessages = getCleanedMessages(messages)
-  const sortedMessages = sortMessagesWithOutputLastPerQuery(cleanedMessages)
+
+  // Enhanced analyzing indicator based on current activity
+  const renderAnalyzingIndicator = () => {
+    if (!isAnalyzing) return null
+
+    return (
+      <div className="animate-in slide-in-from-left duration-300">
+        <div className="flex justify-start mb-6">
+          <div className="flex items-start gap-3 max-w-2xl">
+            <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center`}>
+              {analyzingInfo.icon}
+            </div>
+            <div className={`px-4 py-3 rounded-2xl shadow-sm border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 ${themeClasses.text}`}>
+              <div className="flex items-center gap-2 mb-1">
+                {analyzingInfo.icon}
+                <span className="text-sm text-gray-600 dark:text-gray-400">{analyzingInfo.text}</span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-500">
+                {analyzingInfo.description}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Helper to get activity indicators during analysis
+  const getActivityIndicators = () => {
+    if (!isAnalyzing || !currentQueryCategory) return null
+
+    const indicators = []
+    
+    if (currentQueryCategory === "fully_analytical") {
+      indicators.push(
+        { icon: <Code size={12} />, label: "Code Generation", active: true },
+        { icon: <Database size={12} />, label: "Data Processing", active: false },
+        { icon: <Bot size={12} />, label: "Result Analysis", active: false }
+      )
+    } else if (currentQueryCategory === "textual_analytical") {
+      indicators.push(
+        { icon: <Zap size={12} />, label: "Quick Analysis", active: true },
+        { icon: <Database size={12} />, label: "Data Lookup", active: false }
+      )
+    } else if (currentQueryCategory === "conversational") {
+      indicators.push(
+        { icon: <MessageSquare size={12} />, label: "Understanding", active: true },
+        { icon: <Bot size={12} />, label: "Responding", active: false }
+      )
+    }
+
+    return (
+      <div className="flex justify-start mb-4">
+        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">
+          {indicators.map((indicator, index) => (
+            <div key={index} className="flex items-center gap-1">
+              <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                indicator.active ? 'bg-blue-500 text-white' : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-400'
+              }`}>
+                {indicator.icon}
+              </div>
+              <span className={`text-xs ${
+                indicator.active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'
+              }`}>
+                {indicator.label}
+              </span>
+              {index < indicators.length - 1 && (
+                <div className="w-2 h-px bg-gray-300 dark:bg-gray-600 mx-1" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pb-6">
-      {/* Add some top padding for better visual spacing */}
+      {/* Top padding for better visual spacing */}
       <div className="h-4"></div>
       
-      {sortedMessages.map((message) => (
+      {/* Render all cleaned messages */}
+      {cleanedMessages.map((message, index) => (
         <MessageItem
           key={message.id}
           message={message}
@@ -202,24 +275,11 @@ const MessageTimeline = ({
         />
       ))}
       
-      {isAnalyzing && (
-        <div className="animate-in slide-in-from-left duration-300">
-          {/* Claude-like analyzing indicator - minimal and clean */}
-          <div className="flex justify-start mb-6">
-            <div className="flex items-start gap-3 max-w-2xl">
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center`}>
-                <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-              </div>
-              <div className={`px-4 py-3 rounded-2xl shadow-sm border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 ${themeClasses.text}`}>
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Thinking...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Enhanced analyzing indicator */}
+      {renderAnalyzingIndicator()}
+      
+      {/* Activity indicators for complex analysis */}
+      {getActivityIndicators()}
       
       {/* Bottom spacer to ensure last message is visible above input */}
       <div className="h-8"></div>

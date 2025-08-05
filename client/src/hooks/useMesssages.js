@@ -3,6 +3,7 @@ import { useState, useCallback, useRef, useEffect } from "react"
 export const useMessages = () => {
   const [messages, setMessages] = useState([])
   const [expandedMessages, setExpandedMessages] = useState(new Set())
+  const [currentQueryCategory, setCurrentQueryCategory] = useState(null)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = useCallback(() => {
@@ -20,7 +21,7 @@ export const useMessages = () => {
       type,
       content,
       isUser,
-      queryCategory, // Add query category tracking
+      queryCategory,
       timestamp: new Date().toISOString(),
       isCompleted: type !== "status",
       ...additionalData
@@ -29,7 +30,7 @@ export const useMessages = () => {
     setMessages((prev) => {
       const lastMessage = prev[prev.length - 1]
 
-      // Enhanced duplicate prevention with better object comparison
+      // Enhanced duplicate prevention
       if (lastMessage && !isUser && Date.now() - new Date(lastMessage.timestamp).getTime() < 1000) {
         // For simple string content
         if (typeof content === "string" && typeof lastMessage.content === "string") {
@@ -39,10 +40,10 @@ export const useMessages = () => {
           }
         }
 
-        // For complex objects (dataframe, image)
+        // For complex objects
         if (typeof content === "object" && typeof lastMessage.content === "object" && content && lastMessage.content) {
           if (lastMessage.type === type) {
-            // For dataframe objects, compare by name and shape
+            // For dataframe objects
             if (
               type === "dataframe" &&
               content.name === lastMessage.content.name &&
@@ -52,26 +53,30 @@ export const useMessages = () => {
               return prev
             }
 
-            // For image objects, compare by filename
+            // For image objects
             if (type === "image" && content.filename === lastMessage.content.filename) {
               console.log("Preventing duplicate image message:", content.filename)
+              return prev
+            }
+
+            // For file objects
+            if (type === "file" && content.filename === lastMessage.content.filename) {
+              console.log("Preventing duplicate file message:", content.filename)
               return prev
             }
           }
         }
       }
 
-      // CRITICAL FIX: NEVER aggregate output messages - always create separate messages
+      // Always create new messages for output to prevent mixing queries
       if (type === "output" && !isUser) {
-        // Always create a new message for ANY query category to prevent mixing queries
         console.log(`Creating new output message with category: ${queryCategory}`)
         return [...prev, newMessage]
       }
 
-      // Special handling for status messages - mark previous status as completed when new one arrives
+      // Special handling for status messages
       if (type === "status" && !isUser) {
         const updatedMessages = prev.map((msg, index) => {
-          // Mark the last status message as completed
           if (index === prev.length - 1 && msg.type === "status" && !msg.isCompleted) {
             return { ...msg, isCompleted: true }
           }
@@ -80,16 +85,20 @@ export const useMessages = () => {
         return [...updatedMessages, newMessage]
       }
 
-      // For success, error, or other completion types, mark previous status as completed
+      // For completion types, mark previous status as completed
       if (
         (type === "success" ||
           type === "error" ||
           type === "code" ||
           type === "dataframe" ||
           type === "image" ||
+          type === "file" ||
           type === "report" ||
           type === "conversational" ||
           type === "textual_analytical" ||
+          type === "response" ||
+          type === "function_call" ||
+          type === "step_start" ||
           type === "completion") &&
         !isUser
       ) {
@@ -108,18 +117,20 @@ export const useMessages = () => {
     return newMessage.id
   }, [])
 
-  // Enhanced stream data handler for Claude-like experience
+  // Enhanced stream data handler for ALL backend stream types
   const handleStreamData = useCallback((data) => {
     const { type, data: content, timestamp, sessionId, ...additionalInfo } = data
     
-    // Log received stream data for debugging
-    console.log(`📨 Stream data received:`, { type, sessionId, timestamp })
+    console.log(`📨 Stream data received:`, { type, sessionId, timestamp, additionalInfo })
     
     switch (type) {
       case "analysis_started":
-        // Don't show "analysis started" for conversational queries
-        if (!additionalInfo.query_category || additionalInfo.query_category === "fully_analytical") {
-          addMessage("status", content || "Starting analysis...", false, null, {
+        // Track current query category for UI
+        const startCategory = additionalInfo.query_category || detectQueryCategoryFromContent(content)
+        setCurrentQueryCategory(startCategory)
+        
+        if (!startCategory || startCategory === "fully_analytical") {
+          addMessage("status", content || "Starting analysis...", false, startCategory, {
             isCompleted: false,
             analysisType: additionalInfo.analysis_type
           })
@@ -127,46 +138,77 @@ export const useMessages = () => {
         break
 
       case "status":
-        // Only show status for complex analysis, skip for conversational/textual
-        const category = additionalInfo.query_category || detectQueryCategoryFromContent(content)
-        if (category === "fully_analytical" || !category) {
-          addMessage("status", content, false, category, {
+        const statusCategory = additionalInfo.query_category || detectQueryCategoryFromContent(content)
+        setCurrentQueryCategory(statusCategory)
+        
+        // Only show status for complex analysis
+        if (statusCategory === "fully_analytical" || !statusCategory) {
+          addMessage("status", content, false, statusCategory, {
             isCompleted: false
           })
         }
         break
 
+      case "step_start":
+        // New: Handle step start events
+        const stepCategory = additionalInfo.query_category || "fully_analytical"
+        addMessage("step_start", `Starting ${content.type || 'step'}: ${content.step_id || ''}`, false, stepCategory, {
+          isCompleted: false,
+          stepInfo: content
+        })
+        break
+
+      case "code":
+        // Handle code execution
+        addMessage("code", content, false, "fully_analytical", {
+          isCompleted: true,
+          generatedCode: content
+        })
+        break
+
       case "output":
-        // This is the main response - always show as separate messages
+        // Main response - always show as separate messages
         const queryCategory = additionalInfo.query_category || 
                              additionalInfo.result?.query_category ||
                              detectQueryCategoryFromContent(content)
         
         console.log(`Output message with category: ${queryCategory}`)
         
-        // Split content into separate logical parts for better chat experience
         if (queryCategory === "conversational" && content) {
           const parts = splitResponseIntoParts(content)
           parts.forEach((part, index) => {
             setTimeout(() => {
               addMessage("output", part.trim(), false, queryCategory, {
                 isCompleted: true,
-                responseType: additionalInfo.response_type || "output",
+                responseType: "output",
                 partIndex: index,
                 totalParts: parts.length
               })
-            }, index * 100) // Small delay between parts for natural feel
+            }, index * 100)
           })
         } else {
           addMessage("output", content, false, queryCategory, {
             isCompleted: true,
-            responseType: additionalInfo.response_type || "output"
+            responseType: "output"
           })
         }
         break
 
+      case "response":
+        // New: Direct assistant response
+        const responseCategory = additionalInfo.query_category || detectQueryCategoryFromContent(content)
+        setCurrentQueryCategory(responseCategory)
+        
+        addMessage("response", content, false, responseCategory, {
+          isCompleted: true,
+          responseType: "assistant_response"
+        })
+        break
+
       case "conversational":
+      case "conversational_response":
       case "conversational_complete":
+        setCurrentQueryCategory("conversational")
         addMessage("output", content, false, "conversational", {
           isCompleted: true,
           responseType: "conversational"
@@ -175,16 +217,10 @@ export const useMessages = () => {
 
       case "textual_analytical":
       case "textual_analytical_complete":
+        setCurrentQueryCategory("textual_analytical")
         addMessage("output", content, false, "textual_analytical", {
           isCompleted: true,
           responseType: "textual_analytical"
-        })
-        break
-
-      case "code":
-        addMessage("code", content, false, "fully_analytical", {
-          isCompleted: true,
-          generatedCode: content
         })
         break
 
@@ -207,20 +243,49 @@ export const useMessages = () => {
           imageInfo: {
             filename: content.filename,
             data: content.data,
-            path: content.path
+            path: content.path,
+            file_id: content.file_id,
+            type: content.type
+          }
+        })
+        break
+
+      case "file":
+        // New: Handle any file type (.txt, .pdf, .csv, etc.)
+        addMessage("file", content, false, "fully_analytical", {
+          isCompleted: true,
+          fileInfo: {
+            filename: content.filename,
+            data: content.data,
+            path: content.path,
+            file_id: content.file_id,
+            type: content.type,
+            size: content.size,
+            mime_type: content.mime_type
+          }
+        })
+        break
+
+      case "function_call":
+        // New: Handle function calls
+        addMessage("function_call", `Function: ${content.name}`, false, "fully_analytical", {
+          isCompleted: true,
+          functionInfo: {
+            name: content.name,
+            arguments: content.arguments
           }
         })
         break
 
       case "report":
-        addMessage("report", content, false, "fully_analytical", {
+        console.log(content);
+        addMessage("report", content.html, false, "fully_analytical", {
           isCompleted: true,
-          reportData: content
+          reportData: content.html
         })
         break
 
       case "success":
-        // Only show success for complex analysis
         if (content && !content.includes("Analysis completed")) {
           addMessage("success", content, false, null, {
             isCompleted: true
@@ -236,21 +301,27 @@ export const useMessages = () => {
         break
 
       case "completion":
+      case "simple_completion":
       case "analysis_complete":
-        // Don't show completion messages for simple queries
         const completionCategory = additionalInfo.result?.query_category || 
                                   additionalInfo.result?.type ||
                                   "unknown"
         
         console.log('Analysis completed with category:', completionCategory)
         
-        // Only show completion for complex analysis
-        if (completionCategory === "fully_analytical") {
+        // Show completion for complex analysis or simple responses
+        if (type === "simple_completion") {
+          // Simple completion - no analysis was performed
+          console.log("Simple query completed - no analysis needed")
+        } else if (completionCategory === "fully_analytical") {
           addMessage("completion", content || "Analysis completed!", false, completionCategory, {
             isCompleted: true,
             completionInfo: additionalInfo.result
           })
         }
+        
+        // Clear current query category
+        setCurrentQueryCategory(null)
         break
 
       case "stop_requested":
@@ -259,6 +330,7 @@ export const useMessages = () => {
           isCompleted: true,
           wasStopped: true
         })
+        setCurrentQueryCategory(null)
         break
 
       case "session_terminated":
@@ -266,6 +338,7 @@ export const useMessages = () => {
           isCompleted: true,
           sessionTerminated: true
         })
+        setCurrentQueryCategory(null)
         break
 
       case "warning":
@@ -281,8 +354,13 @@ export const useMessages = () => {
         break
 
       default:
-        console.warn(`Unknown stream data type: ${type}`)
-        // Don't add unknown types to avoid clutter
+        console.warn(`Unknown stream data type: ${type}`, { content, additionalInfo })
+        // Add unknown types for debugging but mark them clearly
+        addMessage("unknown", `Unknown type: ${type} - ${content}`, false, null, {
+          isCompleted: true,
+          unknownType: type,
+          originalData: data
+        })
         break
     }
   }, [addMessage])
@@ -291,12 +369,10 @@ export const useMessages = () => {
   const splitResponseIntoParts = (content) => {
     if (!content || typeof content !== 'string') return [content]
     
-    // Split by double newlines (paragraph breaks) or specific patterns
     const parts = content.split(/\n\n+|\. (?=[A-Z])|(?<=\?)\s+(?=[A-Z])|(?<=!)\s+(?=[A-Z])/)
       .filter(part => part.trim().length > 0)
       .map(part => part.trim())
     
-    // If splitting created too many small parts, join them back
     if (parts.length > 4) {
       const merged = []
       let current = ""
@@ -316,13 +392,12 @@ export const useMessages = () => {
     return parts.length > 1 ? parts : [content]
   }
 
-  // Helper function to detect query category from content (fallback)
+  // Helper function to detect query category from content
   const detectQueryCategoryFromContent = (content) => {
     if (!content || typeof content !== 'string') return null
     
     const lowerContent = content.toLowerCase()
     
-    // Look for indicators of different response types
     if (lowerContent.includes('hello') || 
         lowerContent.includes('hi there') || 
         lowerContent.includes('i\'m here to help') ||
@@ -334,15 +409,9 @@ export const useMessages = () => {
     
     if (lowerContent.includes('📈') || 
         lowerContent.includes('📊') || 
-        lowerContent.includes('📉') ||
-        lowerContent.includes('📋') ||
-        lowerContent.includes('🔢') ||
         lowerContent.includes('the highest') ||
         lowerContent.includes('the average') ||
-        lowerContent.includes('the maximum') ||
-        lowerContent.includes('the minimum') ||
-        lowerContent.includes('total of') ||
-        lowerContent.includes('count of')) {
+        lowerContent.includes('total of')) {
       return "textual_analytical"
     }
     
@@ -362,7 +431,7 @@ export const useMessages = () => {
     })
   }, [])
 
-  // Update a specific message (for editing reports, etc.)
+  // Update a specific message
   const updateMessage = useCallback((messageId, updates) => {
     setMessages(prev => prev.map(msg => 
       msg.id === messageId ? { ...msg, ...updates } : msg
@@ -373,6 +442,7 @@ export const useMessages = () => {
   const clearMessages = useCallback(() => {
     setMessages([])
     setExpandedMessages(new Set())
+    setCurrentQueryCategory(null)
   }, [])
 
   // Get messages by category
@@ -386,7 +456,7 @@ export const useMessages = () => {
     return userMessages.length > 0 ? userMessages[userMessages.length - 1] : null
   }, [messages])
 
-  // Get messages for a specific user query (all responses after a user message)
+  // Get messages for a specific user query
   const getMessagesForQuery = useCallback((userMessageId) => {
     const messageIndex = messages.findIndex(msg => msg.id === userMessageId)
     if (messageIndex === -1) return []
@@ -421,6 +491,7 @@ export const useMessages = () => {
     updateMessage,
     clearMessages,
     messagesEndRef,
+    currentQueryCategory, // Export current query category for UI
     getMessagesByCategory,
     getLatestUserMessage,
     getMessagesForQuery

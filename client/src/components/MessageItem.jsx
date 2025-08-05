@@ -15,6 +15,12 @@ import {
   Copy,
   User,
   Bot,
+  File,
+  Download,
+  Play,
+  Zap,
+  HelpCircle,
+  ExternalLink
 } from "lucide-react"
 import { shouldCollapseByDefault, getStepColor, copyToClipboard, renderMarkdown } from "../utils/helpers"
 import RichTextReport from "./RichTextReport"
@@ -45,56 +51,150 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
         return <Database size={14} />
       case "image":
         return <Image size={14} />
+      case "file":
+        return <File size={14} />
       case "report":
         return <FileText size={14} />
       case "output":
+      case "response":
         return <FileOutput size={14} />
       case "success":
         return <CheckCircle size={14} />
       case "error":
         return <AlertCircle size={14} />
+      case "function_call":
+        return <Play size={14} />
+      case "step_start":
+        return <Zap size={14} />
+      case "warning":
+        return <AlertCircle size={14} />
+      case "system":
+        return <BarChart3 size={14} />
+      case "unknown":
+        return <HelpCircle size={14} />
       default:
         return <BarChart3 size={14} />
     }
   }
 
   const getStepLabel = (type, isCompleted, queryCategory) => {
-    return type === "dataframe"
-      ? "Data Analysis"
-      : type === "image"
-        ? "Visualization"
-        : type === "report"
-          ? "Strategic Report"
-          : type === "code"
-            ? "Generated Code"
-            : type === "output"
-              ? "Analysis Result"
-              : type === "status"
-                ? isCompleted
-                  ? "Completed"
-                  : "Processing"
-                : type
+    switch (type) {
+      case "dataframe":
+        return "Data Analysis"
+      case "image":
+        return "Visualization"
+      case "file":
+        return "Generated File"
+      case "report":
+        return "Strategic Report"
+      case "code":
+        return "Generated Code"
+      case "output":
+        return "Analysis Result"
+      case "response":
+        return "Assistant Response"
+      case "function_call":
+        return "Function Call"
+      case "step_start":
+        return "Step Started"
+      case "status":
+        return isCompleted ? "Completed" : "Processing"
+      case "warning":
+        return "Warning"
+      case "system":
+        return "System Message"
+      case "unknown":
+        return "Unknown Message"
+      default:
+        return type.charAt(0).toUpperCase() + type.slice(1)
+    }
   }
 
   const getStepColorClass = (type, isCompleted, queryCategory) => {
-    // All step indicators use theme-based gray colors
-    return isDark ? "bg-gray-600" : "bg-gray-700"
+    // Color coding based on message type
+    switch (type) {
+      case "error":
+        return "bg-red-600"
+      case "success":
+        return "bg-green-600"
+      case "warning":
+        return "bg-yellow-600"
+      case "code":
+        return "bg-blue-600"
+      case "image":
+        return "bg-purple-600"
+      case "file":
+        return "bg-orange-600"
+      case "dataframe":
+        return "bg-indigo-600"
+      case "report":
+        return "bg-emerald-600"
+      case "function_call":
+        return "bg-pink-600"
+      case "step_start":
+        return "bg-cyan-600"
+      default:
+        return isDark ? "bg-gray-600" : "bg-gray-700"
+    }
   }
 
   const getTextColorClass = (type) => {
-    // All text uses theme colors - no additional colors
     return themeClasses.text
   }
 
-  // Claude-like styling: clean chat bubbles for most interactions
+  // Helper function to determine file type from filename or mime type
+  const getFileType = (filename, mimeType) => {
+    if (mimeType) {
+      if (mimeType.startsWith('image/')) return 'image'
+      if (mimeType.includes('pdf')) return 'pdf'
+      if (mimeType.includes('text')) return 'text'
+      if (mimeType.includes('csv')) return 'csv'
+      if (mimeType.includes('json')) return 'json'
+    }
+    
+    if (filename) {
+      const ext = filename.toLowerCase().split('.').pop()
+      switch (ext) {
+        case 'png':
+        case 'jpg':
+        case 'jpeg':
+        case 'gif':
+        case 'svg':
+          return 'image'
+        case 'pdf':
+          return 'pdf'
+        case 'txt':
+        case 'md':
+          return 'text'
+        case 'csv':
+          return 'csv'
+        case 'json':
+          return 'json'
+        case 'html':
+          return 'html'
+        default:
+          return 'unknown'
+      }
+    }
+    
+    return 'unknown'
+  }
+
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (!bytes) return 'Unknown size'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  // Claude-like styling determination
   const shouldUseClaudeStyle = (type, queryCategory) => {
-    // Use Claude-style for conversational and textual responses
     if (queryCategory === "conversational" || queryCategory === "textual_analytical") {
       return true
     }
     
-    // Use Claude-style for output messages that look conversational
-    if (type === "output" && !queryCategory) {
+    if ((type === "output" || type === "response") && !queryCategory) {
       return true
     }
     
@@ -138,7 +238,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
     )
   }
 
-  // Timeline style for complex analytical queries (existing implementation)
+  // Timeline style for complex analytical queries (enhanced)
   return (
     <div className="relative pl-6 pb-6 animate-in slide-in-from-left duration-300">
       {/* Timeline line */}
@@ -174,11 +274,11 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {type === "code" && shouldShowContent && (
+                {(type === "code" || type === "output") && shouldShowContent && (
                   <button
                     onClick={() => copyToClipboard(content)}
                     className={`${themeClasses.textSecondary} hover:${themeClasses.text} p-1 rounded hover:${themeClasses.surfaceSecondary} transition-colors`}
-                    title="Copy code"
+                    title="Copy content"
                   >
                     <Copy size={14} />
                   </button>
@@ -190,15 +290,28 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
           {/* Body - Only show if expanded or not collapsible */}
           {shouldShowContent && (
             <div className="p-4">
+              {/* Handle text-based content */}
               {(type === "system" ||
                 type === "status" ||
                 type === "success" ||
                 type === "error" ||
-                type === "output") && (
+                type === "warning" ||
+                type === "output" ||
+                type === "response" ||
+                type === "step_start" ||
+                type === "unknown") && (
                   <div
                     className={`${getTextColorClass(type)} whitespace-pre-wrap text-sm ${
-                      type === "output" 
+                      (type === "output" || type === "response") 
                         ? `font-mono ${themeClasses.surface} p-3 rounded-lg border ${themeClasses.border}` 
+                        : ""
+                    } ${
+                      type === "error" || type === "warning"
+                        ? "text-red-600 dark:text-red-400"
+                        : ""
+                    } ${
+                      type === "unknown"
+                        ? "text-orange-600 dark:text-orange-400 italic"
                         : ""
                     }`}
                   >
@@ -212,6 +325,31 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                   <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
                     {content}
                   </pre>
+                </div>
+              )}
+
+              {/* Handle function call content */}
+              {type === "function_call" && content && (
+                <div className="space-y-3">
+                  <div className={`${themeClasses.surface} rounded-lg p-4 border ${themeClasses.border}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Play className="w-4 h-4 text-pink-600" />
+                      <span className="font-medium">Function Call</span>
+                    </div>
+                    {message.functionInfo && (
+                      <div className="space-y-2">
+                        <div><strong>Name:</strong> {message.functionInfo.name}</div>
+                        {message.functionInfo.arguments && (
+                          <div>
+                            <strong>Arguments:</strong>
+                            <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
+                              {JSON.stringify(message.functionInfo.arguments, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
