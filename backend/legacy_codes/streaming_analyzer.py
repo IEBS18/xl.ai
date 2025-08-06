@@ -26,7 +26,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from test2 import QuadraticCSVAnalyzer
+from legacy_codes.test2 import QuadraticCSVAnalyzer
 from conversation_history import ConversationHistory
 from prompt_loader import PromptLoader
 from table_generator import generate_tailwind_table

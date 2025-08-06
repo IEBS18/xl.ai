@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Import your existing analyzer
-from test2 import QuadraticCSVAnalyzer
+from legacy_codes.test2 import QuadraticCSVAnalyzer
 from dotenv import load_dotenv
 
 import requests

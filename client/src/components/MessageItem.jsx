@@ -37,11 +37,28 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
       onChatMessageClick(id)
     }
   }
+  
   const renderSafeContent = (value) => {
-  if (typeof value === "string") return value
-  if (typeof value === "object") return JSON.stringify(value, null, 2)
-  return String(value)
-}
+    if (typeof value === "string") return value
+    if (typeof value === "object") return JSON.stringify(value, null, 2)
+    return String(value)
+  }
+
+  // Helper function to extract code content from different formats
+  const getCodeContent = (content) => {
+    if (typeof content === "string") {
+      return content
+    }
+    if (typeof content === "object" && content !== null) {
+      // Handle the case where content is an object with a 'code' property
+      if (content.code) {
+        return content.code
+      }
+      // Handle other object formats
+      return JSON.stringify(content, null, 2)
+    }
+    return String(content)
+  }
 
   // Helper functions
   const getStepIcon = (type, isCompleted, queryCategory) => {
@@ -281,7 +298,7 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
               <div className="flex items-center gap-2">
                 {(type === "code" || type === "output") && shouldShowContent && (
                   <button
-                    onClick={() => copyToClipboard(content)}
+                    onClick={() => copyToClipboard(type === "code" ? getCodeContent(content) : content)}
                     className={`${themeClasses.textSecondary} hover:${themeClasses.text} p-1 rounded hover:${themeClasses.surfaceSecondary} transition-colors`}
                     title="Copy content"
                   >
@@ -320,15 +337,15 @@ const MessageItem = ({ message, isExpanded, onToggleExpansion, onChatMessageClic
                         : ""
                     }`}
                   >
-                    {content}
+                    {renderSafeContent(content)}
                   </div>
                 )}
 
-              {/* Handle code content */}
+              {/* Handle code content - FIXED */}
               {type === "code" && (
                 <div className={`${themeClasses.surface} rounded-lg p-4 overflow-x-auto border ${themeClasses.border}`}>
                   <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
-                    {content}
+                    {getCodeContent(content)}
                   </pre>
                 </div>
               )}

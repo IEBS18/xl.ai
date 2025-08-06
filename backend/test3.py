@@ -2,30 +2,42 @@ import os
 import time
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+import glob
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
 
-class AzureOpenAIDataAnalyzer:
+class AzureOpenAICodeAnalyzer:
     """
-    Data analyzer using Azure OpenAI Assistants API with Code Interpreter
-    Supports CSV, Excel, JSON, and other data formats
+    Code analyzer using Azure OpenAI Assistants API with Code Interpreter
+    Supports Python files, bug detection, and solution recommendations
     """
     
     # Supported file formats
     SUPPORTED_FORMATS = {
-        '.csv': 'CSV',
-        '.xlsx': 'Excel',
-        '.xls': 'Excel',
+        '.py': 'Python',
+        '.js': 'JavaScript',
+        '.ts': 'TypeScript',
+        '.java': 'Java',
+        '.cpp': 'C++',
+        '.c': 'C',
+        '.cs': 'C#',
+        '.go': 'Go',
+        '.php': 'PHP',
+        '.rb': 'Ruby',
+        '.rs': 'Rust',
+        '.sql': 'SQL',
+        '.html': 'HTML',
+        '.css': 'CSS',
         '.json': 'JSON',
-        '.txt': 'Text',
-        '.tsv': 'Tab-separated values',
-        '.parquet': 'Parquet',
-        '.pkl': 'Pickle',
-        '.pickle': 'Pickle',
-        '.xml': 'XML',
         '.yaml': 'YAML',
-        '.yml': 'YAML'
+        '.yml': 'YAML',
+        '.xml': 'XML',
+        '.md': 'Markdown',
+        '.txt': 'Text',
+        '.log': 'Log file',
+        '.env': 'Environment file'
     }
     
     def __init__(self):
@@ -33,8 +45,8 @@ class AzureOpenAIDataAnalyzer:
         self.client = self._setup_azure_client()
         self.assistant_id = None
         self.thread_id = None
-        self.file_id = None
-        self.file_format = None
+        self.uploaded_files = []
+        self.backend_structure = {}
         
     def _setup_azure_client(self) -> AzureOpenAI:
         """Setup Azure OpenAI client"""
@@ -58,60 +70,155 @@ class AzureOpenAIDataAnalyzer:
             return False
         return True
     
-    def create_assistant(self, name: str = "Data Analyst") -> str:
-        """Create an assistant with code interpreter capabilities"""
+    def scan_backend_folder(self, folder_path: str, max_files: int = 50) -> dict:
+        """Scan backend folder and categorize files"""
+        backend_structure = {
+            'total_files': 0,
+            'by_type': {},
+            'files': [],
+            'directories': []
+        }
+        
+        if not os.path.exists(folder_path):
+            print(f"❌ Folder not found: {folder_path}")
+            return backend_structure
+        
+        print(f"🔍 Scanning backend folder: {folder_path}")
+        
+        # Get all files recursively
+        for root, dirs, files in os.walk(folder_path):
+            # Skip common build/cache directories
+            dirs[:] = [d for d in dirs if d not in [
+                '__pycache__', '.git', 'node_modules', '.venv', 'venv', 
+                'build', 'dist', '.pytest_cache', '.mypy_cache'
+            ]]
+            
+            backend_structure['directories'].extend([
+                os.path.relpath(os.path.join(root, d), folder_path) for d in dirs
+            ])
+            
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, folder_path)
+                
+                if self._validate_file(file_path):
+                    file_type = self._detect_file_format(file_path)
+                    
+                    if file_type not in backend_structure['by_type']:
+                        backend_structure['by_type'][file_type] = []
+                    
+                    backend_structure['by_type'][file_type].append(rel_path)
+                    backend_structure['files'].append({
+                        'path': file_path,
+                        'relative_path': rel_path,
+                        'type': file_type,
+                        'size': os.path.getsize(file_path)
+                    })
+                    
+                    backend_structure['total_files'] += 1
+                    
+                    if backend_structure['total_files'] >= max_files:
+                        print(f"⚠️ Reached maximum file limit ({max_files}). Stopping scan.")
+                        break
+            
+            if backend_structure['total_files'] >= max_files:
+                break
+        
+        self.backend_structure = backend_structure
+        return backend_structure
+    
+    def display_backend_structure(self):
+        """Display the scanned backend structure"""
+        if not self.backend_structure:
+            print("❌ No backend structure found. Run scan_backend_folder first.")
+            return
+        
+        print("\n" + "="*60)
+        print("📁 BACKEND FOLDER STRUCTURE")
+        print("="*60)
+        print(f"📊 Total files: {self.backend_structure['total_files']}")
+        
+        print("\n📋 Files by type:")
+        for file_type, files in self.backend_structure['by_type'].items():
+            print(f"  {file_type}: {len(files)} files")
+            for file_path in files[:5]:  # Show first 5 files
+                print(f"    - {file_path}")
+            if len(files) > 5:
+                print(f"    ... and {len(files) - 5} more")
+        
+        print(f"\n📂 Total directories: {len(self.backend_structure['directories'])}")
+    
+    def create_assistant(self, name: str = "Backend Code Analyst") -> str:
+        """Create an assistant with code analysis capabilities"""
         try:
             deployment_name = os.getenv("AZUREMODEL")
             if not deployment_name:
                 raise ValueError("AZUREMODEL environment variable must be set to your deployment name")
             
-            print(f"Creating assistant with deployment: {deployment_name}")
+            print(f"Creating code analysis assistant with deployment: {deployment_name}")
             
             assistant = self.client.beta.assistants.create(
                 name=name,
-                instructions="""You are a professional data analyst assistant with code interpreter capabilities. 
+                instructions="""You are a senior software engineer and code analyst assistant specializing in backend development and debugging.
 
-You can analyze various file formats including:
-- CSV files
-- Excel files (.xlsx, .xls)
-- JSON files
-- Text files
-- Parquet files
-- Pickle files
-- XML files
-- YAML files
+Your expertise includes:
+- Python, JavaScript, TypeScript, Java, C++, C#, Go, PHP, Ruby, Rust
+- Backend frameworks (Django, Flask, FastAPI, Express, Spring, etc.)
+- Database technologies and SQL
+- API development and debugging
+- Code quality assessment and best practices
+- Security vulnerability detection
+- Performance optimization
+- Architecture analysis
 
-When analyzing data:
-1. First identify the file format and examine its structure
-2. Load the data using appropriate libraries (pandas, json, openpyxl, etc.)
-3. Examine data shape, columns, data types, and basic statistics
-4. Check for missing values and data quality issues
-5. Create meaningful visualizations using matplotlib/seaborn
-6. Provide clear insights and actionable recommendations
-7. Explain findings in simple, business-friendly terms
+When analyzing code:
 
-For Excel files:
-- Check for multiple sheets and analyze each if relevant
-- Handle merged cells and formatting appropriately
+1. **Code Structure Analysis:**
+   - Examine file organization and architecture
+   - Identify design patterns and code structure
+   - Assess code maintainability and readability
 
-For JSON files:
-- Parse nested structures and flatten if needed for analysis
-- Handle arrays and objects appropriately
+2. **Bug Detection & Analysis:**
+   - Identify syntax errors, logic errors, and runtime issues
+   - Detect potential security vulnerabilities
+   - Find performance bottlenecks
+   - Spot code smells and anti-patterns
+
+3. **Solution Recommendations:**
+   - Provide specific, actionable bug fixes
+   - Suggest code improvements and refactoring
+   - Recommend best practices implementation
+   - Offer alternative approaches when applicable
+
+4. **Code Quality Assessment:**
+   - Check for proper error handling
+   - Validate input sanitization and security measures
+   - Assess testing coverage and quality
+   - Review documentation and comments
+
+5. **Dependency Analysis:**
+   - Identify outdated or vulnerable dependencies
+   - Suggest better alternatives when needed
+   - Check for unused imports/dependencies
 
 For visualizations:
-- Use clear, descriptive titles and labels
-- Choose appropriate chart types for the data
-- Use professional styling with seaborn
-- Create publication-ready plots
-- Always use plt.show() to display plots
+- Create code complexity charts
+- Generate dependency graphs when possible
+- Show bug distribution across files
+- Create improvement priority matrices
 
-Always provide executive summaries and key takeaways.""",
+Always provide:
+- Clear explanations of identified issues
+- Step-by-step solutions
+- Code examples for fixes
+- Prevention strategies for future issues
+- Executive summaries for non-technical stakeholders""",
                 tools=[{"type": "code_interpreter"}],
                 model=deployment_name
             )
             
             self.assistant_id = assistant.id
-            print(f"✅ Assistant created! ID: {self.assistant_id}")
+            print(f"✅ Code analysis assistant created! ID: {self.assistant_id}")
             return self.assistant_id
             
         except Exception as e:
@@ -123,31 +230,69 @@ Always provide executive summaries and key takeaways.""",
             print("4. Confirm your region supports Assistants API")
             raise
     
-    def upload_data_file(self, file_path: str) -> str:
-        """Upload data file to Azure OpenAI"""
-        try:
-            # Validate file format
-            if not self._validate_file(file_path):
-                raise ValueError("Unsupported file format")
-            
-            self.file_format = self._detect_file_format(file_path)
-            file_name = os.path.basename(file_path)
-            
-            print(f"📁 Uploading {self.file_format} file: {file_name}")
-            
-            with open(file_path, "rb") as file:
-                uploaded_file = self.client.files.create(
-                    file=file,
-                    purpose="assistants"
-                )
-            
-            self.file_id = uploaded_file.id
-            print(f"✅ {self.file_format} file uploaded! ID: {self.file_id}")
-            return self.file_id
-            
-        except Exception as e:
-            print(f"❌ Error uploading file: {e}")
-            raise
+    def upload_backend_files(self, folder_path: str, file_types: list = None, max_files: int = None) -> list:
+        """Upload multiple backend files to Azure OpenAI"""
+        if file_types is None:
+            file_types = ['Python', 'JavaScript', 'TypeScript']  # Default types
+        
+        uploaded_files = []
+        
+        if not self.backend_structure:
+            self.scan_backend_folder(folder_path, max_files=1000)  # Scan more files
+        
+        print(f"\n📤 Uploading ALL backend files in batches of 10...")
+        
+        # Filter files by type and size
+        files_to_upload = []
+        for file_info in self.backend_structure['files']:
+            if (file_info['type'] in file_types and 
+                file_info['size'] < 10 * 1024 * 1024 and  # Max 10MB per file
+                file_info['size'] > 0):  # Skip empty files
+                files_to_upload.append(file_info)
+        
+        # Sort by importance (Python files first, main files before tests, then by size)
+        files_to_upload.sort(key=lambda x: (
+            0 if x['type'] == 'Python' else 1,
+            1 if 'test' in x['relative_path'].lower() else 0,  # Main files before tests
+            1 if '__pycache__' in x['relative_path'] else 0,  # Skip cache files
+            -x['size']  # Larger files first
+        ))
+        
+        total_files = len(files_to_upload)
+        print(f"📊 Found {total_files} files to upload")
+        
+        if total_files == 0:
+            print("❌ No files found matching the criteria")
+            return []
+        
+        # Upload all files (we'll batch them when attaching to thread)
+        for i, file_info in enumerate(files_to_upload, 1):
+            try:
+                print(f"📁 Uploading ({i}/{total_files}) {file_info['type']} file: {file_info['relative_path']}")
+                
+                with open(file_info['path'], "rb") as file:
+                    uploaded_file = self.client.files.create(
+                        file=file,
+                        purpose="assistants"
+                    )
+                
+                uploaded_files.append({
+                    'file_id': uploaded_file.id,
+                    'path': file_info['relative_path'],
+                    'type': file_info['type']
+                })
+                
+                # Progress indicator
+                if i % 10 == 0:
+                    print(f"✅ Progress: {i}/{total_files} files uploaded")
+                
+            except Exception as e:
+                print(f"❌ Error uploading {file_info['relative_path']}: {e}")
+        
+        self.uploaded_files = uploaded_files
+        print(f"\n✅ Successfully uploaded ALL {len(uploaded_files)} files!")
+        print(f"📋 Files will be attached to thread in batches of 10")
+        return uploaded_files
     
     def create_thread(self) -> str:
         """Create a conversation thread"""
@@ -161,29 +306,96 @@ Always provide executive summaries and key takeaways.""",
             print(f"❌ Error creating thread: {e}")
             raise
     
-    def add_file_to_thread(self, message: str) -> None:
-        """Add the uploaded file to the thread"""
+    def add_files_to_thread(self, initial_message: str = None) -> None:
+        """Add ALL uploaded files to the thread in batches of 10"""
         try:
-            # Customize message based on file format
-            format_specific_message = f"{message}\n\nThis is a {self.file_format} file. Please use appropriate methods to load and analyze the data."
+            if not self.uploaded_files:
+                print("❌ No files uploaded to add to thread")
+                return
+            
+            # Azure OpenAI has a limit of 10 attachments per message
+            max_attachments_per_message = 10
+            total_files = len(self.uploaded_files)
+            
+            print(f"\n📎 Attaching {total_files} files to thread in batches of {max_attachments_per_message}...")
+            
+            if not initial_message:
+                file_list = "\n".join([f"- {f['path']} ({f['type']})" for f in self.uploaded_files])
+                initial_message = f"""I'm uploading my complete backend codebase for comprehensive analysis. 
+
+TOTAL FILES: {total_files}
+
+Files being analyzed:
+{file_list}
+
+Please provide:
+1. Overall code structure and architecture analysis
+2. Comprehensive bug detection across all files
+3. Security vulnerability assessment
+4. Code quality evaluation for the entire codebase
+5. Cross-file dependency and integration analysis
+6. Performance optimization recommendations
+7. Improvement suggestions with priorities
+
+Focus especially on finding bugs, security issues, and providing actionable solutions across the entire codebase."""
+            
+            # Split files into batches of 10
+            file_batches = []
+            for i in range(0, len(self.uploaded_files), max_attachments_per_message):
+                batch = self.uploaded_files[i:i + max_attachments_per_message]
+                file_batches.append(batch)
+            
+            print(f"📊 Created {len(file_batches)} batches of files")
+            
+            # Send first batch with detailed initial message
+            first_batch = file_batches[0]
+            attachments = [{
+                "file_id": file_info['file_id'],
+                "tools": [{"type": "code_interpreter"}]
+            } for file_info in first_batch]
             
             self.client.beta.threads.messages.create(
                 thread_id=self.thread_id,
                 role="user",
-                content=format_specific_message,
-                attachments=[{
-                    "file_id": self.file_id,
-                    "tools": [{"type": "code_interpreter"}]
-                }]
+                content=initial_message,
+                attachments=attachments
             )
-            print(f"✅ {self.file_format} file attached to thread!")
+            
+            print(f"✅ Batch 1/{len(file_batches)}: {len(first_batch)} files attached!")
+            
+            # Send additional batches
+            for batch_num, batch in enumerate(file_batches[1:], 2):
+                batch_files = [f"- {f['path']} ({f['type']})" for f in batch]
+                batch_message = f"""Additional files for analysis (Batch {batch_num}/{len(file_batches)}):
+
+{chr(10).join(batch_files)}
+
+Please continue analyzing these files as part of the complete codebase review."""
+                
+                attachments = [{
+                    "file_id": file_info['file_id'],
+                    "tools": [{"type": "code_interpreter"}]
+                } for file_info in batch]
+                
+                self.client.beta.threads.messages.create(
+                    thread_id=self.thread_id,
+                    role="user",
+                    content=batch_message,
+                    attachments=attachments
+                )
+                
+                print(f"✅ Batch {batch_num}/{len(file_batches)}: {len(batch)} additional files attached!")
+                time.sleep(1)  # Small delay between requests to avoid rate limits
+            
+            print(f"\n🎉 SUCCESS: All {total_files} files attached to thread in {len(file_batches)} batches!")
+            print("🤖 The assistant now has access to your complete codebase for analysis.")
             
         except Exception as e:
-            print(f"❌ Error adding file to thread: {e}")
+            print(f"❌ Error adding files to thread: {e}")
             raise
     
     def ask_question(self, question: str) -> str:
-        """Ask a question about the data"""
+        """Ask a question about the code"""
         try:
             # Add user message
             self.client.beta.threads.messages.create(
@@ -199,9 +411,9 @@ Always provide executive summaries and key takeaways.""",
             )
             
             # Wait for completion
-            print("🤔 Processing...")
+            print("🤔 Analyzing code...")
             while run.status in ['queued', 'in_progress', 'cancelling']:
-                time.sleep(1)
+                time.sleep(2)
                 run = self.client.beta.threads.runs.retrieve(
                     thread_id=self.thread_id,
                     run_id=run.id
@@ -222,129 +434,82 @@ Always provide executive summaries and key takeaways.""",
                                 response_text += content.text.value + "\n"
                         return response_text.strip()
             else:
-                return f"❌ Run failed with status: {run.status}"
+                return f"❌ Analysis failed with status: {run.status}"
                 
         except Exception as e:
             return f"❌ Error processing question: {e}"
     
     def download_generated_files(self) -> list:
-        """Download any files generated by the assistant (plots, reports, etc.)"""
+        """Download all assistant-generated files (reports, fixes, etc.)"""
         try:
-            # Get the latest run
-            runs = self.client.beta.threads.runs.list(thread_id=self.thread_id)
-            if not runs.data:
-                return []
-            
-            latest_run = runs.data[0]
-            
-            # Get run steps to find generated files
-            run_steps = self.client.beta.threads.runs.steps.list(
-                thread_id=self.thread_id,
-                run_id=latest_run.id
-            )
-            
             downloaded_files = []
-            
-            for step in run_steps.data:
-                if hasattr(step.step_details, 'tool_calls'):
-                    for tool_call in step.step_details.tool_calls:
-                        if (tool_call.type == "code_interpreter" and 
-                            hasattr(tool_call.code_interpreter, 'outputs')):
-                            
-                            for output in tool_call.code_interpreter.outputs:
-                                if output.type == "image":
-                                    # Download images (plots/charts)
-                                    file_data = self.client.files.content(output.image.file_id)
-                                    file_name = f"plot_{output.image.file_id}.png"
-                                    
-                                    with open(file_name, "wb") as f:
-                                        f.write(file_data.content)
-                                    
-                                    downloaded_files.append(file_name)
-                                    print(f"📊 Downloaded image: {file_name}")
-                                    
-                                elif output.type == "logs":
-                                    # Check if logs contain file references
-                                    if hasattr(output, 'logs') and 'sandbox:/mnt/data/' in output.logs:
-                                        print("📄 Found file reference in logs - trying to download...")
-            
-            # Also check for files in the thread messages
-            messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
-            
-            for message in messages.data:
-                if message.role == "assistant":
-                    for content in message.content:
-                        if content.type == "text" and hasattr(content.text, 'annotations'):
-                            for annotation in content.text.annotations:
-                                if hasattr(annotation, 'file_path'):
-                                    try:
-                                        # Try to download the file
-                                        file_id = annotation.file_path.file_id
-                                        file_data = self.client.files.content(file_id)
-                                        
-                                        # Determine file extension based on content
-                                        content_str = file_data.content.decode('utf-8', errors='ignore')
-                                        if content_str.strip().startswith('<!DOCTYPE html>') or '<html>' in content_str:
-                                            file_name = f"report_{file_id}.html"
-                                        elif content_str.strip().startswith('{') or content_str.strip().startswith('['):
-                                            file_name = f"data_{file_id}.json"
-                                        else:
-                                            file_name = f"report_{file_id}.txt"
-                                        
-                                        with open(file_name, "wb") as f:
-                                            f.write(file_data.content)
-                                        
-                                        downloaded_files.append(file_name)
-                                        print(f"📄 Downloaded file: {file_name}")
-                                        
-                                    except Exception as file_error:
-                                        print(f"⚠️ Could not download file {annotation.file_path.file_id}: {file_error}")
-            
-            # If no files found through normal methods, try to get all files from the run
-            if not downloaded_files:
+            current_time = int(time.time())
+
+            # List all available files
+            all_files = self.client.files.list()
+            print(f"🔍 Checking {len(all_files.data)} total files...")
+
+            for file_obj in all_files.data:
+                # Only consider files created within the last 30 minutes
+                if current_time - file_obj.created_at > 1800:
+                    continue
+
+                # Skip our uploaded files
+                if any(f['file_id'] == file_obj.id for f in self.uploaded_files):
+                    continue
+
                 try:
-                    # List all files created during this conversation
-                    all_files = self.client.files.list()
-                    print(f"🔍 Checking {len(all_files.data)} total files...")
+                    file_data = self.client.files.content(file_obj.id)
+                    content = file_data.content
                     
-                    # Look for recently created files (created in last hour)
-                    current_time = int(time.time())
-                    recent_files = [f for f in all_files.data if current_time - f.created_at < 3600]
-                    
-                    for file_obj in recent_files[:5]:  # Limit to 5 most recent files
-                        try:
-                            file_data = self.client.files.content(file_obj.id)
-                            
-                            # Determine file type
-                            if file_obj.filename:
-                                file_name = f"downloaded_{file_obj.filename}"
-                            else:
-                                file_name = f"file_{file_obj.id}.txt"
-                            
-                            with open(file_name, "wb") as f:
-                                f.write(file_data.content)
-                            
-                            downloaded_files.append(file_name)
-                            print(f"📁 Downloaded recent file: {file_name}")
-                            
-                        except Exception as e:
-                            continue
-                            
+                    # Determine file extension
+                    try:
+                        content_str = content.decode('utf-8', errors='ignore')
+                        if 'import ' in content_str or 'def ' in content_str:
+                            ext = '.py'
+                        elif content_str.strip().startswith('{') or content_str.strip().startswith('['):
+                            ext = '.json'
+                        elif content_str.strip().startswith('<!DOCTYPE html>') or '<html' in content_str:
+                            ext = '.html'
+                        else:
+                            ext = '.txt'
+                    except Exception:
+                        ext = '.bin'
+
+                    filename = file_obj.filename or f"analysis_result_{file_obj.id}{ext}"
+                    filepath = f"downloads/{filename}"
+
+                    # Ensure downloads directory exists
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+                    with open(filepath, "wb") as f:
+                        f.write(content)
+
+                    downloaded_files.append(filepath)
+                    print(f"📥 Downloaded: {filepath}")
+
                 except Exception as e:
-                    print(f"⚠️ Could not list files: {e}")
-            
+                    print(f"⚠️ Skipping file {file_obj.id} due to error: {e}")
+
+            if not downloaded_files:
+                print("📭 No new analysis files found.")
+
             return downloaded_files
-            
+
         except Exception as e:
-            print(f"❌ Error downloading files: {e}")
+            print(f"❌ Error during file download: {e}")
             return []
-    
+
     def cleanup(self):
         """Clean up Azure resources"""
         try:
-            if self.file_id:
-                self.client.files.delete(self.file_id)
-                print("🗑️ File deleted")
+            # Delete uploaded files
+            for file_info in self.uploaded_files:
+                try:
+                    self.client.files.delete(file_info['file_id'])
+                    print(f"🗑️ Deleted file: {file_info['path']}")
+                except Exception as e:
+                    print(f"❌ Error deleting file {file_info['path']}: {e}")
             
             if self.assistant_id:
                 self.client.beta.assistants.delete(self.assistant_id)
@@ -379,94 +544,91 @@ def setup_environment():
         print("   Look for the 'Deployment name' column")
         print("="*60)
         
-        print("\n⚠️ Requirements:")
-        print("- Assistants API enabled (preview)")
-        print("- Code Interpreter tool enabled")
-        print("- GPT-4 or GPT-4o deployment in supported region")
-        print("- API version 2024-08-01-preview or newer")
         return False
-    
-    # Validate deployment name format
-    model_value = os.getenv("AZUREMODEL")
-    if model_value in ["gpt-4", "gpt-4o", "gpt-35-turbo", "gpt-3.5-turbo"]:
-        print("⚠️  WARNING: AZUREMODEL looks like a model name, not deployment name")
-        print(f"   Current value: {model_value}")
-        print("   This might cause 'Unsupported data type' error")
-        print("   Please use your actual deployment name from Azure portal")
     
     return True
 
 def main():
     """Main function"""
-    print("🤖 Azure OpenAI Data Analyzer")
-    print("📊 Supports CSV, Excel, JSON, and more!")
-    print("=" * 50)
+    print("🐛 Azure OpenAI Backend Code Analyzer")
+    print("🔍 Find bugs, get solutions, improve your code!")
+    print("=" * 60)
     
     if not setup_environment():
         return
     
-    # Show supported formats
-    analyzer = AzureOpenAIDataAnalyzer()
-    print(f"📁 Supported formats: {', '.join(analyzer.SUPPORTED_FORMATS.keys())}")
-    
-    # Get data file
-    file_path = input("\n📁 Enter data file path: ").strip()
-    if not os.path.exists(file_path):
-        print(f"❌ File not found: {file_path}")
+    # Get backend folder
+    backend_folder = input("\n📁 Enter backend folder path: ").strip()
+    if not os.path.exists(backend_folder):
+        print(f"❌ Folder not found: {backend_folder}")
         return
     
     analyzer_instance = None
     
     try:
         # Initialize
-        analyzer_instance = AzureOpenAIDataAnalyzer()
+        analyzer_instance = AzureOpenAICodeAnalyzer()
+        
+        # Scan and display backend structure
+        analyzer_instance.scan_backend_folder(backend_folder)
+        analyzer_instance.display_backend_structure()
+        
+        # Ask which file types to analyze
+        available_types = list(analyzer_instance.backend_structure['by_type'].keys())
+        print(f"\n📋 Available file types: {', '.join(available_types)}")
+        print("✨ NEW: Will upload ALL files and attach them in batches of 10!")
+        
+        file_types_input = input("Enter file types to analyze (comma-separated, or 'all'): ").strip()
+        if file_types_input.lower() == 'all':
+            selected_types = available_types
+        else:
+            selected_types = [t.strip() for t in file_types_input.split(',') if t.strip() in available_types]
+        
+        if not selected_types:
+            selected_types = ['Python']  # Default
+            print("No valid types selected, defaulting to Python files")
+        
+        print(f"✅ Selected types: {', '.join(selected_types)}")
+        
+        # Upload files and create assistant
         analyzer_instance.create_assistant()
-        analyzer_instance.upload_data_file(file_path)
+        analyzer_instance.upload_backend_files(backend_folder, selected_types)
         analyzer_instance.create_thread()
-        analyzer_instance.add_file_to_thread(f"Analyze this {analyzer_instance.file_format} file and provide a comprehensive summary.")
+        analyzer_instance.add_files_to_thread()
         
         # Initial analysis
-        print("\n" + "="*50)
-        print("📊 INITIAL DATA ANALYSIS")
-        print("="*50)
+        print("\n" + "="*60)
+        print("🔍 INITIAL CODE ANALYSIS")
+        print("="*60)
         
-        initial_prompt = f"Please analyze this {analyzer_instance.file_format} file and provide:\n1. Data structure overview\n2. Basic statistics\n3. Data quality assessment\n4. Key insights\n5. Recommendations for further analysis"
-        
-        response = analyzer_instance.ask_question(initial_prompt)
+        response = analyzer_instance.ask_question(
+            "Perform a comprehensive analysis focusing on bug detection and provide actionable solutions."
+        )
         print(response)
         
         # Interactive loop
-        print("\n" + "="*50)
-        print("💬 ASK QUESTIONS ABOUT YOUR DATA")
+        print("\n" + "="*60)
+        print("💬 ASK QUESTIONS ABOUT YOUR CODE")
         print("Commands: 'examples', 'download', 'quit'")
-        print("="*50)
+        print("="*60)
         
-        examples = [
-            "What are the basic statistics?",
-            "Are there any missing values?",
-            "Create a histogram of numeric columns",
-            "Generate a correlation heatmap",
-            "Show distribution of categorical variables",
-            "Identify outliers in the data",
-            "What patterns and trends do you see?",
-            "Create a comprehensive dashboard",
-            "Generate an executive summary report",
-            "What insights would be valuable for business decisions?"
+        code_examples = [
+            "What bugs can you find in my code?",
+            "Are there any security vulnerabilities?",
+            "How can I improve performance?",
+            "What code smells do you detect?",
+            "Review my error handling",
+            "Check for potential race conditions",
+            "Analyze my database queries for issues",
+            "What design patterns could I implement?",
+            "Find unused imports and variables",
+            "Review my API endpoints for issues",
+            "Check for SQL injection vulnerabilities",
+            "Analyze memory usage patterns",
+            "What testing improvements do you suggest?",
+            "Review my authentication implementation",
+            "Find hardcoded values that should be configurable"
         ]
-        
-        # Add format-specific examples
-        if analyzer_instance.file_format == "Excel":
-            examples.extend([
-                "Analyze all sheets in the Excel file",
-                "Compare data across different sheets",
-                "Check for formatting issues in Excel"
-            ])
-        elif analyzer_instance.file_format == "JSON":
-            examples.extend([
-                "Parse nested JSON structures",
-                "Flatten the JSON data for analysis",
-                "Identify the data hierarchy"
-            ])
         
         while True:
             question = input("\n💭 Your question: ").strip()
@@ -475,7 +637,7 @@ def main():
                 break
             elif question.lower() == 'examples':
                 print("\n📋 Example questions:")
-                for i, ex in enumerate(examples, 1):
+                for i, ex in enumerate(code_examples, 1):
                     print(f"{i}. {ex}")
             elif question.lower() == 'download':
                 files = analyzer_instance.download_generated_files()
@@ -487,14 +649,14 @@ def main():
                 response = analyzer_instance.ask_question(question)
                 print(f"\n🤖 {response}")
                 
-                # Auto-download plots and reports
+                # Auto-download analysis results
                 files = analyzer_instance.download_generated_files()
                 if files:
                     print(f"\n📊 New files: {', '.join(files)}")
             else:
                 print("❓ Please enter a question or command")
         
-        print("\n👋 Goodbye!")
+        print("\n👋 Analysis complete!")
         
     except Exception as e:
         print(f"❌ Error: {e}")

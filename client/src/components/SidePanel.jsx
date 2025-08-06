@@ -19,6 +19,22 @@ const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSe
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const panelRef = useRef(null)
 
+  // Helper function to extract code content from different formats
+  const getCodeContent = (content) => {
+    if (typeof content === "string") {
+      return content
+    }
+    if (typeof content === "object" && content !== null) {
+      // Handle the case where content is an object with a 'code' property
+      if (content.code) {
+        return content.code
+      }
+      // Handle other object formats
+      return JSON.stringify(content, null, 2)
+    }
+    return String(content)
+  }
+
   // Maximizing content to full screen
   const toggleFullscreen = () => {
     if (panelRef.current) {
@@ -238,8 +254,9 @@ const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSe
     let blob, fileName
 
     if (type === "code") {
-      // Code download as Python file
-      blob = new Blob([content], { type: "text/x-python" })
+      // Code download as Python file - extract the actual code content
+      const codeContent = getCodeContent(content)
+      blob = new Blob([codeContent], { type: "text/x-python" })
       fileName = "generated_code.py"
     } else if (type === "image") {
       // Image download
@@ -317,13 +334,14 @@ const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSe
   const renderContent = (item) => {
     switch (item.type) {
       case "code":
+        const codeContent = getCodeContent(item.content)
         return (
           <div className="h-full flex flex-col">
             <div className={`flex items-center justify-between p-4 ${themeClasses.border} border-b`}>
               <h3 className={`font-medium ${themeClasses.text}`}>Generated Code</h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => copyToClipboard(item.content)}
+                  onClick={() => copyToClipboard(codeContent)}
                   className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-md transition-colors`}
                   title="Copy code"
                 >
@@ -340,7 +358,7 @@ const SidePanel = ({ items, activeItem, onItemChange, selectedMessage, onClearSe
             </div>
             <div className="flex-1 overflow-auto p-4">
               <div className={`${themeClasses.surface} rounded-lg p-4 overflow-x-auto`}>
-                <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>{item.content}</pre>
+                <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>{codeContent}</pre>
               </div>
             </div>
           </div>
