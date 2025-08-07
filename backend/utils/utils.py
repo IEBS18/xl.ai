@@ -2343,97 +2343,153 @@ class StopAnalysisException(Exception):
     pass
 
 
-def generate_tailwind_table(df):
-    """Generate a clean, theme-aware HTML table that works with your ThemeProvider"""
+# In utils.py - Replace the generate_tailwind_table function to fix string formatting error
+
+def generate_tailwind_table(df, max_rows=100):
+    """Generate a professional, theme-aware HTML table with enhanced business styling - FIXED"""
     import pandas as pd
     
     # Limit rows for performance
-    display_df = df.head(100) if len(df) > 100 else df
+    display_df = df.head(max_rows) if len(df) > max_rows else df
     total_rows = len(df)
     
+    # Enhanced business-friendly styling - FIXED: Use f-strings instead of % formatting
     html = f'''
-    <div class="w-full space-y-4">
-        <!-- Table Info Header -->
-        <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 transition-all duration-300">
+    <div class="w-full space-y-4 my-6">
+        <!-- Enhanced Table Info Header -->
+        <div class="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 rounded-xl border border-blue-200 dark:border-gray-600 shadow-sm">
             <div class="flex items-center space-x-6">
                 <div class="flex items-center space-x-2">
-                    <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span class="text-sm font-medium text-gray-900 dark:text-white">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full shadow-sm"></div>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white">
                         {total_rows:,} rows
                     </span>
                 </div>
                 <div class="flex items-center space-x-2">
-                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span class="text-sm font-medium text-gray-900 dark:text-white">
+                    <div class="w-3 h-3 bg-green-500 rounded-full shadow-sm"></div>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white">
                         {len(df.columns)} columns
                     </span>
                 </div>
-            </div>
-            {f'<span class="text-xs px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">Showing first {len(display_df)} rows</span>' if total_rows > 100 else ''}
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-purple-500 rounded-full shadow-sm"></div>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Business Data
+                    </span>
+                </div>
+            </div>'''
+    
+    # Add pagination info if needed
+    if total_rows > max_rows:
+        html += f'''
+            <span class="text-xs px-3 py-1.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full font-medium">Showing first {len(display_df)} rows</span>'''
+    
+    html += '''
         </div>
         
-        <!-- Table Container -->
-        <div class="bg-white dark:bg-black rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all duration-300">
+        <!-- Professional Table Container -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-lg overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full">
-                    <thead class="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                    <thead class="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 border-b-2 border-gray-200 dark:border-gray-600">
                         <tr>
     '''
     
-    # Add headers
+    # Enhanced headers with better styling
     for col in df.columns:
+        # Smart column type detection for styling
+        col_type = df[col].dtype
+        if 'int' in str(col_type) or 'float' in str(col_type):
+            header_class = "text-blue-700 dark:text-blue-300"
+        elif 'datetime' in str(col_type):
+            header_class = "text-green-700 dark:text-green-300" 
+        else:
+            header_class = "text-gray-700 dark:text-gray-300"
+        
+        # FIXED: Use proper variable escaping
+        col_type_display = str(col_type).split('.')[-1]
         html += f'''
-                            <th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 dark:text-white">
-                                {col}
+                            <th class="px-6 py-4 text-left text-sm font-bold {header_class} tracking-wide">
+                                <div class="flex items-center space-x-1">
+                                    <span>{col}</span>
+                                    <span class="text-xs opacity-60">({col_type_display})</span>
+                                </div>
                             </th>
         '''
     
     html += '''
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
     '''
     
-    # Add rows
-    for idx, row in display_df.iterrows():
-        html += '''
-                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors duration-150">
+    # Enhanced rows with smart formatting - FIXED: Proper enumeration
+    for row_idx, (_, row) in enumerate(display_df.iterrows()):
+        # Alternating row colors with hover effects
+        if row_idx % 2 == 0:
+            row_class = "bg-white dark:bg-gray-900 hover:bg-blue-50 dark:hover:bg-gray-800"
+        else:
+            row_class = "bg-gray-50 dark:bg-gray-850 hover:bg-blue-50 dark:hover:bg-gray-800"
+            
+        html += f'''
+                        <tr class="{row_class} transition-all duration-200 border-b border-gray-100 dark:border-gray-800">
         '''
         
-        for val in row:
-            # Format values based on type
+        for col, val in zip(df.columns, row):
+            # Enhanced value formatting based on data type
             if pd.isna(val):
-                formatted_val = '<span class="text-gray-400 dark:text-gray-500 italic">—</span>'
+                formatted_val = '<span class="text-gray-400 dark:text-gray-500 italic font-light">—</span>'
             elif isinstance(val, bool):
                 if val:
-                    formatted_val = '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">True</span>'
+                    formatted_val = '<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-700">✓ True</span>'
                 else:
-                    formatted_val = '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200">False</span>'
+                    formatted_val = '<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-700">✗ False</span>'
             elif isinstance(val, (int, float)) and not isinstance(val, bool):
-                # Format numbers
-                if isinstance(val, float):
-                    if abs(val) >= 1000000:
-                        display_num = f'{val/1000000:.1f}M'
-                    elif abs(val) >= 1000:
-                        display_num = f'{val/1000:.1f}K'
+                # Enhanced number formatting
+                try:
+                    val_float = float(val)
+                    if isinstance(val, float):
+                        if abs(val_float) >= 1000000:
+                            display_num = f'{val_float/1000000:.1f}M'
+                            color_class = "text-purple-700 dark:text-purple-300"
+                        elif abs(val_float) >= 1000:
+                            display_num = f'{val_float/1000:.1f}K'
+                            color_class = "text-blue-700 dark:text-blue-300"
+                        else:
+                            display_num = f'{val_float:.2f}'
+                            color_class = "text-gray-900 dark:text-white"
                     else:
-                        display_num = f'{val:.2f}'
-                else:
-                    if abs(val) >= 1000000:
-                        display_num = f'{val/1000000:.1f}M'
-                    elif abs(val) >= 1000:
-                        display_num = f'{val/1000:.1f}K'
-                    else:
-                        display_num = f'{val:,}'
+                        val_int = int(val_float)
+                        if abs(val_int) >= 1000000:
+                            display_num = f'{val_int/1000000:.1f}M'
+                            color_class = "text-purple-700 dark:text-purple-300"
+                        elif abs(val_int) >= 1000:
+                            display_num = f'{val_int/1000:.1f}K' 
+                            color_class = "text-blue-700 dark:text-blue-300"
+                        else:
+                            display_num = f'{val_int:,}'
+                            color_class = "text-gray-900 dark:text-white"
+                except (ValueError, TypeError):
+                    display_num = str(val)
+                    color_class = "text-gray-900 dark:text-white"
                 
-                formatted_val = f'<span class="font-mono text-gray-900 dark:text-white">{display_num}</span>'
+                formatted_val = f'<span class="font-mono font-semibold {color_class} bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded">{display_num}</span>'
             else:
-                # String values
+                # Enhanced string values
                 str_val = str(val)
                 if len(str_val) > 30:
-                    formatted_val = f'<span class="text-gray-900 dark:text-white" title="{str_val}">{str_val[:27]}...</span>'
+                    # Escape HTML in title attribute
+                    str_val_escaped = str_val.replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+                    formatted_val = f'<span class="text-gray-900 dark:text-white" title="{str_val_escaped}">{str_val[:27]}...</span>'
                 else:
-                    formatted_val = f'<span class="text-gray-900 dark:text-white">{str_val}</span>'
+                    # Highlight certain business keywords
+                    str_lower = str_val.lower()
+                    if any(keyword in str_lower for keyword in ['high', 'excellent', 'good', 'positive']):
+                        formatted_val = f'<span class="text-green-700 dark:text-green-300 font-medium">{str_val}</span>'
+                    elif any(keyword in str_lower for keyword in ['low', 'poor', 'negative', 'bad']):
+                        formatted_val = f'<span class="text-red-700 dark:text-red-300 font-medium">{str_val}</span>'
+                    else:
+                        formatted_val = f'<span class="text-gray-900 dark:text-white">{str_val}</span>'
             
             html += f'''
                             <td class="px-6 py-4 text-sm whitespace-nowrap">
@@ -2452,13 +2508,19 @@ def generate_tailwind_table(df):
         </div>
     '''
     
-    # Add pagination info if needed
-    if total_rows > 100:
+    # Enhanced pagination info with business context
+    if total_rows > max_rows:
+        percentage = (len(display_df)/total_rows)*100
         html += f'''
-        <div class="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
-            <span class="text-sm text-blue-700 dark:text-blue-300">
-                Showing {len(display_df)} of {total_rows:,} total rows
-            </span>
+        <div class="text-center p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800 shadow-sm">
+            <div class="flex items-center justify-center space-x-4">
+                <span class="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                    📊 Displaying {len(display_df)} of {total_rows:,} total records
+                </span>
+                <span class="text-xs text-gray-600 dark:text-gray-400">
+                    ({percentage:.1f}% shown)
+                </span>
+            </div>
         </div>
         '''
     
@@ -2467,8 +2529,6 @@ def generate_tailwind_table(df):
     '''
     
     return html
-
-
 def stop_analysis_for_session(session_id: str):
     """Set stop signal for a specific session"""
     global stop_signals
