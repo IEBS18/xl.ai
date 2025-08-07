@@ -57,6 +57,9 @@ const DeliverablesSection = () => {
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
             className={`${themeClasses.surfaceSecondary} p-8 rounded-3xl border ${themeClasses.border}`}
+             style={{
+              background: 'linear-gradient(232.59deg, #011D89 22.28%, #00092B 92.41%)'
+            }}
           >
             <motion.div
               className={`${themeClasses.surface} rounded-2xl p-8 shadow-2xl border ${themeClasses.border}`}
@@ -134,6 +137,9 @@ const DeliverablesSection = () => {
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
             className={`order-2 lg:order-1 ${themeClasses.surfaceSecondary} p-8 rounded-3xl border ${themeClasses.border}`}
+             style={{
+              background: 'linear-gradient(232.59deg, #011D89 22.28%, #00092B 92.41%)'
+            }}
           >
             <motion.div
               className={`${themeClasses.surface} rounded-2xl p-8 shadow-2xl border ${themeClasses.border}`}
@@ -214,6 +220,9 @@ const DeliverablesSection = () => {
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
             className={`${themeClasses.surfaceSecondary} p-8 rounded-3xl border ${themeClasses.border}`}
+             style={{
+              background: 'linear-gradient(232.59deg, #011D89 22.28%, #00092B 92.41%)'
+            }}
           >
             <motion.div
               className={`${themeClasses.surface} rounded-2xl p-8 shadow-2xl transform rotate-2 hover:rotate-0 transition-all duration-500 border ${themeClasses.border}`}

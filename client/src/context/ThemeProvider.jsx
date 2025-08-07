@@ -9,7 +9,7 @@ export const ThemeProvider = ({ children }) => {
 
   const themeClasses = {
     bg: isDark ? "bg-black" : "bg-white",
-    text: isDark ? "text-white" : "text-black",
+    text: isDark ? "text-white" : "text-[#04165D]",
     textSecondary: isDark ? "text-gray-400" : "text-gray-600",
     textMuted: isDark ? "text-gray-500" : "text-gray-400",
     surface: isDark ? "bg-gray-900" : "bg-gray-50",

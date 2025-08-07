@@ -2,21 +2,21 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home } from "lucide-react"
+import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home, Zap } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
 import ConnectionStatus from "./ConnectionStatus"
 import AuthModal from "./AuthModal.jsx"
+import logo from '../../public/logo.svg'
 
-const Header = ({ isConnected }) => {
+const Header = ({ isConnected, currentQueryCategory }) => {
   const { isDark, toggleTheme } = useTheme()
   const { user, isAuthenticated, logout, isLoading } = useAuth()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
 
-  // ADD ROUTER FUNCTIONALITY
   const navigate = useNavigate()
   const location = useLocation()
   
@@ -27,6 +27,11 @@ const Header = ({ isConnected }) => {
   
   // Check if we're on a session page
   const isInSession = Boolean(sessionId)
+
+  // If we're in a session, don't render the header at all
+  if (isInSession) {
+    return null
+  }
 
   const navigationItems = [
     {
@@ -100,11 +105,9 @@ const Header = ({ isConnected }) => {
   const handleLogout = useCallback(async () => {
     await logout()
     setActiveDropdown(null)
-    // Navigate to home after logout
     navigate('/')
   }, [logout, navigate])
 
-  // ADD HOME NAVIGATION FUNCTION
   const handleGoHome = () => {
     navigate('/')
   }
@@ -112,12 +115,14 @@ const Header = ({ isConnected }) => {
   // Show loading state if still checking authentication
   if (isLoading) {
     return (
-      <header className={`fixed top-0 left-0 right-0 z-[9999] backdrop-blur-md ${isDark ? "bg-black/80" : "bg-white/80"
-        }`}>
+      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${
+        isDark ? "bg-black/80" : "bg-white/80"
+      }`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-center">
-            <div className={`animate-spin rounded-full h-6 w-6 border-b-2 ${isDark ? "border-white" : "border-gray-900"
-              }`}></div>
+            <div className={`animate-spin rounded-full h-6 w-6 border-b-2 ${
+              isDark ? "border-white" : "border-gray-900"
+            }`}></div>
           </div>
         </div>
       </header>
@@ -126,12 +131,13 @@ const Header = ({ isConnected }) => {
 
   return (
     <>
-      {/* Header */}
-      <header className={`fixed top-0 left-0 right-0 z-[9999] backdrop-blur-md ${isDark ? "bg-black/80" : "bg-white/80"
-        }`}>
+      {/* Header - Only show on landing page */}
+      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${
+        isDark ? "bg-black/80" : "bg-white/80"
+      }`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            {/* Logo - UPDATED WITH HOME NAVIGATION */}
+            {/* Logo */}
             <motion.div
               className="flex items-center space-x-3 z-10 cursor-pointer"
               whileHover={{ scale: 1.02 }}
@@ -139,138 +145,117 @@ const Header = ({ isConnected }) => {
               onClick={handleGoHome}
             >
               <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1">
-                  <div className={`h-6 w-6 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
-                  <div className={`h-6 w-2 rounded ${isDark ? "bg-white" : "bg-gray-900"}`} />
-                </div>
-                <div>
-                  <span className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
-                    InsiPredict
+                <div className="flex flex-row gap-[3px]">
+                  <span className={`text-2xl font-bold ${isDark ? "text-white" : "text-[#04165D]"}`}>
+                    Insi 
                   </span>
-                  {/* ADD SESSION ID DISPLAY */}
-                  {/* {sessionId && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Session: {sessionId.slice(0, 8)}...
-                    </p>
-                  )} */}
+                  <img src={logo} className="w-8 h-8" alt="Logo"/>
+                  <span className={`text-2xl font-bold ${isDark ? "text-white" : "text-[#04165D]"}`}>
+                   redict
+                  </span>
                 </div>
               </div>
-              
-              {/* ADD SESSION STATUS INDICATOR */}
-              {/* {sessionId && (
-                <div className="hidden sm:flex items-center space-x-2 px-3 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full text-sm">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span>Active Session</span>
-                </div>
-              )} */}
             </motion.div>
 
-            {/* Desktop Navigation - HIDE IN SESSION MODE */}
-            {!isInSession && (
-              <nav className="hidden lg:block">
-                <div
-                  className={`flex items-center rounded-full px-1 py-1 ${isDark
-                      ? "bg-gray-900/80 border border-gray-800/50 shadow-xl"
-                      : "bg-white/80 border border-gray-200/50 shadow-lg"
-                    } backdrop-blur-md`}
-                >
-                  {navigationItems.map((item, index) => (
-                    <div
-                      key={item.label}
-                      className="relative"
-                      onMouseEnter={() => item.hasDropdown && setActiveDropdown(index)}
-                      onMouseLeave={() => item.hasDropdown && setActiveDropdown(null)}
-                    >
-                      {item.hasDropdown ? (
-                        <button
-                          className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
-                              ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                            } ${activeDropdown === index ? (isDark ? "text-white bg-gray-800/50" : "text-gray-900 bg-gray-100/50") : ""}`}
+            {/* Desktop Navigation */}
+            <nav className="hidden lg:block">
+              <div
+                className={`flex items-center rounded-full px-1 py-1 ${
+                  isDark
+                    ? "bg-gray-900/80 border border-gray-800/50 shadow-xl"
+                    : "bg-white/80 border border-gray-200/50 shadow-lg"
+                } backdrop-blur-md`}
+              >
+                {navigationItems.map((item, index) => (
+                  <div
+                    key={item.label}
+                    className="relative"
+                    onMouseEnter={() => item.hasDropdown && setActiveDropdown(index)}
+                    onMouseLeave={() => item.hasDropdown && setActiveDropdown(null)}
+                  >
+                    {item.hasDropdown ? (
+                      <button
+                        className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
+                          isDark
+                            ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                        } ${
+                          activeDropdown === index
+                            ? isDark
+                              ? "text-white bg-gray-800/50"
+                              : "text-gray-900 bg-gray-100/50"
+                            : ""
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                        <motion.div
+                          animate={{ rotate: activeDropdown === index ? 180 : 0 }}
+                          transition={{ duration: 0.2, ease: "easeInOut" }}
                         >
-                          <span>{item.label}</span>
-                          <motion.div
-                            animate={{ rotate: activeDropdown === index ? 180 : 0 }}
-                            transition={{ duration: 0.2, ease: "easeInOut" }}
-                          >
-                            <ChevronDown className="h-4 w-4" />
-                          </motion.div>
-                        </button>
-                      ) : (
-                        <a
-                          href={item.href}
-                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
-                              ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                            }`}
-                        >
-                          {item.label}
-                        </a>
-                      )}
+                          <ChevronDown className="h-4 w-4" />
+                        </motion.div>
+                      </button>
+                    ) : (
+                      <a
+                        href={item.href}
+                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
+                          isDark
+                            ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                        }`}
+                      >
+                        {item.label}
+                      </a>
+                    )}
 
-                      {/* Dropdown Menu */}
-                      <AnimatePresence>
-                        {item.hasDropdown && activeDropdown === index && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                            transition={{ duration: 0.15, ease: "easeOut" }}
-                            className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
-                              } backdrop-blur-md`}
-                          >
-                            <div className="p-1">
-                              {item.items.map((subItem, subIndex) => (
-                                <a
-                                  key={subItem.label}
-                                  href={subItem.href}
-                                  className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
-                                      ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
-                                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                                    }`}
-                                  onClick={() => setActiveDropdown(null)}
-                                >
-                                  {subItem.label}
-                                </a>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  ))}
-                </div>
-              </nav>
-            )}
+                    {/* Dropdown Menu */}
+                    <AnimatePresence>
+                      {item.hasDropdown && activeDropdown === index && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                          transition={{ duration: 0.15, ease: "easeOut" }}
+                          className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${
+                            isDark
+                              ? "bg-gray-900/95 border-gray-800/50"
+                              : "bg-white/95 border-gray-200/50"
+                          } backdrop-blur-md`}
+                        >
+                          <div className="p-1">
+                            {item.items.map((subItem, subIndex) => (
+                              <a
+                                key={subItem.label}
+                                href={subItem.href}
+                                className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
+                                  isDark
+                                    ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                                }`}
+                                onClick={() => setActiveDropdown(null)}
+                              >
+                                {subItem.label}
+                              </a>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+              </div>
+            </nav>
 
             {/* Right Side Actions */}
             <div className="flex items-center space-x-3 z-10">
-              {/* Connection Status */}
-              <div className="hidden sm:block">
-                <ConnectionStatus isConnected={isConnected} />
-              </div>
-
-              {/* ADD HOME BUTTON (if in session) */}
-              {isInSession && (
-                <button
-                  onClick={handleGoHome}
-                  className={`p-2 rounded-lg transition-colors ${isDark 
-                    ? "text-gray-300 hover:text-white hover:bg-gray-800/50" 
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                  }`}
-                  title="Go to Home"
-                >
-                  <Home className="w-5 h-5" />
-                </button>
-              )}
-
               {/* Theme Toggle */}
               <motion.button
                 onClick={toggleTheme}
-                className={`rounded-lg border p-2 transition-all duration-200 hover:scale-105 ${isDark
+                className={`rounded-lg border p-2 transition-all duration-200 hover:scale-105 ${
+                  isDark
                     ? "border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800/50"
                     : "border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                  }`}
+                }`}
                 whileHover={{ rotate: 180 }}
                 whileTap={{ scale: 0.95 }}
               >
@@ -307,8 +292,11 @@ const Header = ({ isConnected }) => {
                   onMouseLeave={() => setActiveDropdown(null)}
                 >
                   <button
-                    className={`flex items-center space-x-2 rounded-lg border px-3 py-2 transition-all duration-200 ${isDark ? "border-gray-700 hover:bg-gray-800/50" : "border-gray-300 hover:bg-gray-100/50"
-                      }`}
+                    className={`flex items-center space-x-2 rounded-lg border px-3 py-2 transition-all duration-200 ${
+                      isDark
+                        ? "border-gray-700 hover:bg-gray-800/50"
+                        : "border-gray-300 hover:bg-gray-100/50"
+                    }`}
                   >
                     <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-r from-purple-500 to-blue-500">
                       <User className="h-3 w-3 text-white" />
@@ -326,8 +314,9 @@ const Header = ({ isConnected }) => {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.96 }}
                         transition={{ duration: 0.15, ease: "easeOut" }}
-                        className={`absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border shadow-xl ${isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
-                          } backdrop-blur-md`}
+                        className={`absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border shadow-xl ${
+                          isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
+                        } backdrop-blur-md`}
                       >
                         <div className="p-1">
                           <div className={`border-b px-3 py-2 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
@@ -340,20 +329,22 @@ const Header = ({ isConnected }) => {
                           </div>
                           <a
                             href="#profile"
-                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
+                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
+                              isDark
                                 ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                                 : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                              }`}
+                            }`}
                           >
                             <User className="h-4 w-4" />
                             <span>Profile</span>
                           </a>
                           <a
                             href="#settings"
-                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
+                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
+                              isDark
                                 ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                                 : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                              }`}
+                            }`}
                           >
                             <Settings className="h-4 w-4" />
                             <span>Settings</span>
@@ -374,19 +365,21 @@ const Header = ({ isConnected }) => {
                 <div className="hidden items-center space-x-3 md:flex">
                   <button
                     onClick={() => openAuthModal("login")}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${isDark
+                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
+                      isDark
                         ? "border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800/50"
                         : "border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                      }`}
+                    }`}
                   >
                     Get a demo
                   </button>
                   <motion.button
                     onClick={() => openAuthModal("login")}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${isDark
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
+                      isDark
                         ? "bg-white text-gray-900 hover:bg-gray-100 shadow-lg"
                         : "bg-gray-900 text-white hover:bg-gray-800 shadow-lg"
-                      }`}
+                    }`}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -405,101 +398,104 @@ const Header = ({ isConnected }) => {
             </div>
           </div>
 
-          {/* Mobile Navigation - HIDE IN SESSION MODE */}
-          {!isInSession && (
-            <AnimatePresence>
-              {isMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                  className={`lg:hidden border-t py-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}
-                >
-                  <div className="space-y-3">
-                    {navigationItems.map((item) => (
-                      <div key={item.label}>
-                        {item.hasDropdown ? (
-                          <div>
-                            <button
-                              onClick={() =>
-                                setActiveDropdown(
-                                  activeDropdown === `mobile-${item.label}` ? null : `mobile-${item.label}`,
-                                )
-                              }
-                              className={`flex w-full items-center justify-between font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                                }`}
-                            >
-                              <span>{item.label}</span>
-                              <motion.div
-                                animate={{
-                                  rotate: activeDropdown === `mobile-${item.label}` ? 180 : 0,
-                                }}
-                                transition={{ duration: 0.2 }}
-                              >
-                                <ChevronDown className="h-4 w-4" />
-                              </motion.div>
-                            </button>
-                            <AnimatePresence>
-                              {activeDropdown === `mobile-${item.label}` && (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: "auto" }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="ml-4 mt-2 space-y-2"
-                                >
-                                  {item.items.map((subItem) => (
-                                    <a
-                                      key={subItem.label}
-                                      href={subItem.href}
-                                      className={`block text-sm transition-colors ${isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
-                                        }`}
-                                    >
-                                      {subItem.label}
-                                    </a>
-                                  ))}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        ) : (
-                          <a
-                            href={item.href}
-                            className={`font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                              }`}
+          {/* Mobile Navigation */}
+          <AnimatePresence>
+            {isMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2, ease: "easeInOut" }}
+                className={`lg:hidden border-t py-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}
+              >
+                <div className="space-y-3">
+                  {navigationItems.map((item) => (
+                    <div key={item.label}>
+                      {item.hasDropdown ? (
+                        <div>
+                          <button
+                            onClick={() =>
+                              setActiveDropdown(
+                                activeDropdown === `mobile-${item.label}` ? null : `mobile-${item.label}`,
+                              )
+                            }
+                            className={`flex w-full items-center justify-between font-medium transition-colors ${
+                              isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                            }`}
                           >
-                            {item.label}
-                          </a>
-                        )}
-                      </div>
-                    ))}
+                            <span>{item.label}</span>
+                            <motion.div
+                              animate={{
+                                rotate: activeDropdown === `mobile-${item.label}` ? 180 : 0,
+                              }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ChevronDown className="h-4 w-4" />
+                            </motion.div>
+                          </button>
+                          <AnimatePresence>
+                            {activeDropdown === `mobile-${item.label}` && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="ml-4 mt-2 space-y-2"
+                              >
+                                {item.items.map((subItem) => (
+                                  <a
+                                    key={subItem.label}
+                                    href={subItem.href}
+                                    className={`block text-sm transition-colors ${
+                                      isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
+                                    }`}
+                                  >
+                                    {subItem.label}
+                                  </a>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      ) : (
+                        <a
+                          href={item.href}
+                          className={`font-medium transition-colors ${
+                            isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                          }`}
+                        >
+                          {item.label}
+                        </a>
+                      )}
+                    </div>
+                  ))}
 
-                    {!isAuthenticated && (
-                      <div className={`space-y-3 border-t pt-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
-                        <button
-                          onClick={() => openAuthModal("login")}
-                          className={`w-full text-left font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                            }`}
-                        >
-                          Get a demo
-                        </button>
-                        <button
-                          onClick={() => openAuthModal("login")}
-                          className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${isDark
-                              ? "bg-white text-gray-900 hover:bg-gray-100"
-                              : "bg-gray-900 text-white hover:bg-gray-800"
-                            }`}
-                        >
-                          Log In
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          )}
+                  {!isAuthenticated && (
+                    <div className={`space-y-3 border-t pt-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
+                      <button
+                        onClick={() => openAuthModal("login")}
+                        className={`w-full text-left font-medium transition-colors ${
+                          isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                        }`}
+                      >
+                        Get a demo
+                      </button>
+                      <button
+                        onClick={() => openAuthModal("login")}
+                        className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${
+                          isDark
+                            ? "bg-white text-gray-900 hover:bg-gray-100"
+                            : "bg-gray-900 text-white hover:bg-gray-800"
+                        }`}
+                      >
+                        Log In
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
