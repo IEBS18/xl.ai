@@ -19,16 +19,15 @@ const Footer = () => {
               transition={{ type: "spring", stiffness: 400 }}
             >
               <div className="flex items-center space-x-1">
-                <div className={`w-6 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
-                <div className={`w-2 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
+                <image src='../../public/logo.svg' className="w-5 h-5" />
               </div>
             </motion.div>
             <p className={`${themeClasses.textSecondary} mb-8 max-w-md leading-relaxed text-lg`}>
               Work smarter, faster, and more efficiently with InsiPredict.
             </p>
             <div className="flex items-center space-x-6">
-              <span className={`${themeClasses.textMuted} text-sm uppercase tracking-wider`}>Socials</span>
-              <div className="flex space-x-4">
+              {/* <span className={`${themeClasses.textMuted} text-sm uppercase tracking-wider`}>Socials</span> */}
+              {/* <div className="flex space-x-4">
                 {[0, 1].map((i) => (
                   <motion.div
                     key={i}
@@ -39,7 +38,7 @@ const Footer = () => {
                     <div className={`w-4 h-4 ${themeClasses.textMuted}`}></div>
                   </motion.div>
                 ))}
-              </div>
+              </div> */}
             </div>
           </div>
 

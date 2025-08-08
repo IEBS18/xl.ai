@@ -45,41 +45,47 @@ const CollaborationSection = () => {
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-          {/* Performance Report Mockup */}
+          {/* Performance Report Mockup - Updated with gradient background */}
           <motion.div
             initial={{ opacity: 0, x: -40 }}
             whileInView={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className={`${themeClasses.surfaceSecondary} p-8 rounded-3xl border ${themeClasses.border}`}
+            className="p-8 rounded-3xl"
+            style={{
+              background: 'linear-gradient(232.59deg, #011D89 22.28%, #00092B 92.41%)'
+            }}
           >
             <motion.div
-              className={`${themeClasses.surface} p-8 rounded-2xl shadow-2xl border ${themeClasses.border}`}
+              className="bg-white p-8 rounded-2xl shadow-2xl"
               whileHover={{ scale: 1.01 }}
               transition={{ type: "spring", stiffness: 300 }}
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className={`text-2xl font-semibold ${themeClasses.text}`}>Performance Report</h3>
-                <span className={`text-sm ${themeClasses.textMuted}`}>Q2 2025</span>
+                <h3 className="text-2xl font-semibold text-gray-900">Performance Report</h3>
+                <span className="text-sm text-gray-500">Q2 2025</span>
               </div>
 
               <div className="space-y-8">
                 <div>
-                  <h4 className={`font-medium mb-3 ${themeClasses.text}`}>Summary</h4>
-                  <p className={`text-sm ${themeClasses.textSecondary} leading-relaxed`}>
+                  <h4 className="font-medium mb-3 text-gray-900">Summary</h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
                     Performance metrics show significant improvement across key indicators with notable
                     enhancement in operational efficiency and customer satisfaction.
                   </p>
                 </div>
 
                 <div>
-                  <h4 className={`font-medium mb-6 ${themeClasses.text}`}>Monthly Active Users</h4>
+                  <h4 className="font-medium mb-6 text-gray-900">Monthly Active Users</h4>
                   <div className="flex items-end space-x-2 h-32">
                     {[...Array(12)].map((_, i) => (
                       <motion.div
                         key={i}
-                        className={`${isDark ? "bg-white" : "bg-black"} rounded-sm flex-1 opacity-80`}
-                        style={{ height: `${Math.random() * 80 + 20}%` }}
+                        className="rounded-sm flex-1"
+                        style={{ 
+                          height: `${Math.random() * 80 + 20}%`,
+                          background: 'linear-gradient(90deg, #04165D 0%, #000723 100%)'
+                        }}
                         initial={{ height: 0 }}
                         whileInView={{ height: `${Math.random() * 80 + 20}%` }}
                         transition={{ duration: 1, delay: i * 0.1 }}
@@ -92,7 +98,7 @@ const CollaborationSection = () => {
             </motion.div>
           </motion.div>
 
-          {/* Chat Interface Mockup */}
+          {/* Chat Interface Mockup - Updated with gradient background */}
           <motion.div
             initial={{ opacity: 0, x: 40 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -180,10 +186,13 @@ const CollaborationSection = () => {
               whileHover={{ y: -5 }}
             >
               <motion.div
-                className={`w-12 h-12 ${themeClasses.surfaceSecondary} rounded-xl flex items-center justify-center mb-6 mx-auto border ${themeClasses.border}`}
+                className="w-12 h-12 rounded-xl flex items-center justify-center mb-6 mx-auto text-white"
+                style={{
+                  background: 'linear-gradient(232.59deg, #011D89 22.28%, #00092B 92.41%)'
+                }}
                 whileHover={{ scale: 1.1 }}
               >
-                <feature.icon className={`w-6 h-6 ${themeClasses.text}`} />
+                <feature.icon className="w-6 h-6" />
               </motion.div>
               <h3 className={`text-xl font-semibold mb-4 ${themeClasses.text}`}>{feature.title}</h3>
               <p className={`${themeClasses.textSecondary} leading-relaxed`}>{feature.description}</p>

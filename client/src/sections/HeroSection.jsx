@@ -67,14 +67,14 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress 
           <div className="relative h-full w-full overflow-hidden">
             {/* Background elements */}
             <div className="absolute inset-0 z-0">
-              <div className={`absolute inset-0 ${isDark ? 'bg-gradient-to-br from-black/60 via-gray-900/70 to-black/80' : 'bg-gradient-to-br from-white/60 via-gray-100/70 to-white/80'} z-20`}></div>
+              <div className={`absolute inset-0 z-20`}></div>
               <AnimatedInterface />
             </div>
 
             {/* Main content */}
             <div className="relative z-20 flex flex-col items-center justify-center h-full text-center max-w-4xl mx-auto px-6">
               <div className="mb-8">
-                <h1 className={`text-4xl font-black text-transparent bg-clip-text ${isDark ? 'bg-gradient-to-r from-white via-gray-200 to-gray-300' : 'bg-gradient-to-r from-black via-gray-800 to-gray-900'} mb-3`}>
+                <h1 className={`text-4xl font-black text-transparent bg-clip-text ${isDark ? 'bg-gradient-to-r from-white via-gray-200 to-gray-300' : 'bg-gradient-to-r from-[#04165D] via-[#04165de6] to-[#04134f]'} mb-3`}>
                   {getTimeBasedGreeting()}, {getUserName()}
                 </h1>
                 <div className={`h-0.5 w-24 ${isDark 

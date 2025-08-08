@@ -1,3 +1,4 @@
+
 import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
@@ -11,6 +12,7 @@ const MainContent = () => {
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [isUploading, setIsUploading] = useState(false)
   
   const handleFileUpload = async (file) => {
     if (!file) return
@@ -38,6 +40,7 @@ const MainContent = () => {
     formData.append("file", file)
 
     try {
+      setIsUploading(true)
       setUploadProgress(10)
       
       const response = await fetch(`${BACKEND_URL}/api/upload`, {
@@ -46,10 +49,11 @@ const MainContent = () => {
         credentials: "include",
       })
       
-      setUploadProgress(90)
+      setUploadProgress(70)
 
       if (!response.ok) {
-        throw new Error(`Upload failed with status ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Upload failed with status ${response.status}`)
       }
 
       const result = await response.json()
@@ -64,8 +68,15 @@ const MainContent = () => {
         throw new Error(result.error || "Upload failed")
       }
     } catch (error) {
+      console.error('Upload error:', error)
       alert(`Upload failed: ${error.message}`)
       setUploadProgress(0)
+    } finally {
+      // Reset upload state after a delay
+      setTimeout(() => {
+        setIsUploading(false)
+        setUploadProgress(0)
+      }, 2000)
     }
   }
 
@@ -76,16 +87,25 @@ const MainContent = () => {
       return
     }
 
+    // Don't allow new uploads while one is in progress
+    if (isUploading) {
+      return
+    }
+
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.csv,.xlsx,.xls'
-    input.onchange = (e) => handleFileUpload(e.target.files[0])
+    input.onchange = (e) => {
+      const selectedFile = e.target.files[0]
+      if (selectedFile) {
+        handleFileUpload(selectedFile)
+      }
+    }
     input.click()
   }
 
   const handleSendMessage = (message) => {
     // For landing page, we don't have file context yet
-    // This would typically show a message to upload a file first
     if (!isAuthenticated) {
       alert("Please sign in to analyze data")
       return
@@ -95,16 +115,19 @@ const MainContent = () => {
   }
 
   return (
-    <div className={`h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
+    <div className={`min-h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
+      {/* Header - Fixed positioning */}
       <Header isConnected={true} />
         
-      <div className="flex-1 min-h-0">
+      {/* Main Content - Account for fixed header */}
+      <div className="flex-1 pt-16 overflow-hidden"> {/* pt-16 accounts for fixed header height */}
         <div className="h-full overflow-y-auto">
           <LandingPage
             isConnected={true}
             onSendMessage={handleSendMessage}
             onFileUpload={triggerFileUpload}
             uploadProgress={uploadProgress}
+            isUploading={isUploading}
           />
         </div>
       </div>
