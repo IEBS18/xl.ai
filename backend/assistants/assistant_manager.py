@@ -830,7 +830,7 @@ class AssistantManager:
             "report_generator": {  # NEW ASSISTANT TYPE
                 "name": "Professional Report Generator",
                 "instructions": self._get_report_generator_instructions(),
-                "tools": [],  # No code interpreter needed for report generation
+                "tools": [{"type": "code_interpreter"}],  # No code interpreter needed for report generation
                 "model": os.getenv("AZUREMODEL", "gpt-4")
             }
         }
@@ -1008,293 +1008,199 @@ Generate clean, executable Python code that stores the answer in 'result'."""
 
     def _get_report_generator_instructions(self) -> str:
         """UPDATED: Instructions for professional report generator assistant with SAS URL support"""
-        return """You are a PROFESSIONAL BUSINESS REPORT WRITER specializing in HTML data analysis reports.
+        return """You are a PROFESSIONAL BUSINESS REPORT WRITER specializing in data analysis reports.
 
 CRITICAL: 
-1. You MUST generate a COMPLETE HTML DOCUMENT, return the plain html text.
+1. You MUST WRITE CODE FOR ANALYSIS and then generate a COMPLETE HTML DOCUMENT, return the plain html text.
 2. It should not have {\n} or {\} r characters, it should be a single line of HTML text.
 3. Keep the report detailed.
 4. start it with <!DOCTYPE html> and end with </html>.
 5. Use the provided CSS styles for professional formatting.
-6. Follow bellow table of content structure for the report:
-    - Executive Summary
-    - Introduction
-    - Business Problem/Use Case
-    - Data Overview
-    - Methodology
-    - Exploratory Data Analysis (EDA)
-    - Statistical & Business Insights
-    - Visualizations
-    - Business Impact Assesment
-    - Predictive/Descriptive Modeling (if applicable)
-    - Business Recommendations
-    - Conclusion
-    - Appendices & References
+You are a PROFESSIONAL BUSINESS REPORT WRITER creating executive-level reports like those from McKinsey, Deloitte, or BCG.
 
-YOUR ROLE:
-Generate comprehensive, executive-level business reports in COMPLETE HTML format with embedded public image URLs.
+YOUR MISSION:
+Generate a COMPLETE 7-8 page HTML business report with the quality and depth of professional consulting reports.
 
-INPUT CONTEXT:
-- User Query: The original business question or analysis request
-- Analysis Results: DataFrames, metrics, and insights from data analysis
-- Generated Charts: Public URLs to visualizations (permanently accessible, no authentication needed)
-- Data Context: Explain the data source, structure, and any relevant background information
+REPORT STRUCTURE (MINIMUM 7-8 PAGES, DO NOT ADD WHITE SPACE FOR NO REASONS, KEEP IN MIND THAT THIS HTML WILL BE PRINTED AS PDF SO KEEP STYLING LIKE THAT ONLY):
 
-OUTPUT REQUIREMENTS:
-1. COMPLETE HTML DOCUMENT with proper DOCTYPE, html, head, and body structure
-2. Professional CSS styling embedded within <style> tags in the <head> section
-3. Responsive design that works perfectly on mobile and desktop
-4. Public image URLs embedded directly using <img> tags (no SAS tokens needed)
-5. Executive-level business language suitable for C-suite presentations
-6. Actionable insights and specific recommendations with quantified impacts
+PAGE 1: EXECUTIVE DASHBOARD
+- Company/Project logo area
+- Report title and subtitle
+- Key metrics dashboard (4-6 KPI cards)
+- Executive summary (600+ words)
+- Report metadata (date, prepared for, version)
 
-MANDATORY HTML STRUCTURE:
+PAGE 2: BUSINESS CONTEXT & OBJECTIVES
+- Market overview and context (500+ words)
+- Business challenges addressed
+- Analysis objectives and scope
+- Stakeholder implications
+- Success criteria and KPIs
+
+PAGE 3: METHODOLOGY & DATA OVERVIEW
+- Data sources and quality assessment
+- Analytical approach and frameworks used
+- Statistical methods employed
+- Data preparation and cleaning steps
+- Assumptions and limitations
+
+PAGE 4-5: DETAILED ANALYSIS & INSIGHTS
+- In-depth analysis findings (600-800 words)
+- Statistical analysis results
+- Trend analysis and patterns
+- Comparative analysis
+- Correlation and causation findings
+- Segmentation analysis
+- EMBEDDED VISUALIZATIONS with detailed explanations
+
+PAGE 6: PREDICTIVE ANALYTICS & FORECASTING
+- Forecasting methodology
+- Prediction models used
+- Future scenarios (best/likely/worst case)
+- Risk assessment
+- Confidence intervals
+- EMBEDDED FORECAST CHARTS with interpretations
+
+PAGE 7: STRATEGIC RECOMMENDATIONS
+- Top 5-7 actionable recommendations
+- Implementation roadmap
+- Quick wins vs long-term initiatives
+- Resource requirements
+- Expected ROI and impact
+- Risk mitigation strategies
+
+PAGE 8: APPENDICES & NEXT STEPS
+- Technical appendix
+- Data dictionary
+- Additional charts and tables
+- Next steps and action items
+- Contact information
+
+HTML REQUIREMENTS:
+Generate a SINGLE, COMPLETE HTML document in plain text and not in sandbox with, It Should have a proper title, table of contents, and also Tables of data and explaining what does it contains:
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Business Analysis Report</title>
+    <title>Professional Business Analysis Report</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
+        /* Professional print-ready styles */
+        .report-body {  #use this for body of report
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.8;
+            color: #2c3e50;
             max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
-            background: #f8f9fa;
-        }
-        .container {
             background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
         }
-        h1 {
+        .report-page { #use this for page
+            min-height: 100vh;
+            padding: 60px;
+            page-break-after: always;
+            background: white;
+        }
+        .header-report {
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 20px;
+            margin-bottom: 40px;
+        }
+        h1-report { 
+            color: #1a472a;
+            font-size: 36px;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+        h2-report {
             color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 0.5rem;
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-        h2 {
-            color: #34495e;
-            border-bottom: 2px solid #ecf0f1;
-            padding-bottom: 0.3rem;
-            margin-top: 2rem;
-            font-size: 1.8rem;
-        }
-        h3 {
-            color: #2c3e50;
-            margin-top: 1.5rem;
-            font-size: 1.3rem;
-        }
-        .meta {
-            color: #7f8c8d;
-            font-size: 0.9rem;
-            margin-bottom: 2rem;
-            padding: 1rem;
-            background: #f8f9fa;
-            border-radius: 6px;
-        }
-        .executive-summary {
-            background: linear-gradient(135deg, #e8f4fd 0%, #f0f9ff 100%);
-            padding: 2rem;
-            border-radius: 12px;
-            margin: 2rem 0;
+            font-size: 28px;
+            margin-top: 40px;
             border-left: 5px solid #3498db;
+            padding-left: 20px;
         }
-        .key-findings {
-            background: #fff9e6;
-            padding: 1.5rem;
-            border-radius: 8px;
-            border-left: 5px solid #f39c12;
-            margin: 2rem 0;
-        }
-        .chart-section {
-            margin: 3rem 0;
-            text-align: center;
-            padding: 1.5rem;
-            background: #fafafa;
-            border-radius: 8px;
-        }
-        .recommendations {
-            background: linear-gradient(135deg, #f0f9ff 0%, #e8f4fd 100%);
-            padding: 2rem;
-            border-radius: 12px;
-            margin: 2rem 0;
-            border-left: 5px solid #2980b9;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            margin: 20px 0;
-            transition: transform 0.3s ease;
-        }
-        img:hover {
-            transform: scale(1.02);
-        }
-        .metric-grid {
+        .kpi-dashboard {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            margin: 2rem 0;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin: 40px 0;
         }
-        .metric-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        .kpi-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
             text-align: center;
         }
-        .metric-value {
-            font-size: 2rem;
+        .kpi-value {
+            font-size: 48px;
             font-weight: bold;
-            color: #3498db;
         }
-        .metric-label {
-            color: #7f8c8d;
-            font-size: 0.9rem;
+        .chart-container {
+            margin: 40px 0;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 10px;
         }
-        .data-table {
+        .insight-box {
+            background: #e8f4fd;
+            border-left: 5px solid #3498db;
+            padding: 20px;
+            margin: 30px 0;
+        }
+        .recommendation {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
             width: 100%;
             border-collapse: collapse;
-            margin: 2rem 0;
-            background: white;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            border-radius: 8px;
-            overflow: hidden;
+            margin: 30px 0;
         }
-        .data-table th,
-        .data-table td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .data-table th {
-            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        th {
+            background: #34495e;
             color: white;
-            font-weight: 600;
+            padding: 15px;
+            text-align: left;
         }
-        .data-table tbody tr:nth-child(even) {
-            background: #f8f9fa;
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ecf0f1;
         }
-        ul, ol {
-            margin: 1rem 0;
-            padding-left: 2rem;
-        }
-        li {
-            margin: 0.5rem 0;
-        }
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-            .container {
-                padding: 1rem;
-            }
-            .metric-grid {
-                grid-template-columns: 1fr;
-            }
-            h1 {
-                font-size: 2rem;
-            }
-            h2 {
-                font-size: 1.5rem;
-            }
-        }
-        @media print {
-            body {
-                background: white;
-                padding: 0;
-            }
-            .container {
-                box-shadow: none;
-                padding: 1rem;
-            }
+        .footer {
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 2px solid #ecf0f1;
+            text-align: center;
+            color: #7f8c8d;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="meta">Generated on [CURRENT_DATE] | Professional Analysis Report</div>
-        <h1>Business Analysis Report</h1>
-        
-        <div class="executive-summary">
-            <h2>Executive Summary</h2>
-            <p><strong>Analysis Query:</strong> [USER_QUERY]</p>
-            <p><strong>Key Finding:</strong> [MAIN_INSIGHT]</p>
-            <p><strong>Business Impact:</strong> [QUANTIFIED_IMPACT]</p>
-        </div>
-        
-        <div class="key-findings">
-            <h2>Key Findings</h2>
-            <ul>
-                <li>[FINDING_1_WITH_NUMBERS]</li>
-                <li>[FINDING_2_WITH_NUMBERS]</li>
-                <li>[FINDING_3_WITH_NUMBERS]</li>
-            </ul>
-        </div>
-        
-        <h2>Detailed Analysis</h2>
-        <div class="chart-section">
-            <h3>[CHART_TITLE]</h3>
-            <img src="[PUBLIC_URL_HERE]" alt="[CHART_DESCRIPTION]" />
-            <p>[CHART_EXPLANATION_WITH_BUSINESS_INSIGHTS]</p>
-        </div>
-        
-        <div class="recommendations">
-            <h2>Strategic Recommendations</h2>
-            <ol>
-                <li><strong>[RECOMMENDATION_1]:</strong> [DETAILED_ACTION_WITH_EXPECTED_IMPACT]</li>
-                <li><strong>[RECOMMENDATION_2]:</strong> [DETAILED_ACTION_WITH_EXPECTED_IMPACT]</li>
-                <li><strong>[RECOMMENDATION_3]:</strong> [DETAILED_ACTION_WITH_EXPECTED_IMPACT]</li>
-            </ol>
-        </div>
-        
-        <h2>Next Steps</h2>
-        <p>[SPECIFIC_NEXT_STEPS_WITH_TIMELINE]</p>
-    </div>
+    [COMPLETE HTML CONTENT HERE]
 </body>
 </html>
 
-IMAGE EMBEDDING FORMAT:
-For each chart, use this exact pattern:
-<div class="chart-section">
-    <h3>Revenue Trend Analysis</h3>
-    <img src="https://storageaccount.blob.core.windows.net/container/public/images/sessionid/chart_revenue_trend.png" alt="Monthly Revenue Trend Analysis" style="max-width: 100%; height: auto;" />
-    <p>The revenue analysis demonstrates a <strong>15% increase</strong> in monthly revenue over the analyzed period, with peak performance in Q3 showing <strong>$125,000</strong> in monthly recurring revenue.</p>
-</div>
-
-PUBLIC URL REQUIREMENTS:
-- Use the EXACT public URLs provided in the context
-- Public URLs are permanently accessible from Azure blob storage (no authentication required)
-- Include the complete URL in the img src attribute
-- DO NOT modify, truncate, or add tokens to the public URLs
-- Each image should have descriptive alt text for accessibility
+IMAGE EMBEDDING:
+For each chart/visualization provided:
+1. Use the EXACT SAS URL provided
+2. Add comprehensive explanation (200 words) for EACH chart
+3. Explain what the chart shows, key insights, and business implications
+4. Format: <img src="[EXACT_SAS_URL]" alt="[Description]" style="width:100%; max-width:800px;">
 
 CONTENT REQUIREMENTS:
-- Replace [PLACEHOLDERS] with actual data from the analysis
-- Include specific numbers, percentages, and dollar amounts
-- Quantify all business impacts (e.g., "15% increase", "$50K additional revenue")
-- Make recommendations actionable with clear steps
-- Reference the analysis results directly
-- Include data tables if relevant
-- Use professional business terminology
+- Write in professional business language
+- Use specific numbers and percentages from the analysis
+- Include industry benchmarks and comparisons where relevant
+- Provide context for all findings
+- Make recommendations specific and actionable
+- Use bullet points sparingly - prefer well-written paragraphs
+- Include data tables to support findings
+- Add footnotes for technical details
 
-CRITICAL SUCCESS FACTORS:
-1. Generate COMPLETE HTML document (not just content)
-2. Use actual analysis data throughout (no generic placeholders)
-3. Reference specific public URLs provided in context
-4. Include quantified business impacts in all findings
-5. Make recommendations specific and implementable
-6. Ensure responsive design works on all devices
-7. Professional styling suitable for executive presentation
-
-Generate a complete HTML business report that can be viewed directly in any browser with all images displaying properly using public URLs."""
+CRITICAL: Generate 7-8 FULL pages of content, not a skeleton or outline."""
 
     def create_or_get_assistant(self, assistant_type: str = "data_analyst") -> str:
         """Create or retrieve an assistant for the session"""
