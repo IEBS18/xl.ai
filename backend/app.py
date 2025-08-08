@@ -1025,6 +1025,10 @@ socketio = SocketIO(
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+# NEW: Ensure reports output directory exists
+REPORTS_OUTPUT_DIR = os.path.join(os.getcwd(), 'backend', 'output')
+os.makedirs(REPORTS_OUTPUT_DIR, exist_ok=True)
+print(f"📁 Reports output directory: {REPORTS_OUTPUT_DIR}")
 # Global storage for analyzer instances per session - NOW USING ENHANCED ANALYZER WITH ASSISTANTS API
 analyzers = {}
 session_data = {}
@@ -1765,6 +1769,234 @@ def cleanup_sessions():
             'error': f'Cleanup failed: {str(e)}'
         }), 500
 
+
+# Add this route after the existing routes and before the socket handlers
+
+# @app.route('/reports/<filename>', methods=['GET'])
+# def serve_html_report(filename):
+#     """Serve HTML reports from backend/output directory"""
+#     try:
+#         # Security: Ensure filename is safe (no directory traversal)
+#         safe_filename = secure_filename(filename)
+#         if not safe_filename.endswith('.html'):
+#             return jsonify({'error': 'Only HTML files are allowed'}), 400
+        
+#         # Construct path to report file
+#         reports_dir = os.path.join(os.getcwd(), 'backend', 'output')
+#         report_path = os.path.join(reports_dir, safe_filename)
+        
+#         # Check if file exists
+#         if not os.path.exists(report_path):
+#             return jsonify({'error': 'Report not found'}), 404
+        
+#         # Security: Ensure the file is within the reports directory
+#         if not os.path.abspath(report_path).startswith(os.path.abspath(reports_dir)):
+#             return jsonify({'error': 'Invalid file path'}), 400
+        
+#         # Serve the HTML file
+#         return send_file(
+#             report_path,
+#             mimetype='text/html',
+#             as_attachment=False,
+#             download_name=safe_filename
+#         )
+        
+#     except Exception as e:
+#         print(f"❌ Error serving report {filename}: {e}")
+#         return jsonify({'error': f'Failed to serve report: {str(e)}'}), 500
+
+
+# @app.route('/reports', methods=['GET'])
+# def list_html_reports():
+#     """List all available HTML reports"""
+#     try:
+#         reports_dir = os.path.join(os.getcwd(), 'backend', 'output')
+        
+#         if not os.path.exists(reports_dir):
+#             return jsonify({
+#                 'success': True,
+#                 'reports': [],
+#                 'message': 'No reports directory found'
+#             })
+        
+#         reports = []
+#         for filename in os.listdir(reports_dir):
+#             if filename.endswith('.html'):
+#                 try:
+#                     file_path = os.path.join(reports_dir, filename)
+#                     stat_info = os.stat(file_path)
+                    
+#                     reports.append({
+#                         'filename': filename,
+#                         'url': f'/reports/{filename}',
+#                         'size': stat_info.st_size,
+#                         'created': datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
+#                         'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+#                     })
+#                 except Exception as file_error:
+#                     print(f"⚠️ Error reading file info for {filename}: {file_error}")
+        
+#         # Sort by creation time (newest first)
+#         reports.sort(key=lambda x: x['created'], reverse=True)
+        
+#         response_data = {
+#             'success': True,
+#             'reports': reports,
+#             'total': len(reports),
+#             'directory': reports_dir
+#         }
+        
+#         response = jsonify(response_data)
+#         origin = request.headers.get('Origin', '*')
+#         response.headers.add('Access-Control-Allow-Origin', origin)
+#         response.headers.add('Access-Control-Allow-Credentials', 'true')
+#         return response
+        
+#     except Exception as e:
+#         print(f"❌ Error listing reports: {e}")
+#         return jsonify({
+#             'success': False,
+#             'error': f'Failed to list reports: {str(e)}'
+#         }), 500
+    
+# @app.route('/reports/cleanup', methods=['POST', 'OPTIONS'])
+# def cleanup_old_reports():
+#     """Clean up old HTML reports, keeping only the latest N files"""
+#     if request.method == 'OPTIONS':
+#         response = jsonify({'status': 'ok'})
+#         origin = request.headers.get('Origin', '*')
+#         response.headers.add('Access-Control-Allow-Origin', origin)
+#         response.headers.add('Access-Control-Allow-Methods', 'POST')
+#         response.headers.add('Access-Control-Allow-Credentials', 'true')
+#         return response
+    
+#     try:
+#         # Get cleanup parameters from request
+#         data = request.get_json() or {}
+#         keep_last_n = data.get('keepLastN', 10)  # Default: keep last 10 reports
+        
+#         reports_dir = os.path.join(os.getcwd(), 'backend', 'output')
+        
+#         if not os.path.exists(reports_dir):
+#             return jsonify({
+#                 'success': True,
+#                 'deleted_count': 0,
+#                 'message': 'No reports directory found'
+#             })
+        
+#         # Get all HTML files with their creation times
+#         reports = []
+#         for filename in os.listdir(reports_dir):
+#             if filename.endswith('.html'):
+#                 try:
+#                     file_path = os.path.join(reports_dir, filename)
+#                     stat_info = os.stat(file_path)
+#                     reports.append({
+#                         'filename': filename,
+#                         'path': file_path,
+#                         'created': stat_info.st_ctime
+#                     })
+#                 except Exception as file_error:
+#                     print(f"⚠️ Error reading file info for {filename}: {file_error}")
+        
+#         # Sort by creation time (newest first)
+#         reports.sort(key=lambda x: x['created'], reverse=True)
+        
+#         # Delete old reports
+#         deleted_count = 0
+#         deleted_files = []
+        
+#         if len(reports) > keep_last_n:
+#             reports_to_delete = reports[keep_last_n:]
+            
+#             for report in reports_to_delete:
+#                 try:
+#                     os.remove(report['path'])
+#                     deleted_count += 1
+#                     deleted_files.append(report['filename'])
+#                     print(f"🗑️ Deleted old report: {report['filename']}")
+#                 except Exception as delete_error:
+#                     print(f"⚠️ Could not delete {report['filename']}: {delete_error}")
+        
+#         response_data = {
+#             'success': True,
+#             'deleted_count': deleted_count,
+#             'deleted_files': deleted_files,
+#             'kept_count': min(len(reports), keep_last_n),
+#             'total_reports_before': len(reports),
+#             'total_reports_after': len(reports) - deleted_count,
+#             'cleanup_params': {
+#                 'keepLastN': keep_last_n
+#             },
+#             'timestamp': datetime.now().isoformat()
+#         }
+        
+#         response = jsonify(response_data)
+#         origin = request.headers.get('Origin', '*')
+#         response.headers.add('Access-Control-Allow-Origin', origin)
+#         response.headers.add('Access-Control-Allow-Credentials', 'true')
+#         return response
+        
+#     except Exception as e:
+#         print(f"❌ Reports cleanup error: {e}")
+#         return jsonify({
+#             'success': False,
+#             'error': f'Cleanup failed: {str(e)}'
+#         }), 500
+
+
+# @app.route('/reports/<filename>', methods=['DELETE', 'OPTIONS'])
+# def delete_specific_report(filename):
+#     """Delete a specific HTML report"""
+#     if request.method == 'OPTIONS':
+#         response = jsonify({'status': 'ok'})
+#         origin = request.headers.get('Origin', '*')
+#         response.headers.add('Access-Control-Allow-Origin', origin)
+#         response.headers.add('Access-Control-Allow-Methods', 'DELETE')
+#         response.headers.add('Access-Control-Allow-Credentials', 'true')
+#         return response
+    
+#     try:
+#         # Security: Ensure filename is safe
+#         safe_filename = secure_filename(filename)
+#         if not safe_filename.endswith('.html'):
+#             return jsonify({'error': 'Only HTML files can be deleted'}), 400
+        
+#         # Construct path to report file
+#         reports_dir = os.path.join(os.getcwd(), 'backend', 'output')
+#         report_path = os.path.join(reports_dir, safe_filename)
+        
+#         # Check if file exists
+#         if not os.path.exists(report_path):
+#             return jsonify({'error': 'Report not found'}), 404
+        
+#         # Security: Ensure the file is within the reports directory
+#         if not os.path.abspath(report_path).startswith(os.path.abspath(reports_dir)):
+#             return jsonify({'error': 'Invalid file path'}), 400
+        
+#         # Delete the file
+#         os.remove(report_path)
+#         print(f"🗑️ Deleted report: {safe_filename}")
+        
+#         response_data = {
+#             'success': True,
+#             'filename': safe_filename,
+#             'message': f'Report {safe_filename} deleted successfully',
+#             'timestamp': datetime.now().isoformat()
+#         }
+        
+#         response = jsonify(response_data)
+#         origin = request.headers.get('Origin', '*')
+#         response.headers.add('Access-Control-Allow-Origin', origin)
+#         response.headers.add('Access-Control-Allow-Credentials', 'true')
+#         return response
+        
+#     except Exception as e:
+#         print(f"❌ Error deleting report {filename}: {e}")
+#         return jsonify({
+#             'success': False,
+#             'error': f'Failed to delete report: {str(e)}'
+#         }), 500    
 # ==================== SOCKET HANDLERS (ALL PRESERVED) ====================
 
 # ==================== SOCKET HANDLERS ====================
@@ -1845,7 +2077,7 @@ def handle_join_session(data):
 
 @socketio.on('send_message_with_session')
 def handle_message_with_session(data):
-    """FIXED Handle chat messages for a specific session - ENHANCED for proper DataFrame and code handling"""
+    """ENHANCED Handle chat messages with new report type support"""
     session_id = data.get('sessionId')
     query = data.get('message', '').strip()
     
@@ -1884,7 +2116,7 @@ def handle_message_with_session(data):
     # Clear any existing stop signals
     clear_stop_signal_for_session(session_id)
     
-    # Process the query with ENHANCED analyzer (now with proper DataFrame/code handling)
+    # Process the query with ENHANCED analyzer
     def process_query():
         try:
             analyzer = analyzers[session_id]
@@ -1898,13 +2130,13 @@ def handle_message_with_session(data):
                 'sessionId': session_id
             }, room=session_id)
             
-            # Start the ENHANCED analysis (with proper DataFrame/code return)
+            # Start the ENHANCED analysis
             result = analyzer.analyze_query_streaming(user_query=query)
 
             if result is None:
                 result = {}
             
-            # FIXED: Handle different result types with proper DataFrame and code handling
+            # ENHANCED: Handle different result types including new "report" type
             if result.get("type") == "conversational":
                 # Conversational response - simple completion
                 completion_data = {
@@ -1944,59 +2176,61 @@ def handle_message_with_session(data):
                     }
                 }
                 
-                # FIXED: Emit DataFrames with proper structure
+                # Emit DataFrames and code
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
-                
-                # FIXED: Emit generated code with proper structure  
                 _emit_code_to_frontend(generated_code, session_id, socketio)
                 
             elif result.get("type") == "report":
-                # FIXED: Report generation - return HTML report with DataFrames and code
+                # NEW: Enhanced report type with plain text report and embedded images
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
+                plain_text_report = result.get('comprehensive_report', '')
+                embedded_images = result.get('embedded_images', [])
                 
                 completion_data = {
-                    'type': 'report_completion',  # Special type for reports
-                    'data': 'Report generated successfully!',
+                    'type': 'report_completion',  # Special completion type for reports
+                    'data': 'Comprehensive business report generated successfully!',
                     'timestamp': datetime.now().isoformat(),
                     'sessionId': session_id,
                     'result': {
                         'success': result.get('success', False),
                         'type': 'report',
                         'response': result.get('response', ''),
-                        'report_html': result.get('report_html', ''),
-                        'report_url': result.get('report_url', ''),
-                        'report_filename': result.get('report_filename', ''),
+                        'report_content': plain_text_report,
+                        'report_type': result.get('report_type', 'plain_text_with_images'),
+                        'embedded_images_count': len(embedded_images),
+                        'embedded_images': embedded_images,
+                        'report_generated': result.get('report_generated', True),
                         'images_count': len(result.get('generated_images', [])),
                         'files_generated': result.get('generated_files', {}),
                         'dataframes_count': len(dataframes),
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
-                        'code_lines': _count_code_lines(generated_code)
+                        'code_lines': _count_code_lines(generated_code),
+                        'assistant_generated': result.get('report_assistant_used', False),
+                        'same_thread_analysis': result.get('same_thread_analysis', False)
                     }
                 }
                 
-                # FIXED: Emit report data separately
-                if result.get('report_html'):
-                    socketio.emit('stream_data', {
-                        'type': 'report',
-                        'data': {
-                            'html': result.get('report_html'),
-                            'filename': result.get('report_filename', 'report.html'),
-                            'url': result.get('report_url', '')
-                        },
-                        'timestamp': datetime.now().isoformat(),
-                        'sessionId': session_id
-                    }, room=session_id)
+                # NEW: Emit the plain text report with embedded image URLs
+                socketio.emit('stream_data', {
+                    'type': 'plain_text_report',
+                    'data': {
+                        'content': plain_text_report,
+                        'embedded_images': embedded_images,
+                        'report_type': result.get('report_type', 'plain_text_with_images'),
+                        'generated_by': 'report_generator_assistant'
+                    },
+                    'timestamp': datetime.now().isoformat(),
+                    'sessionId': session_id
+                }, room=session_id)
                 
-                # FIXED: Emit DataFrames for reports
+                # Emit DataFrames and code for reports
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
-                
-                # FIXED: Emit generated code for reports
                 _emit_code_to_frontend(generated_code, session_id, socketio)
                 
             elif result.get("type") == "fully_analytical":
-                # Complex analysis - full streaming with visualizations, DataFrames, and code
+                # Complex analysis without report generation (fallback case)
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
                 
@@ -2020,7 +2254,7 @@ def handle_message_with_session(data):
                     }
                 }
                 
-                # FIXED: Emit all generated files
+                # Emit generated files
                 generated_files = result.get('generated_files', {})
                 for file_type, files in generated_files.items():
                     if files:
@@ -2035,10 +2269,8 @@ def handle_message_with_session(data):
                             'sessionId': session_id
                         }, room=session_id)
                 
-                # FIXED: Emit DataFrames with proper structure
+                # Emit DataFrames and code
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
-                
-                # FIXED: Emit generated code with proper structure
                 _emit_code_to_frontend(generated_code, session_id, socketio)
                 
             elif result.get("stopped_by_user"):
@@ -2052,7 +2284,7 @@ def handle_message_with_session(data):
                 return
                 
             else:
-                # Default/fallback completion with DataFrame and code support
+                # Default/fallback completion
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
                 
@@ -2073,7 +2305,7 @@ def handle_message_with_session(data):
                     }
                 }
                 
-                # Emit DataFrames and code for fallback cases too
+                # Emit DataFrames and code for fallback cases
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
                 _emit_code_to_frontend(generated_code, session_id, socketio)
             
@@ -2097,7 +2329,6 @@ def handle_message_with_session(data):
     thread = threading.Thread(target=process_query)
     thread.daemon = True
     thread.start()
-
 
 # NEW: Helper functions to properly handle DataFrames and code emission
 
@@ -2458,6 +2689,8 @@ def schedule_periodic_cleanup():
 
 # ==================== MAIN APPLICATION ====================
 
+# Find the existing startup logging section and update it:
+
 if __name__ == '__main__':
     # Verify environment variables (UPDATED for Assistants API)
     required_vars = ["AZUREAPI", "AZUREVERSION", "AZUREENDPOINT", "AZUREMODEL"]
@@ -2487,6 +2720,7 @@ if __name__ == '__main__':
     print("   🔬 Powerful fully analytical queries with streaming")
     print("   🧵 Persistent conversation threads")
     print("   📁 Seamless file management")
+    print("   📄 Local HTML report download and serving")  # NEW
     print("   🔄 Automatic fallback to original implementation")
     print()
     print("📊 Backend running on http://localhost:5000")
@@ -2495,6 +2729,7 @@ if __name__ == '__main__':
     print(f"🧹 Session cleanup: {'Enabled' if SESSION_CLEANUP_ENABLED else 'Disabled'}")
     print(f"⏰ Max session age: {SESSION_MAX_AGE_HOURS} hours")
     print(f"💤 Max inactive time: {SESSION_MAX_INACTIVE_HOURS} hours")
+    print(f"📁 Reports directory: {REPORTS_OUTPUT_DIR}")  # NEW
     
     # Enhanced feature status
     print()
@@ -2504,6 +2739,8 @@ if __name__ == '__main__':
     print(f"✅ Streaming Adaptation: Enabled")
     print(f"✅ Thread Management: Enabled")
     print(f"✅ File Management: Enabled")
+    print(f"✅ Local Report Download: Enabled")  # NEW
+    print(f"✅ Report Serving Routes: /reports/<filename>")  # NEW
     print(f"✅ Automatic Fallback: Enabled")
     print(f"✅ Blob Storage: {'Enabled' if os.getenv('AZURE_STORAGE_ACCOUNT_URL') else 'Disabled'}")
     
@@ -2535,7 +2772,8 @@ if __name__ == '__main__':
     print("💡 TIP: Upload a CSV file and try these enhanced queries:")
     print("   💬 'Hi, how are you?' (Conversational)")
     print("   📊 'What is the highest revenue?' (Quick Analysis)")
-    print("   🔬 'Generate a 5-year sales forecast' (Full Analysis)")
+    print("   🔬 'Generate a 5-year sales forecast' (Full Analysis with Local Report)")  # UPDATED
+    print("   📄 'Create a comprehensive report' (HTML Report Downloaded Locally)")  # NEW
     print()
     
     # Run the application

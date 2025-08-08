@@ -797,12 +797,13 @@ You are a Python code generator that MUST create COMPLETE, EXECUTABLE data analy
 
 MANDATORY REQUIREMENTS:
 1. Generate COMPLETE Python code that runs from start to finish - NO PARTIAL CODE
-2. ALWAYS include data exploration, analysis, modeling, AND visualization
-3. NEVER stop at data exploration - always complete the full analysis
-4. ALWAYS create charts/visualizations using matplotlib for EVERY analysis
-5. Return results as DataFrames with meaningful column names
-6. Use the 'df' variable (DataFrame is already loaded - NEVER use pd.read_csv())
-7. Detect the header of the attached file. it is not important that the first attached file will be the header. 
+2. The df provided might have multiple sheets you have to focus on all of them and not just the first one. 
+3. ALWAYS include data exploration, analysis, modeling, AND visualization
+4. NEVER stop at data exploration - always complete the full analysis
+5. ALWAYS create charts/visualizations using matplotlib for EVERY analysis
+6. Return results as DataFrames with meaningful column names
+7. Use the 'df' variable (DataFrame is already loaded - NEVER use pd.read_csv())
+8. Detect the header of the attached file. it is not important that the first attached file will be the header. 
 
 VISUALIZATION REQUIREMENTS (MANDATORY):
 - ALWAYS create at least one chart for every analysis
@@ -967,6 +968,7 @@ PRIMARY GOAL: Return actionable DataFrame results that can enhance the original 
 CRITICAL REQUIREMENTS:
 - Use 'df' variable which contains the loaded DataFrame
 - NEVER use pd.read_csv() or file paths
+- The df provided might have multiple sheets you have to focus on all of them and not just the first one. 
 - Focus on creating NEW DATA that adds value to the original dataset
 - Return results as DataFrames with meaningful column names
 - Show before/after data previews
@@ -1854,6 +1856,7 @@ def forecast_with_lstm_or_gru(file_path, user_query, model_type='lstm', window_s
             
             exec_globals = {
                 'df': self.df,
+                'df_map': getattr(self, 'df_map', {}),
                 'pd': pd,
                 'np': np,
                 'plt': plt,
