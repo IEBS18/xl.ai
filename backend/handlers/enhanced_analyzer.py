@@ -640,7 +640,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             }
     
     def _route_query_to_handler_with_assistants(self, user_query: str, category: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Route the query to the appropriate handler using Assistants API (FIXED)"""
+        """FIXED: Route queries with ALL analytical queries generating reports"""
         
         # Extract intent data
         intent_data = self.query_classifier.extract_analysis_intent(user_query, category, metadata)
@@ -650,27 +650,24 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         
         # Route based on category (FIXED LOGIC)
         if category == "analytical":
-            # Determine if it's complex analysis
+            # Determine complexity level
             analysis_indicators = metadata.get('analysis_indicators', [])
             
-            # Check for report request
-            if self._is_report_request(user_query):
-                return self._handle_report_generation_query(user_query, intent_data)
+            # Simple queries that just need quick answers
+            simple_keywords = ['what is', 'how many', 'count', 'average', 'mean', 'sum', 'max', 'min', 'highest', 'lowest']
+            is_simple_query = any(keyword in user_query.lower() for keyword in simple_keywords) and len(user_query.split()) <= 8
             
-            # Complex analysis indicators
-            complex_indicators = ['forecast', 'predict', 'report', 'comprehensive', 'detailed', 'chart', 'plot', 'graph', 'visualize']
-            is_complex = any(indicator in analysis_indicators for indicator in complex_indicators)
-            
-            if is_complex or len(analysis_indicators) >= 3:
-                return self._handle_fully_analytical_query_with_assistants(user_query, intent_data)
-            else:
+            if is_simple_query and not any(word in user_query.lower() for word in ['chart', 'plot', 'graph', 'visualize', 'show', 'analysis']):
+                # Handle simple textual queries
                 return self._handle_textual_analytical_query_with_assistants(user_query, intent_data)
+            else:
+                # ALL OTHER ANALYTICAL QUERIES → Full analysis with automatic report generation
+                return self._handle_fully_analytical_query_with_assistants(user_query, intent_data)
         
         else:
             # Fallback to original behavior
             print(f"⚠️ Unknown category '{category}', falling back to original analysis")
             return self._fallback_to_original_analysis(user_query)
-    
     def _handle_textual_analytical_query_with_assistants(self, user_query: str, intent_data: Dict[str, Any]) -> Dict[str, Any]:
         """FIXED: Handle simple analytical queries using Assistants API"""
         
@@ -740,14 +737,255 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         except Exception as e:
             print(f"❌ Assistants textual analytical handler failed: {e}")
             return self._fallback_textual_analytical_handler(user_query, intent_data)
-    
-    def _handle_fully_analytical_query_with_assistants(self, user_query: str, intent_data: Dict[str, Any]) -> Dict[str, Any]:
-        """FIXED: Handle complex analytical queries using Assistants API with streaming"""
-        
-        print("🔬 Handling fully analytical query with Assistants API")
+    # ADD these new methods to enhanced_analyzer.py
+
+    def _emit_streaming_callback_with_dataframe_streaming(self, message_type: str, data: dict):
+        """Enhanced callback that also streams DataFrames in real-time"""
+        try:
+            # Original streaming
+            if self.socketio:
+                self.socketio.emit('stream_data', data, room=self.session_id)
+            
+            # Enhanced: Look for DataFrame creation in real-time
+            if message_type == 'output' and isinstance(data.get('data'), str):
+                output_text = data['data']
+                # Check if output indicates DataFrame creation
+                if 'DataFrame' in output_text or 'shape:' in output_text:
+                    self.emit_stream('status', '📊 DataFrame detected - processing for streaming...')
+                    
+        except Exception as e:
+            logging.error(f"Error in enhanced streaming callback: {e}")
+
+    def _extract_and_stream_dataframes_from_assistant_result(self, result: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
+        """ENHANCED: Extract DataFrames and stream them using generate_tailwind_table"""
+        dataframes = {}
         
         try:
-            # Check if we have data
+            execution_outputs = result.get("execution_outputs", [])
+            generated_code = result.get("generated_code", "")
+            
+            # Try to execute the code locally to get actual DataFrames
+            if generated_code:
+                try:
+                    # Safe execution environment
+                    exec_globals = {'df': self.df, 'pd': pd, 'np': __import__('numpy')}
+                    exec_locals = {}
+                    
+                    # Execute the assistant's code
+                    exec(generated_code, exec_globals, exec_locals)
+                    
+                    # Extract DataFrames from execution results
+                    for var_name, var_value in exec_locals.items():
+                        if isinstance(var_value, pd.DataFrame) and not var_value.empty:
+                            dataframes[var_name] = var_value
+                            
+                            # STREAM using generate_tailwind_table
+                            from utils.utils import generate_tailwind_table
+                            tailwind_html = generate_tailwind_table(var_value)
+                            
+                            self.emit_stream('dataframe', {
+                                'name': var_name,
+                                'shape': list(var_value.shape),
+                                'columns': list(var_value.columns),
+                                'preview': tailwind_html,
+                                'data': var_value.head(100).to_dict('records'),
+                                'metadata': {
+                                    'total_rows': len(var_value),
+                                    'displayed_rows': min(len(var_value), 100),
+                                    'column_types': var_value.dtypes.to_dict()
+                                },
+                                'thisis': "4"  # Assistant generated analytical
+                            })
+                            
+                            logging.info(f"📊 Streamed DataFrame: {var_name} (Shape: {var_value.shape})")
+                            
+                except Exception as e:
+                    logging.error(f"Error executing assistant code for DataFrames: {e}")
+            
+            # Fallback: Parse from outputs if code execution fails
+            if not dataframes:
+                dataframes = self._extract_dataframes_from_assistant_result(result)
+        
+        except Exception as e:
+            logging.error(f"Error in enhanced DataFrame extraction: {e}")
+        
+        return dataframes
+
+    def _convert_assistant_response_to_html_report(self, response_content: str, images: list, dataframes: Dict[str, pd.DataFrame]) -> str:
+        """Convert assistant's markdown response to professional HTML report"""
+        try:
+            import markdown
+            from datetime import datetime
+            
+            # Clean and structure the response
+            if not response_content:
+                response_content = "## Analysis Completed\n\nThe data analysis has been completed successfully."
+            
+            # Add DataFrames section if we have them
+            if dataframes:
+                response_content += "\n\n## Generated Data Tables\n\n"
+                for df_name, df in dataframes.items():
+                    response_content += f"### {df_name.replace('_', ' ').title()}\n\n"
+                    # Add DataFrame info
+                    response_content += f"**Shape:** {df.shape[0]:,} rows × {df.shape[1]} columns\n\n"
+                    # Add table (will be replaced with actual HTML table below)
+                    response_content += f"[DATAFRAME_{df_name}]\n\n"
+            
+            # Add images section
+            if images:
+                response_content += "\n\n## Visualizations\n\n"
+                for i, img in enumerate(images, 1):
+                    response_content += f"### Figure {i}\n\n"
+                    response_content += f"[IMAGE_{i}]\n\n"
+            
+            # Convert markdown to HTML
+            try:
+                html_content = markdown.markdown(response_content)
+            except ImportError:
+                # Fallback: Basic markdown conversion
+                html_content = self._basic_markdown_to_html(response_content)
+            
+            # Replace placeholders with actual content
+            # Replace DataFrame placeholders
+            for df_name, df in dataframes.items():
+                try:
+                    from utils.utils import generate_tailwind_table
+                    table_html = generate_tailwind_table(df)
+                    html_content = html_content.replace(f"[DATAFRAME_{df_name}]", table_html)
+                except Exception as e:
+                    logging.error(f"Error generating table for {df_name}: {e}")
+                    html_content = html_content.replace(f"[DATAFRAME_{df_name}]", 
+                        f"<p>DataFrame {df_name}: {df.shape[0]} rows × {df.shape[1]} columns</p>")
+            
+            # Replace image placeholders
+            for i, img in enumerate(images, 1):
+                if isinstance(img, dict) and 'url' in img:
+                    img_html = f'<img src="{img["url"]}" alt="Analysis Chart {i}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />'
+                elif isinstance(img, str):
+                    img_html = f'<img src="{img}" alt="Analysis Chart {i}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />'
+                else:
+                    img_html = f"<p>Chart {i} generated during analysis</p>"
+                
+                html_content = html_content.replace(f"[IMAGE_{i}]", img_html)
+            
+            # Wrap in professional HTML structure
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            full_html = f"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Data Analysis Report</title>
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        padding: 2rem;
+                        background: #f8f9fa;
+                    }}
+                    .container {{
+                        background: white;
+                        padding: 2rem;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                    }}
+                    h1, h2, h3 {{ color: #2c3e50; margin-top: 2rem; }}
+                    h1 {{ border-bottom: 3px solid #3498db; padding-bottom: 0.5rem; }}
+                    h2 {{ border-bottom: 2px solid #ecf0f1; padding-bottom: 0.3rem; }}
+                    .meta {{ color: #7f8c8d; font-size: 0.9rem; margin-bottom: 2rem; }}
+                    img {{ margin: 1rem 0; }}
+                    pre {{ background: #f8f9fa; padding: 1rem; border-radius: 6px; overflow-x: auto; }}
+                    blockquote {{ border-left: 4px solid #3498db; margin: 0; padding: 0 1rem; background: #f8f9fa; }}
+                    ul, ol {{ margin: 1rem 0; }}
+                    li {{ margin: 0.5rem 0; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="meta">Generated on {current_time} | Automated Analysis Report</div>
+                    {html_content}
+                </div>
+            </body>
+            </html>
+            """
+            
+            return full_html
+            
+        except Exception as e:
+            logging.error(f"Error converting to HTML report: {e}")
+            return f"<html><body><h1>Analysis Report</h1><div>{response_content}</div></body></html>"
+
+    def _basic_markdown_to_html(self, markdown_text: str) -> str:
+        """Basic markdown to HTML conversion fallback"""
+        html = markdown_text
+        
+        # Headers
+        html = re.sub(r'^### (.*$)', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*$)', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^# (.*$)', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        
+        # Bold and italic
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+        
+        # Paragraphs
+        html = re.sub(r'\n\n', '</p><p>', html)
+        html = '<p>' + html + '</p>'
+        
+        # Line breaks
+        html = re.sub(r'\n', '<br>', html)
+        
+        return html
+    
+
+    def _download_sandbox_html_report(self, result: Dict[str, Any]) -> str:
+        """SIMPLIFIED: Download HTML report from /mnt/data/ in sandbox"""
+        try:
+            # Look for the HTML file in generated files
+            generated_files = result.get("generated_files", [])
+            
+            print(f"🔍 Looking for HTML report in {len(generated_files)} generated files")
+            
+            for file_id in generated_files:
+                try:
+                    # Get file info
+                    file_info = self.assistant_manager.client.files.retrieve(file_id)
+                    print(f"📄 Found file: {file_info.filename}")
+                    
+                    # Check if it's our HTML report
+                    if file_info.filename == 'professional_analysis_report.html' or file_info.filename.endswith('.html'):
+                        print(f"📥 Downloading HTML report: {file_info.filename}")
+                        
+                        # Download the file content
+                        file_content = self.assistant_manager.client.files.content(file_id)
+                        html_content = file_content.content.decode('utf-8')
+                        
+                        print(f"✅ Successfully downloaded HTML report ({len(html_content):,} characters)")
+                        return html_content
+                        
+                except Exception as e:
+                    print(f"⚠️ Error checking file {file_id}: {e}")
+                    continue
+            
+            print("⚠️ No HTML report found in generated files")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error downloading HTML report from sandbox: {e}")
+            return None
+        
+
+    def _handle_fully_analytical_query_with_assistants(self, user_query: str, intent_data: Dict[str, Any]) -> Dict[str, Any]:
+        """UPDATED: Handle analytical queries with simple sandbox HTML download"""
+        
+        print("🔬 Handling analytical query with sandbox HTML report generation")
+        
+        try:
             if self.df is None:
                 self.emit_stream('error', "No CSV file loaded. Please upload a CSV file first.")
                 return {
@@ -761,22 +999,25 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # Create data analyst assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("data_analyst")
             
-            # Enhance query for better analysis
+            # Simple, clear query
             enhanced_query = f"""
             Analyze the dataset and answer: {user_query}
             
-            Requirements:
-            1. Perform thorough data analysis
-            2. Create visualizations when appropriate
-            3. Provide clear insights and explanations
-            4. Generate charts/plots using matplotlib
-            5. Explain what you found and what it means
+            REQUIREMENTS:
+            1. Perform comprehensive Python data analysis with matplotlib visualizations
+            2. Create meaningful DataFrames with business insights
+            3. SAVE a professional HTML business report to /mnt/data/professional_analysis_report.html
+            4. Include all charts as embedded base64 images in the HTML
+            5. Include real data from your DataFrames in HTML tables
+            6. Write executive-level insights and recommendations
             
             Dataset shape: {self.df.shape}
             Columns: {list(self.df.columns)}
+            
+            CRITICAL: You MUST save the complete HTML report with embedded images to /mnt/data/
             """
             
-            # Add user message to thread
+            # Run assistant analysis
             self.thread_manager.add_message_to_thread(
                 self.thread_id,
                 "user",
@@ -784,19 +1025,16 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 file_ids=self.current_file_ids
             )
             
-            # Create run
             run = self.assistant_manager.client.beta.threads.runs.create(
                 thread_id=self.thread_id,
                 assistant_id=assistant_id
             )
             
-            # Initialize streaming adapter
             self.streaming_adapter = StreamingAdapter(
                 self.assistant_manager.client,
-                self._emit_streaming_callback
+                self._emit_streaming_callback_with_dataframe_streaming
             )
             
-            # Stream the run with real-time updates
             result = self.streaming_adapter.stream_assistant_run(
                 self.thread_id,
                 run.id,
@@ -804,40 +1042,222 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             if result.get("success"):
-                # Download generated files (images, etc.)
+                # Download generated files
                 generated_files = self._download_and_categorize_generated_files(result.get("generated_files", []))
                 
-                # FIXED: Extract DataFrames from assistant outputs
-                extracted_dataframes = self._extract_dataframes_from_assistant_result(result)
+                # Extract ACTUAL DataFrames
+                extracted_dataframes = self._extract_and_stream_actual_dataframes_from_assistant_result(result)
                 
-                # Convert to expected format with enhanced data
-                return {
-                    "query": user_query,
-                    "type": "fully_analytical",
-                    "success": True,
-                    "response": result.get("response_content", ""),
-                    "generated_code": result.get("generated_code", ""),  # Preserved as string
-                    "execution_result": {
+                # DOWNLOAD HTML REPORT FROM SANDBOX
+                sandbox_html_report = self._download_sandbox_html_report(result)
+                
+                if sandbox_html_report:
+                    # Stream the HTML report to frontend
+                    self.emit_stream('report', sandbox_html_report)
+                    
+                    print("✅ Successfully downloaded and served HTML report from sandbox")
+                    
+                    return {
+                        "query": user_query,
+                        "type": "comprehensive_report",
                         "success": True,
-                        "output": "\n".join(result.get("execution_outputs", []))
-                    },
-                    "generated_images": generated_files.get('images', []),
-                    "generated_files": generated_files,  # All file types
-                    "dataframes": extracted_dataframes,  # FIXED: Proper DataFrame extraction
-                    "analysis_type": intent_data.get("analysis_type", "general"),
-                    "timestamp": datetime.now().isoformat(),
-                    "assistant_id": assistant_id,
-                    "thread_id": self.thread_id,
-                    "run_id": run.id
-                }
+                        "response": result.get("response_content", ""),
+                        "comprehensive_report": sandbox_html_report,  # SANDBOX HTML WITH EMBEDDED IMAGES
+                        "report_generated": True,
+                        "sandbox_generated": True,
+                        "generated_code": result.get("generated_code", ""),
+                        "execution_result": {
+                            "success": True,
+                            "output": "\n".join(result.get("execution_outputs", []))
+                        },
+                        "generated_images": generated_files.get('images', []),
+                        "generated_files": generated_files,
+                        "dataframes": extracted_dataframes,
+                        "analysis_type": intent_data.get("analysis_type", "general"),
+                        "timestamp": datetime.now().isoformat(),
+                        "assistant_id": assistant_id,
+                        "thread_id": self.thread_id,
+                        "run_id": run.id,
+                        "html_with_embedded_images": True
+                    }
+                else:
+                    # Fallback if HTML download fails
+                    print("⚠️ HTML download failed, using response content")
+                    response_content = result.get("response_content", "Analysis completed successfully")
+                    
+                    self.emit_stream('report', f"<html><body><h1>Analysis Report</h1><pre>{response_content}</pre></body></html>")
+                    
+                    return {
+                        "query": user_query,
+                        "type": "comprehensive_report",
+                        "success": True,
+                        "response": response_content,
+                        "comprehensive_report": response_content,
+                        "report_generated": True,
+                        "fallback_used": True,
+                        "generated_code": result.get("generated_code", ""),
+                        "execution_result": {
+                            "success": True,
+                            "output": "\n".join(result.get("execution_outputs", []))
+                        },
+                        "generated_images": generated_files.get('images', []),
+                        "generated_files": generated_files,
+                        "dataframes": extracted_dataframes,
+                        "analysis_type": intent_data.get("analysis_type", "general"),
+                        "timestamp": datetime.now().isoformat(),
+                        "assistant_id": assistant_id,
+                        "thread_id": self.thread_id,
+                        "run_id": run.id
+                    }
             else:
-                # Fallback to original handler
                 return self._fallback_fully_analytical_handler(user_query, intent_data)
                 
         except Exception as e:
-            print(f"❌ Assistants fully analytical handler failed: {e}")
+            print(f"❌ Sandbox HTML report generation failed: {e}")
             return self._fallback_fully_analytical_handler(user_query, intent_data)
+    def _upload_html_report_to_blob(self, html_content: str) -> str:
+        """NEW: Upload HTML report to blob storage for sharing"""
+        try:
+            if not self.blob_service_client:
+                print("⚠️ Blob storage not configured, cannot upload HTML report")
+                return ""
+            
+            # Create filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"professional_report_{timestamp}.html"
+            blob_name = f"{self.analysis_folder_name}/reports/{report_filename}"
+            
+            # Upload to blob storage
+            blob_client = self.blob_service_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+            
+            blob_client.upload_blob(html_content, overwrite=True, 
+                                content_settings=ContentSettings(content_type="text/html"))
+            
+            # Generate public URL
+            if os.getenv('AZURE_STORAGE_KEY'):
+                from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+                sas_token = generate_blob_sas(
+                    account_name=self.blob_service_client.account_name,
+                    container_name=self.container_name,
+                    blob_name=blob_name,
+                    account_key=os.getenv('AZURE_STORAGE_KEY'),
+                    permission=BlobSasPermissions(read=True),
+                    expiry=datetime.utcnow() + timedelta(hours=24)
+                )
+                
+                report_url = f"{blob_client.url}?{sas_token}"
+                print(f"✅ HTML report uploaded to: {report_url}")
+                return report_url
+            else:
+                print(f"✅ HTML report uploaded to: {blob_client.url}")
+                return blob_client.url
+                
+        except Exception as e:
+            print(f"❌ Error uploading HTML report to blob: {e}")
+            return ""
     
+    def _extract_html_from_assistant_response(self, response_content: str) -> str:
+        """Extract HTML report from assistant's response"""
+        try:
+            # Look for HTML content in the response
+            if '<!DOCTYPE html>' in response_content:
+                # Extract the HTML portion
+                start_idx = response_content.find('<!DOCTYPE html>')
+                end_idx = response_content.find('</html>') + 7
+                
+                if start_idx != -1 and end_idx != -1:
+                    html_content = response_content[start_idx:end_idx]
+                    print("✅ Extracted HTML report from assistant response")
+                    return html_content
+            
+            # If no HTML found in response, create wrapper with the content
+            print("⚠️ No HTML found, creating simple report wrapper")
+            return f"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Analysis Report</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; line-height: 1.6; }}
+                    h1, h2, h3 {{ color: #1e40af; }}
+                    .container {{ background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
+                    pre {{ background: #f8f9fa; padding: 1rem; border-radius: 4px; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Professional Analysis Report</h1>
+                    <div>{response_content.replace(chr(10), '<br>')}</div>
+                </div>
+            </body>
+            </html>
+            """
+            
+        except Exception as e:
+            print(f"❌ Error extracting HTML: {e}")
+            return f"<html><body><h1>Analysis Report</h1><p>{response_content}</p></body></html>"
+
+# ADD this helper method for DataFrame extraction
+    def _extract_and_stream_actual_dataframes_from_assistant_result(self, result: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
+        """FIXED: Extract ACTUAL DataFrames by executing assistant code instead of placeholders"""
+        actual_dataframes = {}
+        
+        try:
+            generated_code = result.get("generated_code", "")
+            
+            if generated_code:
+                try:
+                    # Safe execution environment
+                    import numpy as np
+                    
+                    exec_globals = {
+                        'df': self.df, 
+                        'pd': pd, 
+                        'np': np, 
+                        'plt': plt
+                    }
+                    exec_locals = {}
+                    
+                    # Execute the assistant's code
+                    exec(generated_code, exec_globals, exec_locals)
+                    
+                    # Extract DataFrames from execution results
+                    for var_name, var_value in exec_locals.items():
+                        if isinstance(var_value, pd.DataFrame) and not var_value.empty:
+                            actual_dataframes[var_name] = var_value
+                            
+                            # STREAM the actual DataFrame using existing utility
+                            from utils.utils import generate_tailwind_table
+                            tailwind_html = generate_tailwind_table(var_value)
+                            
+                            self.emit_stream('dataframe', {
+                                'name': var_name,
+                                'shape': list(var_value.shape),
+                                'columns': list(var_value.columns),
+                                'preview': tailwind_html,
+                                'data': var_value.head(100).to_dict('records'),
+                                'metadata': {
+                                    'total_rows': len(var_value),
+                                    'displayed_rows': min(len(var_value), 100),
+                                    'column_types': var_value.dtypes.to_dict()
+                                },
+                                'thisis': 4  # Assistant generated analytical
+                            })
+                            
+                            logging.info(f"📊 Streamed ACTUAL DataFrame: {var_name} (Shape: {var_value.shape})")
+                            
+                except Exception as e:
+                    logging.error(f"Error executing assistant code for DataFrames: {e}")
+                    
+        except Exception as e:
+            logging.error(f"Error in DataFrame extraction: {e}")
+        
+        return actual_dataframes
     def _extract_dataframes_from_assistant_result(self, result: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
         """
         NEW: Extract DataFrames from assistant execution results.
