@@ -19,8 +19,7 @@ const Footer = () => {
               transition={{ type: "spring", stiffness: 400 }}
             >
               <div className="flex items-center space-x-1">
-                <div className={`w-6 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
-                <div className={`w-2 h-6 ${isDark ? "bg-white" : "bg-black"} rounded`} />
+                <image src='../../public/logo.svg' className="w-5 h-5" />
               </div>
             </motion.div>
             <p className={`${themeClasses.textSecondary} mb-8 max-w-md leading-relaxed text-lg`}>
