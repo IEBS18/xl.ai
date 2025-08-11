@@ -284,9 +284,9 @@ export const useMessages = () => {
 
       case "report":
         console.log(content);
-        addMessage("report", content.content, false, "fully_analytical", {
+        addMessage("report", content.html, false, "fully_analytical", {
           isCompleted: true,
-          reportData: content.content
+          reportData: content.html
         })
         break
 
