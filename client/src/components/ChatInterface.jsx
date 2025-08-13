@@ -1,11 +1,29 @@
 import React, { useState, useCallback, useRef, useEffect } from "react"
-import MessageTimeline from "./MessageTimeline"
+import { 
+  Code, 
+  Image, 
+  Database, 
+  FileText, 
+  File,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  AlertTriangle,
+  Bot,
+  User,
+  Copy,
+  Download,
+  ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  X
+} from "lucide-react"
+import { useTheme } from "@/context/ThemeProvider"
+import { copyToClipboard } from "../utils/helpers"
+import { BACKEND_URL } from "../utils/constants"
 import InputArea from "./InputArea"
 import FileInfo from "./FileInfo"
-import SampleQuestions from "./SampleQuestions"
 import UploadProgress from "./UploadProgress"
-import SidePanel from "./SidePanel"
-import { useTheme } from "@/context/ThemeProvider"
 
 const ChatInterface = ({
   messages,
@@ -25,98 +43,88 @@ const ChatInterface = ({
   manualSessionSync,
   onUpdateMessage,
   sessionId,
-  currentQueryCategory // Add this prop to track current analysis type
+  currentQueryCategory
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
-  const [selectedChatMessage, setSelectedChatMessage] = useState(null)
-  const [chatPanelWidth, setChatPanelWidth] = useState(50)
+  const [selectedQueryId, setSelectedQueryId] = useState(null)
+  const [selectedComponentId, setSelectedComponentId] = useState(null)
+  const [sidePanelOpen, setSidePanelOpen] = useState(false)
+  const [chatPanelWidth, setChatPanelWidth] = useState(65)
   const [isDragging, setIsDragging] = useState(false)
-  const [previewMessage, setPreviewMessage] = useState(null)
   const containerRef = useRef(null)
   const { themeClasses } = useTheme()
 
-  // Enhanced message processing for different query types
-  const processMessagesForDisplay = (messages) => {
-    return messages.map(message => {
-      // Add query category context to messages
-      if (message.queryCategory) {
-        return { ...message, queryCategory: message.queryCategory }
+  // Process messages into query groups (user message + all related responses)
+  const processMessagesIntoQueries = (messages) => {
+    const queries = []
+    let currentQuery = null
+
+    messages.forEach(message => {
+      if (message.isUser) {
+        // Start new query
+        if (currentQuery) {
+          queries.push(currentQuery)
+        }
+        currentQuery = {
+          id: message.id,
+          userMessage: message,
+          responses: [],
+          steps: [],
+          finalAnswer: null,
+          queryCategory: message.queryCategory
+        }
+      } else if (currentQuery) {
+        // Add to current query
+        if (message.type === 'output' || message.type === 'response') {
+          currentQuery.finalAnswer = message
+        } else if (['code', 'image', 'dataframe', 'report', 'file'].includes(message.type)) {
+          currentQuery.responses.push(message)
+        } else {
+          currentQuery.steps.push(message)
+        }
       }
-      
-      // Infer category from message type for backwards compatibility
-      if (message.type === "conversational") {
-        return { ...message, queryCategory: "conversational" }
-      }
-      if (message.type === "textual_analytical") {
-        return { ...message, queryCategory: "textual_analytical" }
-      }
-      
-      return message
     })
+
+    if (currentQuery) {
+      queries.push(currentQuery)
+    }
+
+    return queries
   }
 
-  const processedMessages = processMessagesForDisplay(messages)
+  const queries = processMessagesIntoQueries(messages)
 
-  // Determine which messages should show in side panel based on query category
-  const getSidePanelItems = () => {
-    const sidePanelTypes = ['code', 'image', 'dataframe', 'report']
+  // Get side panel items for a specific component
+  const getSidePanelItemsForComponent = (componentId) => {
+    if (!componentId) return []
     
-    // Only show side panel items for fully analytical queries
-    const analyticalMessages = processedMessages.filter(msg => {
-      // Check if message is from a fully analytical query
-      const isAnalyticalQuery = msg.queryCategory === "fully_analytical" || 
-                               (!msg.queryCategory && sidePanelTypes.includes(msg.type))
-      
-      return isAnalyticalQuery && sidePanelTypes.includes(msg.type)
-    })
-    
-    // Add preview message if it exists
-    if (previewMessage) {
-      return [previewMessage, ...analyticalMessages]
+    // Find the specific component across all queries
+    for (const query of queries) {
+      const allComponents = [...query.responses, ...query.steps]
+      const component = allComponents.find(item => item.id === componentId)
+      if (component) {
+        return [component] // Return only the specific component
+      }
     }
     
-    return analyticalMessages
+    return []
   }
 
-  // Get side panel items for a specific chat message/query
-  const getSidePanelItemsForMessage = (messageId) => {
-    if (!messageId) return []
-    
-    // Find the user message and get items that came after it until the next user message
-    const messageIndex = processedMessages.findIndex(msg => msg.id === messageId)
-    if (messageIndex === -1) return []
-    
-    const userMessage = processedMessages[messageIndex]
-    
-    // Only show side panel for fully analytical queries
-    if (userMessage.queryCategory !== "fully_analytical" && 
-        !processedMessages.slice(messageIndex + 1).some(msg => 
-          ['code', 'image', 'dataframe', 'report'].includes(msg.type)
-        )) {
-      return []
-    }
-    
-    const nextUserMessageIndex = processedMessages.findIndex((msg, idx) => 
-      idx > messageIndex && msg.isUser
-    )
-    
-    const endIndex = nextUserMessageIndex !== -1 ? nextUserMessageIndex : processedMessages.length
-    
-    const messageItems = processedMessages
-      .slice(messageIndex + 1, endIndex)
-      .filter(msg => ['code', 'image', 'dataframe', 'report'].includes(msg.type))
-    
-    // Add preview message if it exists and no specific chat message is selected
-    if (previewMessage && !selectedChatMessage) {
-      return [previewMessage, ...messageItems]
-    }
-    
-    return messageItems
+  // Handle component click from answer
+  const handleComponentClick = (queryId, componentType, componentId) => {
+    setSelectedQueryId(queryId)
+    setSelectedComponentId(componentId)
+    setSidePanelOpen(true)
+    setActiveSidePanel(componentId)
   }
 
-  const sidePanelItems = selectedChatMessage 
-    ? getSidePanelItemsForMessage(selectedChatMessage)
-    : getSidePanelItems()
+  // Handle closing side panel
+  const handleCloseSidePanel = () => {
+    setSidePanelOpen(false)
+    setSelectedQueryId(null)
+    setSelectedComponentId(null)
+    setActiveSidePanel(null)
+  }
 
   // Handle updating a specific message/item content
   const handleUpdateItem = useCallback((itemId, newContent) => {
@@ -125,58 +133,8 @@ const ChatInterface = ({
     }
   }, [onUpdateMessage])
 
-  // Handle showing file preview
-  const handleShowPreview = useCallback((previewData) => {
-    setPreviewMessage(previewData)
-    setSelectedChatMessage(null)
-    setActiveSidePanel(previewData.id)
-  }, [])
-
-  // Auto-select the latest analytical user message when no message is selected
-  React.useEffect(() => {
-    if (!selectedChatMessage && processedMessages.length > 0 && !previewMessage) {
-      // Find the latest user message that has analytical content
-      const analyticalUserMessages = processedMessages
-        .filter(msg => msg.isUser)
-        .filter(msgId => getSidePanelItemsForMessage(msgId.id).length > 0)
-      
-      if (analyticalUserMessages.length > 0) {
-        const latestAnalyticalMessage = analyticalUserMessages.slice(-1)[0]
-        setSelectedChatMessage(latestAnalyticalMessage.id)
-      }
-    }
-  }, [processedMessages, selectedChatMessage, previewMessage])
-
-  // Auto-select first item when side panel items are available
-  React.useEffect(() => {
-    if (sidePanelItems.length > 0 && !activeSidePanel) {
-      setActiveSidePanel(sidePanelItems[0].id)
-    } else if (sidePanelItems.length === 0) {
-      setActiveSidePanel(null)
-    }
-  }, [sidePanelItems, activeSidePanel])
-
-  // Handle chat message selection
-  const handleChatMessageClick = (messageId) => {
-    const itemsForMessage = getSidePanelItemsForMessage(messageId)
-    
-    // Only set selection if message has analytical content
-    if (itemsForMessage.length > 0) {
-      setSelectedChatMessage(messageId)
-      setActiveSidePanel(null)
-      setPreviewMessage(null)
-    }
-  }
-
-  // Handle clear selection
-  const handleClearSelection = () => {
-    setSelectedChatMessage(null)
-    setPreviewMessage(null)
-  }
-
   // Enhanced sample questions based on query categories
   const enhancedSampleQuestions = [
-    // Conversational
     { 
       question: "Hi, what can you help me with?",
       category: "conversational",
@@ -187,8 +145,6 @@ const ChatInterface = ({
       category: "conversational", 
       description: "Learn about features"
     },
-    
-    // Textual Analytical
     { 
       question: "What is the average sales value?",
       category: "textual_analytical",
@@ -204,8 +160,6 @@ const ChatInterface = ({
       category: "textual_analytical",
       description: "Find maximum value"
     },
-    
-    // Fully Analytical  
     { 
       question: "Generate a comprehensive sales analysis",
       category: "fully_analytical",
@@ -236,7 +190,7 @@ const ChatInterface = ({
     const containerRect = containerRef.current.getBoundingClientRect()
     const newChatWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
 
-    const constrainedWidth = Math.min(Math.max(newChatWidth, 35), 65)
+    const constrainedWidth = Math.min(Math.max(newChatWidth, 45), 75)
     setChatPanelWidth(constrainedWidth)
   }, [isDragging])
 
@@ -262,29 +216,13 @@ const ChatInterface = ({
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
-  // Filter timeline messages (exclude side panel items for conversational/textual queries)
-  const getTimelineMessages = () => {
-    return processedMessages.filter(msg => {
-      // Always show user messages
-      if (msg.isUser) return true
-      
-      // For conversational and textual analytical, exclude code/dataframe/image/report
-      if (msg.queryCategory === "conversational" || msg.queryCategory === "textual_analytical") {
-        return !['code', 'dataframe', 'image', 'report'].includes(msg.type)
-      }
-      
-      // For fully analytical, show all messages in timeline but they'll also appear in side panel
-      return true
-    })
-  }
-
   return (
     <div ref={containerRef} className={`flex h-full ${themeClasses.bg} transition-colors`}>
       {/* Main Chat Area */}
       <div 
         className="flex flex-col transition-all duration-300"
         style={{ 
-          width: sidePanelItems.length > 0 ? `${chatPanelWidth}%` : '100%' 
+          width: sidePanelOpen ? `${chatPanelWidth}%` : '100%' 
         }}
       >
         {/* Messages Area - Scrollable with explicit height */}
@@ -292,14 +230,13 @@ const ChatInterface = ({
           {/* Header padding to prevent content being covered */}
           <div className="h-16"></div>
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <MessageTimeline
-              messages={getTimelineMessages()}
+            <PerplexityMessageTimeline
+              queries={queries}
               isAnalyzing={isAnalyzing}
               expandedMessages={expandedMessages}
               toggleMessageExpansion={toggleMessageExpansion}
               messagesEndRef={messagesEndRef}
-              onChatMessageClick={handleChatMessageClick}
-              selectedChatMessage={selectedChatMessage}
+              onComponentClick={handleComponentClick}
               currentQueryCategory={currentQueryCategory}
             />
           </div>
@@ -324,7 +261,6 @@ const ChatInterface = ({
               fileInfo={fileInfo}
               onDebug={debugSession}
               onSync={manualSessionSync}
-              onShowPreview={handleShowPreview}
               sessionId={sessionId}
             />
           )}
@@ -351,33 +287,30 @@ const ChatInterface = ({
       </div>
 
       {/* Resize Handle */}
-      {sidePanelItems.length > 0 && (
+      {sidePanelOpen && (
         <div
           className={`w-1 ${themeClasses.border} border-l hover:bg-blue-500/20 cursor-col-resize flex-shrink-0 relative group transition-colors duration-200`}
           onMouseDown={handleMouseDown}
         >
-          {/* Visual indicator for the resize handle */}
           <div className="absolute inset-y-0 left-1/2 w-0.5 bg-transparent group-hover:bg-blue-500/40 transition-colors duration-200 transform -translate-x-1/2"></div>
-          
-          {/* Expanded hover area for easier grabbing */}
           <div className="absolute inset-y-0 -left-2 -right-2 cursor-col-resize"></div>
         </div>
       )}
 
-      {/* Side Panel - Only for fully analytical queries */}
-      {sidePanelItems.length > 0 && (
+      {/* Side Panel - Only when open */}
+      {sidePanelOpen && (
         <div 
           className={`${themeClasses.border} transition-all duration-300 ${themeClasses.bg} flex-shrink-0`}
           style={{ 
             width: `${100 - chatPanelWidth}%` 
           }}
         >
-          <SidePanel
-            items={sidePanelItems}
+          <EnhancedSidePanel
+            items={getSidePanelItemsForComponent(selectedComponentId)}
             activeItem={activeSidePanel}
             onItemChange={setActiveSidePanel}
-            selectedMessage={selectedChatMessage}
-            onClearSelection={handleClearSelection}
+            selectedMessage={selectedQueryId}
+            onClose={handleCloseSidePanel}
             onUpdateItem={handleUpdateItem}
           />
         </div>
@@ -386,16 +319,796 @@ const ChatInterface = ({
   )
 }
 
-// Enhanced Sample Questions Component with Categories
+// New Perplexity-style Message Timeline Component
+const PerplexityMessageTimeline = ({ 
+  queries, 
+  isAnalyzing, 
+  expandedMessages, 
+  toggleMessageExpansion, 
+  messagesEndRef,
+  onComponentClick,
+  currentQueryCategory
+}) => {
+  const { themeClasses } = useTheme()
+
+  const getAnalyzingMessage = (category) => {
+    switch (category) {
+      case "conversational":
+        return "Thinking about your message..."
+      case "textual_analytical":
+        return "Analyzing your data quickly..."
+      case "fully_analytical":
+        return "Performing comprehensive analysis..."
+      default:
+        return "Processing your request..."
+    }
+  }
+
+  return (
+    <div className="space-y-8 pb-6">
+      {/* Top padding */}
+      <div className="h-4"></div>
+      
+      {/* Render all query groups */}
+      {queries.map((query, index) => (
+        <PerplexityQueryGroup
+          key={query.id}
+          query={query}
+          onComponentClick={onComponentClick}
+          expandedMessages={expandedMessages}
+          toggleMessageExpansion={toggleMessageExpansion}
+        />
+      ))}
+      
+      {/* Analyzing indicator */}
+      {isAnalyzing && (
+        <div className="animate-in slide-in-from-left duration-300">
+          <div className="flex justify-start mb-6">
+            <div className="flex items-start gap-3 max-w-2xl">
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center`}>
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <div className={`px-4 py-3 rounded-2xl shadow-sm border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 ${themeClasses.text}`}>
+                <span className="text-sm">{getAnalyzingMessage(currentQueryCategory)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Bottom spacer */}
+      <div className="h-8"></div>
+      
+      {/* Scroll anchor */}
+      <div ref={messagesEndRef} />
+    </div>
+  )
+}
+
+// Individual Query Group Component (User message + Answer/Steps)
+const PerplexityQueryGroup = ({ query, onComponentClick, expandedMessages, toggleMessageExpansion }) => {
+  const [activeTab, setActiveTab] = useState('answer')
+  const { themeClasses, isDark } = useTheme()
+
+  const hasSteps = query.steps.length > 0
+  const hasComponents = query.responses.length > 0
+
+  return (
+    <div className="space-y-4">
+      {/* User Message */}
+      <div className="flex justify-end mb-4 animate-in slide-in-from-right duration-300">
+        <div className="flex items-end gap-2 max-w-2xl">
+          <div className={`px-4 py-3 rounded-2xl max-w-xs lg:max-w-md xl:max-w-2xl ${themeClasses.button} shadow-sm`}>
+            <div className="whitespace-pre-wrap text-sm">{query.userMessage.content}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Response Section */}
+      <div className="animate-in slide-in-from-left duration-300">
+        <div className="flex items-start gap-3 max-w-4xl">
+          {/* Bot Avatar */}
+          <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center mt-1`}>
+            <Bot className={`w-4 h-4 ${themeClasses.textSecondary}`} />
+          </div>
+
+          {/* Response Content */}
+          <div className="flex-1 min-w-0">
+            {/* Tabs - Only show if there are steps */}
+            {hasSteps && (
+              <div className="flex mb-4">
+                <button
+                  onClick={() => setActiveTab('answer')}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                    activeTab === 'answer'
+                      ? `border-blue-500 ${themeClasses.text}`
+                      : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                  }`}
+                >
+                  Answer
+                </button>
+                <button
+                  onClick={() => setActiveTab('steps')}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                    activeTab === 'steps'
+                      ? `border-blue-500 ${themeClasses.text}`
+                      : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                  }`}
+                >
+                  Steps ({query.steps.length})
+                </button>
+              </div>
+            )}
+
+            {/* Content based on active tab */}
+            {activeTab === 'answer' ? (
+              <div className="space-y-4">
+                {/* Final Answer */}
+                {query.finalAnswer && (
+                  <div className={`${themeClasses.text} leading-relaxed text-sm`}>
+                    {query.finalAnswer.content}
+                  </div>
+                )}
+
+                {/* Component Pills */}
+                {hasComponents && (
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    {query.responses.map((component, index) => (
+                      <ComponentPill
+                        key={component.id}
+                        component={component}
+                        onClick={() => onComponentClick(query.id, component.type, component.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <ConnectedTimelineSteps
+                steps={query.steps}
+                expandedMessages={expandedMessages}
+                toggleMessageExpansion={toggleMessageExpansion}
+                onComponentClick={onComponentClick}
+                queryId={query.id}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Connected Timeline Steps Component
+const ConnectedTimelineSteps = ({ steps, expandedMessages, toggleMessageExpansion, onComponentClick, queryId }) => {
+  const { themeClasses, isDark } = useTheme()
+
+  if (steps.length === 0) {
+    return (
+      <div className={`text-sm ${themeClasses.textSecondary} text-center py-4`}>
+        No processing steps to display
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-0">
+      {steps.map((step, index) => (
+        <ConnectedTimelineStep
+          key={step.id}
+          step={step}
+          index={index}
+          isLast={index === steps.length - 1}
+          isExpanded={expandedMessages.has(step.id)}
+          onToggleExpansion={toggleMessageExpansion}
+          onComponentClick={onComponentClick}
+          queryId={queryId}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Individual Connected Timeline Step
+const ConnectedTimelineStep = ({ 
+  step, 
+  index, 
+  isLast, 
+  isExpanded, 
+  onToggleExpansion, 
+  onComponentClick, 
+  queryId 
+}) => {
+  const { themeClasses, isDark } = useTheme()
+
+  const getStepIcon = (type, isCompleted) => {
+    switch (type) {
+      case 'status':
+        return isCompleted ? <CheckCircle className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />
+      case 'code':
+        return <Code className="w-4 h-4" />
+      case 'dataframe':
+        return <Database className="w-4 h-4" />
+      case 'image':
+        return <Image className="w-4 h-4" />
+      case 'report':
+        return <FileText className="w-4 h-4" />
+      case 'file':
+        return <File className="w-4 h-4" />
+      case 'success':
+        return <CheckCircle className="w-4 h-4" />
+      case 'error':
+        return <AlertCircle className="w-4 h-4" />
+      case 'warning':
+        return <AlertTriangle className="w-4 h-4" />
+      default:
+        return <Loader2 className="w-4 h-4" />
+    }
+  }
+
+  const getStepLabel = (type) => {
+    switch (type) {
+      case 'code':
+        return 'Generated Code'
+      case 'dataframe':
+        return 'Data Analysis'
+      case 'image':
+        return 'Visualization'
+      case 'report':
+        return 'Report'
+      case 'file':
+        return 'Generated File'
+      case 'status':
+        return 'Processing'
+      case 'success':
+        return 'Success'
+      case 'error':
+        return 'Error'
+      case 'warning':
+        return 'Warning'
+      default:
+        return 'Step'
+    }
+  }
+
+  const getStepColorClass = (type) => {
+    return isDark ? "bg-gray-600" : "bg-gray-700"
+  }
+
+  const isClickableComponent = ['code', 'image', 'dataframe', 'report', 'file'].includes(step.type)
+  const shouldCollapse = step.content && typeof step.content === 'string' && step.content.length > 200
+
+  return (
+    <div className="relative pl-6 pb-6">
+      {/* Timeline line */}
+      {!isLast && (
+        <div className={`absolute left-3 top-6 bottom-0 w-px ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+      )}
+
+      {/* Step indicator */}
+      <div className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(step.type)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}>
+        {getStepIcon(step.type, step.isCompleted)}
+      </div>
+
+      {/* Content */}
+      <div className="ml-6">
+        <div className={`${themeClasses.surface} rounded-xl shadow-sm border ${themeClasses.border} overflow-hidden transition-colors`}>
+          {/* Header */}
+          <div className={`${themeClasses.surfaceSecondary} px-4 py-3 border-b ${themeClasses.border}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {shouldCollapse && (
+                  <button
+                    onClick={() => onToggleExpansion(step.id)}
+                    className={`${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors`}
+                  >
+                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  </button>
+                )}
+                <div className="flex items-center gap-2">
+                  <Bot className={`w-4 h-4 ${themeClasses.textSecondary}`} />
+                  <span className={`${themeClasses.text} font-medium text-sm`}>
+                    {getStepLabel(step.type)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {isClickableComponent && (
+                  <button
+                    onClick={() => onComponentClick(queryId, step.type, step.id)}
+                    className={`${themeClasses.textSecondary} hover:${themeClasses.text} p-1 rounded hover:${themeClasses.surfaceSecondary} transition-colors`}
+                    title="View in detail panel"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                )}
+                {step.type === "code" && (!shouldCollapse || isExpanded) && (
+                  <button
+                    onClick={() => copyToClipboard(step.content)}
+                    className={`${themeClasses.textSecondary} hover:${themeClasses.text} p-1 rounded hover:${themeClasses.surfaceSecondary} transition-colors`}
+                    title="Copy code"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Body - Only show if expanded or not collapsible */}
+          {(!shouldCollapse || isExpanded) && (
+            <div className="p-4">
+              {(step.type === "system" ||
+                step.type === "status" ||
+                step.type === "success" ||
+                step.type === "error" ||
+                step.type === "warning") && (
+                  <div className={`${themeClasses.text} whitespace-pre-wrap text-sm`}>
+                    {step.content}
+                  </div>
+                )}
+
+              {/* Handle code content */}
+              {step.type === "code" && (
+                <div className={`${themeClasses.surface} rounded-lg p-4 overflow-x-auto border ${themeClasses.border}`}>
+                  <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
+                    {step.content}
+                  </pre>
+                </div>
+              )}
+
+              {/* Handle dataframe content */}
+              {step.type === "dataframe" && step.content && (
+                <div className="space-y-3">
+                  {step.content.shape && (
+                    <div className={`text-sm ${themeClasses.textSecondary}`}>
+                      Shape: {step.content.shape[0]} rows × {step.content.shape[1]} columns
+                    </div>
+                  )}
+                  {step.content.preview && (
+                    <div
+                      className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} overflow-x-auto`}
+                      dangerouslySetInnerHTML={{ __html: step.content.preview }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Handle image content */}
+              {step.type === "image" && step.content && (
+                <div className="space-y-3">
+                  <div className={`flex items-center justify-center p-4 ${themeClasses.surface} rounded-lg`}>
+                    <img
+                      src={step.content.data || step.content.path || "/placeholder.svg"}
+                      alt={step.content.filename || "Generated visualization"}
+                      className="max-w-full h-auto rounded-lg shadow-sm"
+                      onError={(e) => {
+                        e.target.src = "/placeholder.svg"
+                        e.target.alt = "Image failed to load"
+                      }}
+                    />
+                  </div>
+                  {step.content.filename && (
+                    <div className={`text-sm ${themeClasses.textSecondary} text-center`}>
+                      {step.content.filename}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Handle report content */}
+              {step.type === "report" && step.content && (
+                <div className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''}`}>
+                  {typeof step.content === 'string' && step.content.includes('<!DOCTYPE html>') ? (
+                    <div
+                      dangerouslySetInnerHTML={{ __html: step.content }}
+                      className={`report-content ${themeClasses.text}`}
+                    />
+                  ) : (
+                    <div className={`whitespace-pre-wrap ${themeClasses.text}`}>
+                      {typeof step.content === 'string' ? step.content : JSON.stringify(step.content, null, 2)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Handle file content */}
+              {step.type === "file" && step.content && (
+                <div className={`text-sm ${themeClasses.text}`}>
+                  {step.content.filename && (
+                    <div className="mb-2">
+                      <strong>Filename:</strong> {step.content.filename}
+                    </div>
+                  )}
+                  {step.content.size && (
+                    <div className="mb-2">
+                      <strong>Size:</strong> {step.content.size}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Component Pill for clickable components
+const ComponentPill = ({ component, onClick }) => {
+  const { themeClasses } = useTheme()
+
+  const getComponentInfo = (type) => {
+    switch (type) {
+      case 'code':
+        return { 
+          label: 'Generated Code', 
+          icon: <Code className="w-4 h-4" />, 
+          color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
+        }
+      case 'image':
+        return { 
+          label: 'Visualization', 
+          icon: <Image className="w-4 h-4" />, 
+          color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' 
+        }
+      case 'dataframe':
+        return { 
+          label: 'Data Table', 
+          icon: <Database className="w-4 h-4" />, 
+          color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
+        }
+      case 'report':
+        return { 
+          label: 'Report', 
+          icon: <FileText className="w-4 h-4" />, 
+          color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' 
+        }
+      case 'file':
+        return { 
+          label: 'File', 
+          icon: <File className="w-4 h-4" />, 
+          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' 
+        }
+      default:
+        return { 
+          label: type, 
+          icon: <File className="w-4 h-4" />, 
+          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' 
+        }
+    }
+  }
+
+  const info = getComponentInfo(component.type)
+
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium transition-colors hover:opacity-80 ${info.color}`}
+    >
+      {info.icon}
+      {info.label}
+    </button>
+  )
+}
+
+// Enhanced Side Panel with Download Functionality
+const EnhancedSidePanel = ({ 
+  items = [], 
+  activeItem, 
+  onItemChange, 
+  selectedMessage, 
+  onClose,
+  onUpdateItem 
+}) => {
+  const { themeClasses, isDark } = useTheme()
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+
+  const downloadFile = (content, type, item) => {
+    let blob, fileName
+
+    if (type === "code") {
+      // Code download as Python file
+      const codeContent = typeof content === "string" ? content : 
+                         (content && content.code) ? content.code : 
+                         JSON.stringify(content, null, 2)
+      blob = new Blob([codeContent], { type: "text/x-python" })
+      fileName = "generated_code.py"
+    } else if (type === "image") {
+      // Image download
+      const link = document.createElement('a')
+      link.href = content.data || content.path || "/placeholder.svg"
+      link.download = content.filename || "image.png"
+      link.click()
+      return
+    } else if (type === "dataframe") {
+      // Data download as CSV
+      let csvContent
+      if (content.data && Array.isArray(content.data) && content.data.length > 0) {
+        const headers = content.columns || Object.keys(content.data[0])
+        csvContent = headers.join(",") + "\n"
+        csvContent += content.data.map(row => {
+          return headers.map(header => {
+            const value = row[header]
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+              return `"${value.replace(/"/g, '""')}"`
+            }
+            return value
+          }).join(",")
+        }).join("\n")
+      } else if (content.data && typeof content.data === 'string') {
+        csvContent = content.data
+      } else if (content.rows && content.columns) {
+        csvContent = content.columns.join(",") + "\n" + content.rows.map(row => row.join(",")).join("\n")
+      } else {
+        console.error("No valid data found for CSV download")
+        return
+      }
+      blob = new Blob([csvContent], { type: "text/csv" })
+      fileName = "data.csv"
+    } else if (type === "report") {
+      // Generate PDF for report - get current edited content
+      const editableDiv = document.querySelector(`[data-report-id="${item.id}"]`)
+      const updatedHTML = editableDiv ? editableDiv.innerHTML : content
+      
+      // Update the item's content to persist changes
+      if (editableDiv && onUpdateItem) {
+        onUpdateItem(item.id, updatedHTML)
+      }
+      
+      generateReportPDF(updatedHTML, item)
+      return
+    }
+
+    if (blob) {
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = fileName
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(link.href), 100)
+    }
+  }
+
+  // Backend PDF generation for reports
+  const generateReportPDF = async (htmlContent, item) => {
+    setIsGeneratingPDF(true)
+
+    try {
+      // Clean HTML if wrapped in code block
+      let cleanedContent = htmlContent
+      if (cleanedContent.includes('```html')) {
+        cleanedContent = cleanedContent.replace(/```html\s*/, '').replace(/```\s*$/, '')
+      }
+
+      const response = await fetch(`${BACKEND_URL}/api/generate-pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        body: cleanedContent,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}`)
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `report-${new Date().toISOString().split('T')[0]}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      console.log("PDF downloaded from backend successfully")
+    } catch (error) {
+      console.error("Failed to download PDF:", error)
+      
+      // Fallback to client-side PDF generation
+      try {
+        await generateBasicPDF(htmlContent, item)
+      } catch (fallbackError) {
+        console.error("Fallback PDF generation failed:", fallbackError)
+        alert("Failed to download PDF. Please try again.")
+      }
+    } finally {
+      setIsGeneratingPDF(false)
+    }
+  }
+
+  // Fallback client-side PDF generation
+  const generateBasicPDF = async (content, item) => {
+    // Import html2pdf dynamically if available
+    if (typeof window !== 'undefined' && window.html2pdf) {
+      const tempContainer = document.createElement('div')
+      tempContainer.style.position = 'absolute'
+      tempContainer.style.left = '-9999px'
+      tempContainer.style.top = '-9999px'
+      tempContainer.style.width = '210mm'
+
+      tempContainer.innerHTML = content
+      document.body.appendChild(tempContainer)
+
+      const options = {
+        margin: [15, 15, 15, 15],
+        filename: `analysis-report-${new Date().toISOString().split('T')[0]}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          letterRendering: true,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait'
+        }
+      }
+
+      await window.html2pdf().set(options).from(tempContainer).save()
+      document.body.removeChild(tempContainer)
+    } else {
+      // Final fallback - browser print dialog
+      const printWindow = window.open('', '_blank')
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Analysis Report</title>
+            <style>
+              body { 
+                font-family: Arial, sans-serif; 
+                margin: 20px; 
+                line-height: 1.6;
+                color: #333;
+              }
+              @media print { 
+                body { margin: 0; }
+                .no-print { display: none !important; }
+              }
+              h1, h2, h3, h4, h5, h6 { color: #2c3e50; margin-top: 1.5em; }
+              table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f8f9fa; font-weight: bold; }
+              img { max-width: 100%; height: auto; }
+            </style>
+          </head>
+          <body>
+            ${typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.print()
+      printWindow.close()
+    }
+  }
+
+  if (items.length === 0) {
+    return null
+  }
+
+  const item = items[0] // Show only the selected component
+
+  return (
+    <div className={`h-full flex flex-col ${themeClasses.bg} ${themeClasses.border} border-l transition-colors`}>
+      {/* Header */}
+      <div className={`p-4 ${themeClasses.border} border-b ${themeClasses.surface}`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className={`font-semibold ${themeClasses.text} text-sm`}>
+              {item.type === 'code' ? 'Generated Code' :
+               item.type === 'image' ? 'Visualization' :
+               item.type === 'dataframe' ? 'Data Table' :
+               item.type === 'report' ? 'Analysis Report' :
+               'Component'}
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadFile(item.content, item.type, item)}
+              disabled={isGeneratingPDF}
+              className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={isGeneratingPDF ? "Generating PDF..." : "Download"}
+            >
+              {isGeneratingPDF ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-lg transition-colors`}
+              title="Close panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {item.type === 'code' && (
+          <div className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} p-4 overflow-x-auto`}>
+            <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
+              {typeof item.content === "string" ? item.content : 
+               (item.content && item.content.code) ? item.content.code : 
+               JSON.stringify(item.content, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {item.type === 'image' && (
+          <div className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} p-4`}>
+            <div className="flex justify-center">
+              <img
+                src={item.content?.data || item.content?.path || "/placeholder.svg"}
+                alt={item.content?.filename || "Generated visualization"}
+                className="max-w-full h-auto rounded-lg shadow-sm"
+                onError={(e) => {
+                  e.target.src = "/placeholder.svg"
+                  e.target.alt = "Image failed to load"
+                }}
+              />
+            </div>
+            {item.content?.filename && (
+              <div className={`text-sm ${themeClasses.textSecondary} text-center mt-2`}>
+                {item.content.filename}
+              </div>
+            )}
+          </div>
+        )}
+
+        {item.type === 'dataframe' && (
+          <div className="space-y-3">
+            {item.content?.shape && (
+              <div className={`text-sm ${themeClasses.textSecondary}`}>
+                Shape: {item.content.shape[0]} rows × {item.content.shape[1]} columns
+              </div>
+            )}
+            {item.content?.preview && (
+              <div
+                className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} overflow-x-auto`}
+                dangerouslySetInnerHTML={{ __html: item.content.preview }}
+              />
+            )}
+          </div>
+        )}
+
+        {item.type === 'report' && (
+          <div 
+            className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''} ${themeClasses.text} focus:outline-none`}
+            contentEditable={true}
+            suppressContentEditableWarning={true}
+            data-report-id={item.id}
+            onInput={(e) => onUpdateItem && onUpdateItem(item.id, e.target.innerHTML)}
+            dangerouslySetInnerHTML={{ 
+              __html: typeof item.content === 'string' ? item.content : JSON.stringify(item.content, null, 2)
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Enhanced Sample Questions Component
 const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
   const { themeClasses } = useTheme()
   const [selectedCategory, setSelectedCategory] = useState("all")
 
   const categories = [
-    { id: "all", label: "All", icon: "🎯" },
-    { id: "conversational", label: "Chat", icon: "💬" },
-    { id: "textual_analytical", label: "Quick Q&A", icon: "⚡" },
-    { id: "fully_analytical", label: "Deep Analysis", icon: "🧠" }
+    { id: "all", label: "All", icon: <Code className="w-4 h-4" /> },
+    { id: "conversational", label: "Chat", icon: <User className="w-4 h-4" /> },
+    { id: "textual_analytical", label: "Quick Q&A", icon: <Database className="w-4 h-4" /> },
+    { id: "fully_analytical", label: "Deep Analysis", icon: <FileText className="w-4 h-4" /> }
   ]
 
   const filteredQuestions = selectedCategory === "all" 
@@ -410,26 +1123,24 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
             Try these example queries:
           </h3>
           
-          {/* Category Filters */}
           <div className="flex gap-2 mb-3">
             {categories.map(category => (
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category.id)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   selectedCategory === category.id
                     ? `${themeClasses.button} ${themeClasses.text}`
                     : `${themeClasses.surface} ${themeClasses.textSecondary} hover:${themeClasses.text}`
                 }`}
               >
-                <span className="mr-1">{category.icon}</span>
+                {category.icon}
                 {category.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Questions Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {filteredQuestions.map((item, index) => (
             <button
@@ -445,8 +1156,8 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
                     ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
                     : "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
                 }`}>
-                  {item.category === "conversational" ? "💬" : 
-                   item.category === "textual_analytical" ? "⚡" : "🧠"}
+                  {item.category === "conversational" ? <User className="w-3 h-3" /> : 
+                   item.category === "textual_analytical" ? <Database className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`text-sm ${themeClasses.text} font-medium mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors`}>

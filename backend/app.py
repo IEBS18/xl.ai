@@ -981,7 +981,7 @@ GOTENBERG_URL = os.getenv('GOTENBERG_URL')
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 128 * 1024 * 1024  # 50MB max file size
 
 # Register auth blueprint
 app.register_blueprint(auth_blueprint, url_prefix='/auth')

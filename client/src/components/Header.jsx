@@ -11,7 +11,7 @@ import AuthModal from "./AuthModal.jsx"
 import logo from '../../public/logo.svg'
 
 const Header = ({ isConnected, currentQueryCategory }) => {
-  const { isDark, toggleTheme } = useTheme()
+  const { isDark, toggleTheme, themeClasses } = useTheme()
   const { user, isAuthenticated, logout, isLoading } = useAuth()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
@@ -375,10 +375,10 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                   </button>
                   <motion.button
                     onClick={() => openAuthModal("login")}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
+                    className={` ${themeClasses.button} rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
                       isDark
-                        ? "bg-white text-gray-900 hover:bg-gray-100 shadow-lg"
-                        : "bg-gray-900 text-white hover:bg-gray-800 shadow-lg"
+                        ? "text-gray-900 hover:bg-gray-100 shadow-lg"
+                        : "text-white hover:bg-gray-800 shadow-lg"
                     }`}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -482,11 +482,11 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                       </button>
                       <button
                         onClick={() => openAuthModal("login")}
-                        className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${
-                          isDark
-                            ? "bg-white text-gray-900 hover:bg-gray-100"
-                            : "bg-gray-900 text-white hover:bg-gray-800"
-                        }`}
+                        // className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${
+                        //   isDark
+                        //     ? "bg-white text-gray-900 hover:bg-gray-100"
+                        //     : "bg-gray-900 text-white hover:bg-gray-800"
+                        // }`}
                       >
                         Log In
                       </button>

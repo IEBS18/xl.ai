@@ -21,11 +21,9 @@ statsmodels
 prophet
 pmdarima
 scikit-learn
-plotly
-torch
-tensorflow 
 azure-storage-blob
 psycopg2-binary
+plotly
 xlrd
 odfpy
 pyxlsb
