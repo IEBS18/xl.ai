@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from "react"
-import { 
-  Code, 
-  Image, 
-  Database, 
-  FileText, 
+import {
+  Code,
+  Image,
+  Database,
+  FileText,
   File,
   Loader2,
   CheckCircle,
@@ -97,7 +97,7 @@ const ChatInterface = ({
   // Get side panel items for a specific component
   const getSidePanelItemsForComponent = (componentId) => {
     if (!componentId) return []
-    
+
     // Find the specific component across all queries
     for (const query of queries) {
       const allComponents = [...query.responses, ...query.steps]
@@ -106,7 +106,7 @@ const ChatInterface = ({
         return [component] // Return only the specific component
       }
     }
-    
+
     return []
   }
 
@@ -117,6 +117,79 @@ const ChatInterface = ({
     setSidePanelOpen(true)
     setActiveSidePanel(componentId)
   }
+
+
+  // Key changes needed in your ChatInterface.jsx:
+
+  // 1. Update the InputArea props to include file handling
+  // 2. Add handlers for file preview and removal
+  // 3. Remove or simplify the FileInfo component usage
+
+  // Add these handler functions to your ChatInterface component:
+
+  const handleShowFilePreview = useCallback(() => {
+    if (!fileInfo) return
+
+    // Create a preview message for the side panel
+    const previewMessage = {
+      id: `file-preview-${Date.now()}`,
+      type: "dataframe",
+      content: {
+        name: fileInfo.filename,
+        shape: fileInfo.shape,
+        columns: fileInfo.columns || [],
+        preview: fileInfo.preview,
+        data: fileInfo.data || []
+      },
+      timestamp: new Date().toISOString()
+    }
+
+    // Show in side panel
+    setSelectedQueryId(null)
+    setSelectedComponentId(previewMessage.id)
+    setSidePanelOpen(true)
+    setActiveSidePanel(previewMessage.id)
+
+    // You might need to add this preview to your items list or handle it differently
+    // depending on how your side panel management works
+  }, [fileInfo])
+
+  const handleRemoveFile = useCallback(() => {
+    // Add your file removal logic here
+    // This should clear the fileInfo and close any related previews
+    if (window.confirm('Remove the uploaded file?')) {
+      // Clear file state
+      // You'll need to implement this based on your state management
+      console.log('File removed')
+    }
+  }, [])
+
+  // Update your InputArea usage in the render:
+  // {
+  //   fileUploaded && (
+  //     <InputArea
+  //       isConnected={isConnected}
+  //       isAnalyzing={isAnalyzing}
+  //       onSendMessage={onSendMessage}
+  //       onFileUpload={triggerFileUpload}
+  //       fileInfo={fileInfo}
+  //       onShowFilePreview={handleShowFilePreview}
+  //       onRemoveFile={handleRemoveFile}
+  //     />
+  //   )
+  // }
+
+  // Remove or simplify the FileInfo component usage:
+  {/* Remove this block since file info is now in InputArea
+{fileUploaded && fileInfo && (
+  <FileInfo
+    fileInfo={fileInfo}
+    onDebug={debugSession}
+    onSync={manualSessionSync}
+    sessionId={sessionId}
+  />
+)}
+*/}
 
   // Handle closing side panel
   const handleCloseSidePanel = () => {
@@ -135,42 +208,42 @@ const ChatInterface = ({
 
   // Enhanced sample questions based on query categories
   const enhancedSampleQuestions = [
-    { 
+    {
       question: "Hi, what can you help me with?",
       category: "conversational",
       description: "Start a conversation"
     },
-    { 
+    {
       question: "What capabilities do you have?",
-      category: "conversational", 
+      category: "conversational",
       description: "Learn about features"
     },
-    { 
+    {
       question: "What is the average sales value?",
       category: "textual_analytical",
       description: "Quick data answer"
     },
-    { 
+    {
       question: "How many rows are in my dataset?",
       category: "textual_analytical",
       description: "Simple data query"
     },
-    { 
+    {
       question: "What's the maximum revenue?",
       category: "textual_analytical",
       description: "Find maximum value"
     },
-    { 
+    {
       question: "Generate a comprehensive sales analysis",
       category: "fully_analytical",
       description: "Detailed analysis with charts"
     },
-    { 
+    {
       question: "Create a 12-month forecast model",
       category: "fully_analytical",
       description: "Predictive modeling"
     },
-    { 
+    {
       question: "Show me trends and correlations in the data",
       category: "fully_analytical",
       description: "Pattern analysis"
@@ -219,10 +292,10 @@ const ChatInterface = ({
   return (
     <div ref={containerRef} className={`flex h-full ${themeClasses.bg} transition-colors`}>
       {/* Main Chat Area */}
-      <div 
+      <div
         className="flex flex-col transition-all duration-300"
-        style={{ 
-          width: sidePanelOpen ? `${chatPanelWidth}%` : '100%' 
+        style={{
+          width: sidePanelOpen ? `${chatPanelWidth}%` : '100%'
         }}
       >
         {/* Messages Area - Scrollable with explicit height */}
@@ -246,9 +319,9 @@ const ChatInterface = ({
         <div className={`flex-shrink-0 ${themeClasses.border} border-t transition-colors`}>
           {/* Enhanced Sample Questions */}
           {fileUploaded && messages.filter((m) => m.isUser).length === 0 && (
-            <EnhancedSampleQuestions 
+            <EnhancedSampleQuestions
               questions={enhancedSampleQuestions}
-              onSelectQuestion={(question) => onSendMessage(question)} 
+              onSelectQuestion={(question) => onSendMessage(question)}
             />
           )}
 
@@ -256,24 +329,29 @@ const ChatInterface = ({
           {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
 
           {/* File Info */}
-          {fileUploaded && fileInfo && (
+          {/* {fileUploaded && fileInfo && (
             <FileInfo
               fileInfo={fileInfo}
               onDebug={debugSession}
               onSync={manualSessionSync}
               sessionId={sessionId}
             />
-          )}
+          )} */}
 
           {/* Input Area - Always visible at bottom */}
-          {fileUploaded && (
-            <InputArea
-              isConnected={isConnected}
-              isAnalyzing={isAnalyzing}
-              onSendMessage={onSendMessage}
-              onFileUpload={triggerFileUpload}
-            />
-          )}
+          {
+            fileUploaded && (
+              <InputArea
+                isConnected={isConnected}
+                isAnalyzing={isAnalyzing}
+                onSendMessage={onSendMessage}
+                onFileUpload={triggerFileUpload}
+                fileInfo={fileInfo}
+                onShowFilePreview={handleShowFilePreview}
+                onRemoveFile={handleRemoveFile}
+              />
+            )
+          }
         </div>
 
         {/* Hidden File Input */}
@@ -299,10 +377,10 @@ const ChatInterface = ({
 
       {/* Side Panel - Only when open */}
       {sidePanelOpen && (
-        <div 
+        <div
           className={`${themeClasses.border} transition-all duration-300 ${themeClasses.bg} flex-shrink-0`}
-          style={{ 
-            width: `${100 - chatPanelWidth}%` 
+          style={{
+            width: `${100 - chatPanelWidth}%`
           }}
         >
           <EnhancedSidePanel
@@ -320,11 +398,11 @@ const ChatInterface = ({
 }
 
 // New Perplexity-style Message Timeline Component
-const PerplexityMessageTimeline = ({ 
-  queries, 
-  isAnalyzing, 
-  expandedMessages, 
-  toggleMessageExpansion, 
+const PerplexityMessageTimeline = ({
+  queries,
+  isAnalyzing,
+  expandedMessages,
+  toggleMessageExpansion,
   messagesEndRef,
   onComponentClick,
   currentQueryCategory
@@ -348,7 +426,7 @@ const PerplexityMessageTimeline = ({
     <div className="space-y-8 pb-6">
       {/* Top padding */}
       <div className="h-4"></div>
-      
+
       {/* Render all query groups */}
       {queries.map((query, index) => (
         <PerplexityQueryGroup
@@ -359,7 +437,7 @@ const PerplexityMessageTimeline = ({
           toggleMessageExpansion={toggleMessageExpansion}
         />
       ))}
-      
+
       {/* Analyzing indicator */}
       {isAnalyzing && (
         <div className="animate-in slide-in-from-left duration-300">
@@ -375,10 +453,10 @@ const PerplexityMessageTimeline = ({
           </div>
         </div>
       )}
-      
+
       {/* Bottom spacer */}
       <div className="h-8"></div>
-      
+
       {/* Scroll anchor */}
       <div ref={messagesEndRef} />
     </div>
@@ -419,21 +497,19 @@ const PerplexityQueryGroup = ({ query, onComponentClick, expandedMessages, toggl
               <div className="flex mb-4">
                 <button
                   onClick={() => setActiveTab('answer')}
-                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                    activeTab === 'answer'
-                      ? `border-blue-500 ${themeClasses.text}`
-                      : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
-                  }`}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'answer'
+                    ? `border-blue-500 ${themeClasses.text}`
+                    : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                    }`}
                 >
                   Answer
                 </button>
                 <button
                   onClick={() => setActiveTab('steps')}
-                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                    activeTab === 'steps'
-                      ? `border-blue-500 ${themeClasses.text}`
-                      : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
-                  }`}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'steps'
+                    ? `border-blue-500 ${themeClasses.text}`
+                    : `border-transparent ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                    }`}
                 >
                   Steps ({query.steps.length})
                 </button>
@@ -510,14 +586,14 @@ const ConnectedTimelineSteps = ({ steps, expandedMessages, toggleMessageExpansio
 }
 
 // Individual Connected Timeline Step
-const ConnectedTimelineStep = ({ 
-  step, 
-  index, 
-  isLast, 
-  isExpanded, 
-  onToggleExpansion, 
-  onComponentClick, 
-  queryId 
+const ConnectedTimelineStep = ({
+  step,
+  index,
+  isLast,
+  isExpanded,
+  onToggleExpansion,
+  onComponentClick,
+  queryId
 }) => {
   const { themeClasses, isDark } = useTheme()
 
@@ -742,40 +818,40 @@ const ComponentPill = ({ component, onClick }) => {
   const getComponentInfo = (type) => {
     switch (type) {
       case 'code':
-        return { 
-          label: 'Generated Code', 
-          icon: <Code className="w-4 h-4" />, 
-          color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
+        return {
+          label: 'Generated Code',
+          icon: <Code className="w-4 h-4" />,
+          color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
         }
       case 'image':
-        return { 
-          label: 'Visualization', 
-          icon: <Image className="w-4 h-4" />, 
-          color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' 
+        return {
+          label: 'Visualization',
+          icon: <Image className="w-4 h-4" />,
+          color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
         }
       case 'dataframe':
-        return { 
-          label: 'Data Table', 
-          icon: <Database className="w-4 h-4" />, 
-          color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' 
+        return {
+          label: 'Data Table',
+          icon: <Database className="w-4 h-4" />,
+          color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
         }
       case 'report':
-        return { 
-          label: 'Report', 
-          icon: <FileText className="w-4 h-4" />, 
-          color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' 
+        return {
+          label: 'Report',
+          icon: <FileText className="w-4 h-4" />,
+          color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
         }
       case 'file':
-        return { 
-          label: 'File', 
-          icon: <File className="w-4 h-4" />, 
-          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' 
+        return {
+          label: 'File',
+          icon: <File className="w-4 h-4" />,
+          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
         }
       default:
-        return { 
-          label: type, 
-          icon: <File className="w-4 h-4" />, 
-          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' 
+        return {
+          label: type,
+          icon: <File className="w-4 h-4" />,
+          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
         }
     }
   }
@@ -794,13 +870,13 @@ const ComponentPill = ({ component, onClick }) => {
 }
 
 // Enhanced Side Panel with Download Functionality
-const EnhancedSidePanel = ({ 
-  items = [], 
-  activeItem, 
-  onItemChange, 
-  selectedMessage, 
+const EnhancedSidePanel = ({
+  items = [],
+  activeItem,
+  onItemChange,
+  selectedMessage,
   onClose,
-  onUpdateItem 
+  onUpdateItem
 }) => {
   const { themeClasses, isDark } = useTheme()
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
@@ -810,9 +886,9 @@ const EnhancedSidePanel = ({
 
     if (type === "code") {
       // Code download as Python file
-      const codeContent = typeof content === "string" ? content : 
-                         (content && content.code) ? content.code : 
-                         JSON.stringify(content, null, 2)
+      const codeContent = typeof content === "string" ? content :
+        (content && content.code) ? content.code :
+          JSON.stringify(content, null, 2)
       blob = new Blob([codeContent], { type: "text/x-python" })
       fileName = "generated_code.py"
     } else if (type === "image") {
@@ -851,12 +927,12 @@ const EnhancedSidePanel = ({
       // Generate PDF for report - get current edited content
       const editableDiv = document.querySelector(`[data-report-id="${item.id}"]`)
       const updatedHTML = editableDiv ? editableDiv.innerHTML : content
-      
+
       // Update the item's content to persist changes
       if (editableDiv && onUpdateItem) {
         onUpdateItem(item.id, updatedHTML)
       }
-      
+
       generateReportPDF(updatedHTML, item)
       return
     }
@@ -906,7 +982,7 @@ const EnhancedSidePanel = ({
       console.log("PDF downloaded from backend successfully")
     } catch (error) {
       console.error("Failed to download PDF:", error)
-      
+
       // Fallback to client-side PDF generation
       try {
         await generateBasicPDF(htmlContent, item)
@@ -1003,10 +1079,10 @@ const EnhancedSidePanel = ({
           <div>
             <h3 className={`font-semibold ${themeClasses.text} text-sm`}>
               {item.type === 'code' ? 'Generated Code' :
-               item.type === 'image' ? 'Visualization' :
-               item.type === 'dataframe' ? 'Data Table' :
-               item.type === 'report' ? 'Analysis Report' :
-               'Component'}
+                item.type === 'image' ? 'Visualization' :
+                  item.type === 'dataframe' ? 'Data Table' :
+                    item.type === 'report' ? 'Analysis Report' :
+                      'Component'}
             </h3>
           </div>
           <div className="flex items-center gap-2">
@@ -1038,9 +1114,9 @@ const EnhancedSidePanel = ({
         {item.type === 'code' && (
           <div className={`${themeClasses.surface} rounded-lg border ${themeClasses.border} p-4 overflow-x-auto`}>
             <pre className={`text-sm ${themeClasses.text} font-mono whitespace-pre-wrap`}>
-              {typeof item.content === "string" ? item.content : 
-               (item.content && item.content.code) ? item.content.code : 
-               JSON.stringify(item.content, null, 2)}
+              {typeof item.content === "string" ? item.content :
+                (item.content && item.content.code) ? item.content.code :
+                  JSON.stringify(item.content, null, 2)}
             </pre>
           </div>
         )}
@@ -1083,13 +1159,13 @@ const EnhancedSidePanel = ({
         )}
 
         {item.type === 'report' && (
-          <div 
+          <div
             className={`prose prose-sm max-w-none ${isDark ? 'prose-invert' : ''} ${themeClasses.text} focus:outline-none`}
             contentEditable={true}
             suppressContentEditableWarning={true}
             data-report-id={item.id}
             onInput={(e) => onUpdateItem && onUpdateItem(item.id, e.target.innerHTML)}
-            dangerouslySetInnerHTML={{ 
+            dangerouslySetInnerHTML={{
               __html: typeof item.content === 'string' ? item.content : JSON.stringify(item.content, null, 2)
             }}
           />
@@ -1111,8 +1187,8 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
     { id: "fully_analytical", label: "Deep Analysis", icon: <FileText className="w-4 h-4" /> }
   ]
 
-  const filteredQuestions = selectedCategory === "all" 
-    ? questions 
+  const filteredQuestions = selectedCategory === "all"
+    ? questions
     : questions.filter(q => q.category === selectedCategory)
 
   return (
@@ -1122,17 +1198,16 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
           <h3 className={`text-sm font-medium ${themeClasses.text} mb-2`}>
             Try these example queries:
           </h3>
-          
+
           <div className="flex gap-2 mb-3">
             {categories.map(category => (
               <button
                 key={category.id}
                 onClick={() => setSelectedCategory(category.id)}
-                className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  selectedCategory === category.id
-                    ? `${themeClasses.button} ${themeClasses.text}`
-                    : `${themeClasses.surface} ${themeClasses.textSecondary} hover:${themeClasses.text}`
-                }`}
+                className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors ${selectedCategory === category.id
+                  ? `${themeClasses.button} ${themeClasses.text}`
+                  : `${themeClasses.surface} ${themeClasses.textSecondary} hover:${themeClasses.text}`
+                  }`}
               >
                 {category.icon}
                 {category.label}
@@ -1149,15 +1224,14 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
               className={`text-left p-3 rounded-lg border ${themeClasses.border} ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group`}
             >
               <div className="flex items-start gap-2">
-                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-                  item.category === "conversational" 
-                    ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-                    : item.category === "textual_analytical"
+                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs ${item.category === "conversational"
+                  ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                  : item.category === "textual_analytical"
                     ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
                     : "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
-                }`}>
-                  {item.category === "conversational" ? <User className="w-3 h-3" /> : 
-                   item.category === "textual_analytical" ? <Database className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
+                  }`}>
+                  {item.category === "conversational" ? <User className="w-3 h-3" /> :
+                    item.category === "textual_analytical" ? <Database className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`text-sm ${themeClasses.text} font-medium mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors`}>
