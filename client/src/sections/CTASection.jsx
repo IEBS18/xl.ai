@@ -22,13 +22,13 @@ const CTASection = () => {
             serious work
           </p>
 
-          <motion.button
+          {/* <motion.button
             className={`${themeClasses.button} px-12 py-4 rounded-xl font-semibold transition-all duration-300 text-lg`}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
             Sign up
-          </motion.button>
+          </motion.button> */}
         </motion.div>
       </div>
     </section>
