@@ -29,9 +29,20 @@ services:
       - "443:443"
     depends_on:
       - backend
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
     networks:
       - app-network
     restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    command: certonly --webroot -w /var/www/certbot --force-renewal --email ayush.kumar@iebrain.com -d insipredict.ai -d www.insipredict.ai --agree-tos
 
   gotenberg:
     image: gotenberg/gotenberg:8
