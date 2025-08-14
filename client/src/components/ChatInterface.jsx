@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react"
+import ReactMarkdown from 'react-markdown';
 import {
   Code,
   Image,
@@ -522,7 +523,9 @@ const PerplexityQueryGroup = ({ query, onComponentClick, expandedMessages, toggl
                 {/* Final Answer */}
                 {query.finalAnswer && (
                   <div className={`${themeClasses.text} leading-relaxed text-sm`}>
-                    {query.finalAnswer.content}
+                    <ReactMarkdown>
+                      {query.finalAnswer.content}
+                    </ReactMarkdown>
                   </div>
                 )}
 
