@@ -24,7 +24,7 @@ class StreamingAdapter:
         try:
             self.should_stop = False
             start_time = time.time()
-            max_wait_time = 600
+            max_wait_time = 6000
             
             self._emit_stream('status', '🤖 Starting assistant analysis...', session_id)
             

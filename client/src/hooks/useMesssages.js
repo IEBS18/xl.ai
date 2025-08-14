@@ -4,6 +4,7 @@ export const useMessages = () => {
   const [messages, setMessages] = useState([])
   const [expandedMessages, setExpandedMessages] = useState(new Set())
   const [currentQueryCategory, setCurrentQueryCategory] = useState(null)
+  const [isFileProcessing, setIsFileProcessing] = useState(false) // New state for file processing
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = useCallback(() => {
@@ -13,6 +14,11 @@ export const useMessages = () => {
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
+
+  // Set file processing state when file upload starts
+  const setFileProcessingState = useCallback((isProcessing) => {
+    setIsFileProcessing(isProcessing)
+  }, [])
 
   // Enhanced message addition with query category support and duplicate prevention
   const addMessage = useCallback((type, content, isUser = false, queryCategory = null, additionalData = {}) => {
@@ -140,6 +146,25 @@ export const useMessages = () => {
             analysisType: additionalInfo.analysis_type
           })
         }
+        break
+
+      case "assistant_upload_complete":
+        // Handle file upload completion
+        console.log("📁 File processing completed:", { 
+          fileId: additionalInfo.file_id,
+          uploadTime: additionalInfo.upload_time 
+        })
+        
+        // Mark file processing as complete
+        setIsFileProcessing(false)
+        
+        // Add a success message for file upload completion
+        addMessage("success", content || "File processed successfully!", false, null, {
+          isCompleted: true,
+          fileUploadComplete: true,
+          fileId: additionalInfo.file_id,
+          uploadTime: additionalInfo.upload_time
+        })
         break
 
       case "status":
@@ -497,6 +522,8 @@ export const useMessages = () => {
     clearMessages,
     messagesEndRef,
     currentQueryCategory, // Export current query category for UI
+    isFileProcessing, // Export file processing state
+    setFileProcessingState, // Export function to control file processing state
     getMessagesByCategory,
     getLatestUserMessage,
     getMessagesForQuery
