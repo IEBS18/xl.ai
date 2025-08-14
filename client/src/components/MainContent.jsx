@@ -1,5 +1,4 @@
 
-
 import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
@@ -44,7 +43,6 @@ const MainContent = () => {
 
     try {
       setIsUploading(true)
-      setIsUploading(true)
       setUploadProgress(10)
 
       const response = await fetch(`${BACKEND_URL}/api/upload`, {
@@ -56,8 +54,6 @@ const MainContent = () => {
       setUploadProgress(70)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `Upload failed with status ${response.status}`)
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.error || `Upload failed with status ${response.status}`)
       }
@@ -75,15 +71,8 @@ const MainContent = () => {
       }
     } catch (error) {
       console.error('Upload error:', error)
-      console.error('Upload error:', error)
       alert(`Upload failed: ${error.message}`)
       setUploadProgress(0)
-    } finally {
-      // Reset upload state after a delay
-      setTimeout(() => {
-        setIsUploading(false)
-        setUploadProgress(0)
-      }, 2000)
     } finally {
       // Reset upload state after a delay
       setTimeout(() => {
@@ -105,20 +94,9 @@ const MainContent = () => {
       return
     }
 
-    // Don't allow new uploads while one is in progress
-    if (isUploading) {
-      return
-    }
-
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.csv,.xlsx,.xls'
-    input.onchange = (e) => {
-      const selectedFile = e.target.files[0]
-      if (selectedFile) {
-        handleFileUpload(selectedFile)
-      }
-    }
     input.onchange = (e) => {
       const selectedFile = e.target.files[0]
       if (selectedFile) {
@@ -141,8 +119,6 @@ const MainContent = () => {
   return (
     <div className={`min-h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
       {/* Header - Fixed positioning */}
-    <div className={`min-h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
-      {/* Header - Fixed positioning */}
       <Header isConnected={true} />
 
       {/* Main Content - Account for fixed header */}
@@ -153,7 +129,6 @@ const MainContent = () => {
             onSendMessage={handleSendMessage}
             onFileUpload={triggerFileUpload}
             uploadProgress={uploadProgress}
-            isUploading={isUploading}
             isUploading={isUploading}
           />
         </div>
