@@ -2179,16 +2179,17 @@ def handle_message_with_session(data):
                 # Emit DataFrames and code
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
                 _emit_code_to_frontend(generated_code, session_id, socketio)
-                
+                _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
+
             elif result.get("type") == "report":
                 # NEW: Enhanced report type with plain text report and embedded images
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
                 plain_text_report = result.get('comprehensive_report', '')
                 embedded_images = result.get('embedded_images', [])
-                
+                analysis_summary = result.get('analysis_summary', '')
                 completion_data = {
-                    'type': 'report_completion',  # Special completion type for reports
+                    'type': 'completion',  # Special completion type for reports
                     'data': 'Comprehensive business report generated successfully!',
                     'timestamp': datetime.now().isoformat(),
                     'sessionId': session_id,
@@ -2208,7 +2209,10 @@ def handle_message_with_session(data):
                         'has_code': bool(_extract_code_string(generated_code)),
                         'code_lines': _count_code_lines(generated_code),
                         'assistant_generated': result.get('report_assistant_used', False),
-                        'same_thread_analysis': result.get('same_thread_analysis', False)
+                        'same_thread_analysis': result.get('same_thread_analysis', False),
+                        'has_summary': bool(analysis_summary),  # NEW
+                        'summary_generated': result.get('summary_generated', False),  # NEW
+                        'summary_type': result.get('summary_type', 'executive')  # NEW
                     }
                 }
                 
@@ -2228,11 +2232,13 @@ def handle_message_with_session(data):
                 # Emit DataFrames and code for reports
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
                 _emit_code_to_frontend(generated_code, session_id, socketio)
-                
+                _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
+
             elif result.get("type") == "fully_analytical":
                 # Complex analysis without report generation (fallback case)
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
+                analysis_summary = result.get('analysis_summary', '')
                 
                 completion_data = {
                     'type': 'completion',
@@ -2250,7 +2256,10 @@ def handle_message_with_session(data):
                         'thread_id': result.get('thread_id', None),
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
-                        'code_lines': _count_code_lines(generated_code)
+                        'code_lines': _count_code_lines(generated_code),
+                        'has_summary': bool(analysis_summary),  # NEW
+                        'summary_generated': result.get('summary_generated', False),  # NEW
+                        'summary_type': result.get('summary_type', 'executive')  # NEW
                     }
                 }
                 
@@ -2272,7 +2281,8 @@ def handle_message_with_session(data):
                 # Emit DataFrames and code
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
                 _emit_code_to_frontend(generated_code, session_id, socketio)
-                
+                _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
+
             elif result.get("stopped_by_user"):
                 # Analysis was stopped
                 socketio.emit('stream_data', {
@@ -2301,13 +2311,17 @@ def handle_message_with_session(data):
                         'images_count': len(result.get('generated_images', [])),
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
-                        'code_lines': _count_code_lines(generated_code)
+                        'code_lines': _count_code_lines(generated_code),
+                        'has_summary': bool(analysis_summary),  # NEW
+                        'summary_generated': result.get('summary_generated', False),  # NEW
+                        'summary_type': result.get('summary_type', 'executive')  # NEW
                     }
                 }
                 
                 # Emit DataFrames and code for fallback cases
                 _emit_dataframes_to_frontend(dataframes, session_id, socketio)
                 _emit_code_to_frontend(generated_code, session_id, socketio)
+                _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
             
             # Send final completion signal
             socketio.emit('stream_data', completion_data, room=session_id)
@@ -2331,6 +2345,30 @@ def handle_message_with_session(data):
     thread.start()
 
 # NEW: Helper functions to properly handle DataFrames and code emission
+    def _emit_summary_to_frontend(analysis_summary: str, session_id: str, socketio_instance, result: dict):
+            """
+            NEW: Emit analysis summary to frontend as simple 'response' type for frontend compatibility.
+            
+            This function emits the executive summary in the same format as regular responses
+            to ensure frontend compatibility without breaking existing response handling.
+            """
+            try:
+                if not analysis_summary or not analysis_summary.strip():
+                    return
+                
+                # Emit in simple format matching existing response pattern
+                socketio_instance.emit('stream_data', {
+                    'type': 'response',
+                    'data': analysis_summary.strip(),
+                    'timestamp': datetime.now().isoformat(),
+                    'sessionId': session_id
+                }, room=session_id)
+                
+                print(f"📝 Emitted analysis summary to frontend: {len(analysis_summary)} characters")
+                
+            except Exception as e:
+                logging.error(f"Error emitting summary to frontend: {e}")
+                print(f"❌ Failed to emit summary: {e}")
 
 def _emit_dataframes_to_frontend(dataframes: dict, session_id: str, socketio_instance):
     """

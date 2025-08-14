@@ -55,6 +55,12 @@ class AssistantManager:
                 "instructions": self._get_report_generator_instructions(),
                 "tools": [{"type": "code_interpreter"}],  # No code interpreter needed for report generation
                 "model": os.getenv("AZUREMODEL", "gpt-4")
+            },
+            "summarizer": {  # NEW ASSISTANT TYPE
+                "name": "Analysis Summarizer",
+                "instructions": self._get_summarizer_instructions(),
+                "tools": [],  # No code interpreter needed for summarization
+                "model": os.getenv("AZUREMODEL", "gpt-4")
             }
         }
     
@@ -119,6 +125,7 @@ FINAL OUTPUT REQUIREMENTS:
 - DO NOT reference sandbox paths.
 - DO NOT return HTML output.
 - The assistant MUST share this final output line explicitly: print("📄 Download your professional report here: clickable link")
+- A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
 EXECUTION FLOW:
 - Perform complete Python analysis with DataFrames and visualizations
@@ -165,6 +172,7 @@ CRITICAL REQUIREMENTS:
 5. Use f-strings to populate data dynamically from your analysis
 6. Make all recommendations specific and actionable based on your findings
 7. ALWAYS save the report in pdf or docx format, not HTML
+8. A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
 
 
@@ -174,8 +182,9 @@ EXECUTION FLOW:
 3. Generate HTML report with actual data from your analysis
 4. Save HTML report to sandbox file system
 5. The system will automatically download and serve the report
+6. A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
-You MUST complete the entire analysis, generate the professional HTML report with embedded images, and save it to the sandbox."""
+You MUST complete the entire analysis, generate the professional HTML report with embedded images, and save it to the sandbox. A summary of what tasks you have performed and what key metric or output, how are you doing it"""
 
     def _get_conversational_instructions(self) -> str:
         """Instructions for conversational assistant"""
@@ -199,7 +208,7 @@ Your role:
         df2 = pd.read_excel(xls, sheet_name="Sheet2")```
     If unsure, always check available sheet names first using xls.sheet_names. Use appropriate sheet_name= when reading the sheet.
     Be accurate and always validate which sheet the data is from when answering questions.
-
+- A summary of what tasks you have performed and what key metric or output, how are you doing it?
 Respond in a natural, conversational way."""
     
     def _get_textual_analytical_instructions(self) -> str:
@@ -225,7 +234,7 @@ REQUIREMENTS:
         df2 = pd.read_excel(xls, sheet_name="Sheet2")```
     If unsure, always check available sheet names first using xls.sheet_names. Use appropriate sheet_name= when reading the sheet.
     Be accurate and always validate which sheet the data is from when answering questions.
-
+10. A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
 Generate clean, executable Python code that stores the answer in 'result'."""
 
@@ -340,6 +349,77 @@ EXECUTION STEPS:
 7. Use every image url provided to you.
 
 CRITICAL: Generate a complete professional consulting report with actual analysis, not generic content. Include real metrics, specific insights, and actionable recommendations based on the data provided."""
+    def _get_summarizer_instructions(self) -> str:
+        """NEW: Instructions for analysis summarizer assistant"""
+        return """You are an EXPERT ANALYSIS SUMMARIZER that creates concise, actionable summaries of data analysis results.
+
+YOUR ROLE:
+Create clear, executive-level summaries that highlight key outcomes, insights, and actionable takeaways from completed data analysis.
+
+INPUT YOU RECEIVE:
+- Original user query/question
+- Analysis response and findings
+- Generated DataFrames and their summaries
+- Generated code and execution results
+- Any visualizations or images created
+- Overall analysis type and success status
+
+YOUR OUTPUT REQUIREMENTS:
+
+1. **EXECUTIVE SUMMARY** (2-3 sentences)
+   - What was analyzed and the main finding
+   - The most important outcome or insight
+
+2. **KEY OUTCOMES** (3-5 bullet points)
+   - Specific findings with numbers/metrics where possible
+   - Data patterns or trends discovered
+   - Notable relationships or correlations
+   - Any surprises or unexpected results
+
+3. **GENERATED ASSETS** (brief overview)
+   - Number and types of DataFrames created
+   - Visualizations generated (if any)
+   - Reports or files produced
+
+4. **ACTIONABLE INSIGHTS** (2-3 bullet points)
+   - What decisions can be made based on this analysis
+   - Recommended next steps
+   - Areas that need further investigation
+
+FORMATTING RULES:
+- Use clear, business-friendly language
+- Include specific numbers and percentages when available
+- Keep the entire summary under 200 words
+- Use bullet points for easy scanning
+- Make it suitable for executives who need quick insights
+
+TONE & STYLE:
+- Professional but accessible
+- Focus on business impact
+- Avoid technical jargon
+- Be specific rather than generic
+- Emphasize practical value
+
+EXAMPLE OUTPUT FORMAT:
+**Executive Summary:** Analysis of sales data revealed a 23% revenue increase in Q3, driven primarily by product category X which outperformed projections by 45%.
+
+**Key Outcomes:**
+• Revenue increased from $2.1M to $2.6M between Q2 and Q3
+• Product category X generated 67% of total growth
+• Customer acquisition cost decreased by 15%
+• Regional performance varies significantly, with West region leading
+
+**Generated Assets:**
+• 3 analytical DataFrames with forecasting data
+• 2 visualizations showing trends and comparisons
+• Performance metrics across 5 key dimensions
+
+**Actionable Insights:**
+• Increase marketing investment in product category X
+• Investigate West region success factors for replication
+• Consider adjusting pricing strategy based on demand patterns
+
+Remember: Your summary should give someone a complete understanding of what was discovered and what they should do about it, without needing to read the full analysis."""
 
     def create_or_get_assistant(self, assistant_type: str = "data_analyst") -> str:
         """Create or retrieve an assistant for the session"""

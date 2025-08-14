@@ -515,6 +515,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # STEP 5: Add explanation to all analytical results (NEW)
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_explanation_to_result(result, user_query)
+            
+            # STEP 6: NEW - Add summary to all analytical results (SUMMARIZER)
+            if result.get('success') and result.get('type') != 'conversational':
+                result = self._add_summary_to_result(result, user_query)
                 
         except StopAnalysisException:
             # Handle stop signal gracefully (preserving existing behavior)
@@ -554,6 +558,187 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             return error_result
         
         return result
+    
+    def _add_summary_to_result(self, result: Dict[str, Any], user_query: str) -> Dict[str, Any]:
+        """
+        NEW: Add AI-generated summary to analytical results using summarizer assistant.
+        
+        This method creates a concise, executive-level summary of the analysis outcomes
+        and adds it to the result without breaking existing functionality.
+        """
+        
+        if not result.get('success'):
+            return result
+        
+        try:
+            self.emit_stream('status', '📝 Generating executive summary of analysis...')
+            
+            # Create summarizer assistant
+            assistant_id = self.assistant_manager.create_or_get_assistant("summarizer")
+            
+            # Prepare comprehensive summary context
+            summary_context = self._prepare_summary_context(result, user_query)
+            
+            # Generate summary request
+            summary_request = f"""Please provide an executive summary for this data analysis:
+
+ORIGINAL QUERY: {user_query}
+
+ANALYSIS DETAILS:
+{summary_context}
+
+Please provide a concise summary following your format guidelines that highlights the key outcomes, insights, and actionable takeaways from this analysis."""
+            
+            # Run summarizer assistant (using same thread for consistency)
+            summary_result = self.assistant_manager.run_assistant_analysis(
+                self.thread_id,
+                summary_request
+            )
+            
+            if summary_result.get("success"):
+                analysis_summary = summary_result.get("response_content", "")
+                
+                # Add summary to result
+                result['analysis_summary'] = analysis_summary
+                result['summary_generated'] = True
+                result['summary_type'] = 'executive'
+                
+                # Stream the summary to frontend
+                # self.emit_stream('response', {
+                #     'content': analysis_summary,
+                #     'type': 'executive',
+                #     'generated_by': 'summarizer_assistant',
+                #     'query': user_query
+                # })
+                
+                # Also add to response field for backward compatibility
+                current_response = result.get('response', '')
+                if current_response:
+                    result['response'] = f"{current_response}\n\n### Executive Summary:\n{analysis_summary}"
+                else:
+                    result['response'] = f"Analysis completed.\n\n### Executive Summary:\n{analysis_summary}"
+                
+                print(f"✅ Generated executive summary ({len(analysis_summary)} characters)")
+                
+            else:
+                print("⚠️ Summary generation failed, continuing without summary")
+                result['analysis_summary'] = ""
+                result['summary_generated'] = False
+                result['summary_error'] = summary_result.get('error', 'Unknown error')
+                
+        except Exception as e:
+            print(f"⚠️ Failed to generate summary: {e}")
+            result['analysis_summary'] = ""
+            result['summary_generated'] = False
+            result['summary_error'] = str(e)
+        
+        return result
+
+    def _prepare_summary_context(self, result: Dict[str, Any], user_query: str) -> str:
+        """
+        NEW: Prepare comprehensive context for the summarizer assistant.
+        
+        This method extracts key information from the analysis result to provide
+        the summarizer with all necessary details for creating an accurate summary.
+        """
+        
+        try:
+            context_parts = []
+            
+            # Analysis type and success status
+            analysis_type = result.get('type', 'unknown')
+            success_status = result.get('success', False)
+            context_parts.append(f"Analysis Type: {analysis_type}")
+            context_parts.append(f"Success Status: {'Successful' if success_status else 'Failed'}")
+            
+            # Main response/findings
+            main_response = result.get('response', '')
+            if main_response:
+                # Truncate if too long for context
+                truncated_response = main_response[:1000] + "..." if len(main_response) > 1000 else main_response
+                context_parts.append(f"Main Findings:\n{truncated_response}")
+            
+            # DataFrame information
+            dataframes = result.get('dataframes', {})
+            if dataframes:
+                df_info = []
+                total_rows = 0
+                for df_name, df_data in dataframes.items():
+                    if isinstance(df_data, dict) and df_data.get('type') == 'dataframe':
+                        shape = df_data.get('shape', (0, 0))
+                        columns = df_data.get('columns', [])
+                        total_rows += shape[0]
+                        df_info.append(f"  • {df_name}: {shape[0]:,} rows × {shape[1]} columns ({', '.join(columns[:3])}{'...' if len(columns) > 3 else ''})")
+                    elif hasattr(df_data, 'shape'):  # Direct DataFrame
+                        total_rows += df_data.shape[0]
+                        df_info.append(f"  • {df_name}: {df_data.shape[0]:,} rows × {df_data.shape[1]} columns")
+                
+                context_parts.append(f"Generated DataFrames ({len(dataframes)} total, {total_rows:,} rows):")
+                context_parts.extend(df_info)
+            
+            # Generated files information
+            generated_files = result.get('generated_files', {})
+            if generated_files:
+                file_info = []
+                for file_type, files in generated_files.items():
+                    if files:
+                        file_info.append(f"  • {len(files)} {file_type}")
+                
+                if file_info:
+                    context_parts.append("Generated Files:")
+                    context_parts.extend(file_info)
+            
+            # Images/visualizations
+            images_count = len(result.get('generated_images', []))
+            embedded_images_count = len(result.get('embedded_images', []))
+            total_images = images_count + embedded_images_count
+            
+            if total_images > 0:
+                context_parts.append(f"Visualizations: {total_images} charts/graphs generated")
+            
+            # Code generation information
+            generated_code = result.get('generated_code', '')
+            if generated_code:
+                if isinstance(generated_code, dict):
+                    code_lines = generated_code.get('lines', 0)
+                    code_language = generated_code.get('language', 'python')
+                else:
+                    code_lines = len(str(generated_code).split('\n')) if generated_code else 0
+                    code_language = 'python'
+                
+                if code_lines > 0:
+                    context_parts.append(f"Generated Code: {code_lines} lines of {code_language}")
+            
+            # Execution results
+            execution_result = result.get('execution_result', {})
+            if execution_result:
+                exec_success = execution_result.get('success', False)
+                context_parts.append(f"Execution Status: {'Successful' if exec_success else 'Failed'}")
+                
+                exec_output = execution_result.get('output', '')
+                if exec_output:
+                    truncated_output = exec_output[:500] + "..." if len(exec_output) > 500 else exec_output
+                    context_parts.append(f"Execution Output:\n{truncated_output}")
+            
+            # Report information (if generated)
+            if result.get('type') == 'report':
+                report_type = result.get('report_type', 'unknown')
+                report_generated = result.get('report_generated', False)
+                context_parts.append(f"Report Generated: {'Yes' if report_generated else 'No'} (Type: {report_type})")
+            
+            # Dataset context (if available)
+            if hasattr(self, 'df') and self.df is not None:
+                context_parts.append(f"Dataset Context: {self.df.shape[0]:,} rows × {self.df.shape[1]} columns")
+            
+            # Timing and performance
+            timestamp = result.get('timestamp', datetime.now().isoformat())
+            context_parts.append(f"Analysis Completed: {timestamp}")
+            
+            return "\n".join(context_parts)
+            
+        except Exception as e:
+            print(f"⚠️ Error preparing summary context: {e}")
+            return f"Analysis completed for query: '{user_query}'. Type: {result.get('type', 'unknown')}, Success: {result.get('success', False)}"
     
     def _format_analysis_result_with_dataframes_and_code(self, result: Dict[str, Any], user_query: str) -> Dict[str, Any]:
         """

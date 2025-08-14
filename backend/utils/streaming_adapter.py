@@ -262,12 +262,12 @@ class StreamingAdapter:
                                         generated_files.append(output.image.file_id)
             
             # Stream final completion
-            self._emit_stream('completion', {
-                'message': 'Analysis completed successfully!',
-                'response_length': len(response_content),
-                'files_generated': len(generated_files),
-                'code_executed': bool(generated_code.strip())
-            }, session_id)
+            # self._emit_stream('completion', {
+            #     'message': 'Analysis completed successfully!',
+            #     'response_length': len(response_content),
+            #     'files_generated': len(generated_files),
+            #     'code_executed': bool(generated_code.strip())
+            # }, session_id)
             
             return {
                 "success": True,
