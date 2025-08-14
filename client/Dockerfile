@@ -24,7 +24,10 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Expose port
-EXPOSE 80
+# Create directory for Let's Encrypt challenges
+RUN mkdir -p /var/www/certbot
+
+# Expose ports
+EXPOSE 80 443
 
 CMD ["nginx", "-g", "daemon off;"]

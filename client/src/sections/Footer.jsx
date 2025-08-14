@@ -26,8 +26,8 @@ const Footer = () => {
               Work smarter, faster, and more efficiently with InsiPredict.
             </p>
             <div className="flex items-center space-x-6">
-              <span className={`${themeClasses.textMuted} text-sm uppercase tracking-wider`}>Socials</span>
-              <div className="flex space-x-4">
+              {/* <span className={`${themeClasses.textMuted} text-sm uppercase tracking-wider`}>Socials</span> */}
+              {/* <div className="flex space-x-4">
                 {[0, 1].map((i) => (
                   <motion.div
                     key={i}
@@ -38,7 +38,7 @@ const Footer = () => {
                     <div className={`w-4 h-4 ${themeClasses.textMuted}`}></div>
                   </motion.div>
                 ))}
-              </div>
+              </div> */}
             </div>
           </div>
 
