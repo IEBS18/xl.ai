@@ -55,9 +55,9 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage) => {
       return
     }
 
-    const maxSize = 50 * 1024 * 1024
+    const maxSize = 128 * 1024 * 1024
     if (file.size > maxSize) {
-      onMessage("error", "File size too large. Please upload a file smaller than 50MB.")
+      onMessage("error", "File size too large. Please upload a file smaller than 128MB.")
       return
     }
 

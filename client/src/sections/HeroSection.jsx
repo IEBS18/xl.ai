@@ -222,7 +222,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress 
                       className={`font-medium text-base ${themeClasses.textSecondary}`}
                       style={{ fontFamily: "SF Pro Text, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
                     >
-                      Supports CSV, Excel files up to 50MB
+                      Supports seamless CSV and Excel data analysis
                     </p>
                     <div className="flex items-center justify-center space-x-8 text-sm">
                       <span className="flex items-center space-x-2 group cursor-default">

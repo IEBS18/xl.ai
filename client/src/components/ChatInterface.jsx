@@ -44,7 +44,9 @@ const ChatInterface = ({
   manualSessionSync,
   onUpdateMessage,
   sessionId,
-  currentQueryCategory
+  currentQueryCategory,
+  isFileProcessing, // New prop for file processing state
+  setFileProcessingState // New prop to control file processing state
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
   const [selectedQueryId, setSelectedQueryId] = useState(null)
@@ -119,17 +121,40 @@ const ChatInterface = ({
     setActiveSidePanel(componentId)
   }
 
+  // Enhanced file upload handler with processing state
+  const handleEnhancedFileUpload = useCallback(async (event) => {
+    try {
+      // Set processing state to true when upload starts
+      if (setFileProcessingState) {
+        setFileProcessingState(true)
+      }
 
-  // Key changes needed in your ChatInterface.jsx:
+      // Call the original file upload handler
+      await handleFileUpload(event)
+      
+      // Note: Don't set processing to false here - 
+      // it will be automatically set to false when 
+      // assistant_upload_complete event is received in useMessages
+    } catch (error) {
+      console.error('File upload failed:', error)
+      // Reset processing state on error
+      if (setFileProcessingState) {
+        setFileProcessingState(false)
+      }
+    }
+  }, [handleFileUpload, setFileProcessingState])
 
-  // 1. Update the InputArea props to include file handling
-  // 2. Add handlers for file preview and removal
-  // 3. Remove or simplify the FileInfo component usage
+  // Enhanced trigger file upload
+  const handleEnhancedTriggerFileUpload = useCallback(() => {
+    // Only trigger if not currently processing
+    if (!isFileProcessing) {
+      triggerFileUpload()
+    }
+  }, [triggerFileUpload, isFileProcessing])
 
-  // Add these handler functions to your ChatInterface component:
-
+  // Handle file preview
   const handleShowFilePreview = useCallback(() => {
-    if (!fileInfo) return
+    if (!fileInfo || isFileProcessing) return
 
     // Create a preview message for the side panel
     const previewMessage = {
@@ -150,47 +175,34 @@ const ChatInterface = ({
     setSelectedComponentId(previewMessage.id)
     setSidePanelOpen(true)
     setActiveSidePanel(previewMessage.id)
+  }, [fileInfo, isFileProcessing])
 
-    // You might need to add this preview to your items list or handle it differently
-    // depending on how your side panel management works
-  }, [fileInfo])
-
+  // Handle file removal
   const handleRemoveFile = useCallback(() => {
-    // Add your file removal logic here
-    // This should clear the fileInfo and close any related previews
-    if (window.confirm('Remove the uploaded file?')) {
-      // Clear file state
-      // You'll need to implement this based on your state management
-      console.log('File removed')
+    if (isFileProcessing) {
+      // If currently processing, ask for confirmation
+      if (window.confirm('File is currently being processed. Are you sure you want to remove it?')) {
+        // Reset processing state
+        if (setFileProcessingState) {
+          setFileProcessingState(false)
+        }
+        // Close any related previews
+        if (sidePanelOpen && selectedComponentId && selectedComponentId.startsWith('file-preview-')) {
+          handleCloseSidePanel()
+        }
+        console.log('File removed during processing')
+      }
+    } else {
+      // Normal removal
+      if (window.confirm('Remove the uploaded file?')) {
+        // Close any related previews
+        if (sidePanelOpen && selectedComponentId && selectedComponentId.startsWith('file-preview-')) {
+          handleCloseSidePanel()
+        }
+        console.log('File removed')
+      }
     }
-  }, [])
-
-  // Update your InputArea usage in the render:
-  // {
-  //   fileUploaded && (
-  //     <InputArea
-  //       isConnected={isConnected}
-  //       isAnalyzing={isAnalyzing}
-  //       onSendMessage={onSendMessage}
-  //       onFileUpload={triggerFileUpload}
-  //       fileInfo={fileInfo}
-  //       onShowFilePreview={handleShowFilePreview}
-  //       onRemoveFile={handleRemoveFile}
-  //     />
-  //   )
-  // }
-
-  // Remove or simplify the FileInfo component usage:
-  {/* Remove this block since file info is now in InputArea
-{fileUploaded && fileInfo && (
-  <FileInfo
-    fileInfo={fileInfo}
-    onDebug={debugSession}
-    onSync={manualSessionSync}
-    sessionId={sessionId}
-  />
-)}
-*/}
+  }, [isFileProcessing, setFileProcessingState, sidePanelOpen, selectedComponentId])
 
   // Handle closing side panel
   const handleCloseSidePanel = () => {
@@ -329,30 +341,19 @@ const ChatInterface = ({
           {/* Upload Progress */}
           {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
 
-          {/* File Info */}
-          {/* {fileUploaded && fileInfo && (
-            <FileInfo
+          {/* Input Area - Always visible at bottom with enhanced file processing */}
+          {fileUploaded && (
+            <InputArea
+              isConnected={isConnected}
+              isAnalyzing={isAnalyzing}
+              onSendMessage={onSendMessage}
+              onFileUpload={handleEnhancedTriggerFileUpload}
               fileInfo={fileInfo}
-              onDebug={debugSession}
-              onSync={manualSessionSync}
-              sessionId={sessionId}
+              onShowFilePreview={handleShowFilePreview}
+              onRemoveFile={handleRemoveFile}
+              isFileProcessing={isFileProcessing} // Pass the processing state
             />
-          )} */}
-
-          {/* Input Area - Always visible at bottom */}
-          {
-            fileUploaded && (
-              <InputArea
-                isConnected={isConnected}
-                isAnalyzing={isAnalyzing}
-                onSendMessage={onSendMessage}
-                onFileUpload={triggerFileUpload}
-                fileInfo={fileInfo}
-                onShowFilePreview={handleShowFilePreview}
-                onRemoveFile={handleRemoveFile}
-              />
-            )
-          }
+          )}
         </div>
 
         {/* Hidden File Input */}
@@ -360,7 +361,7 @@ const ChatInterface = ({
           ref={fileInputRef}
           type="file"
           accept=".csv,.xlsx,.xls"
-          onChange={handleFileUpload}
+          onChange={handleEnhancedFileUpload}
           className="hidden"
         />
       </div>

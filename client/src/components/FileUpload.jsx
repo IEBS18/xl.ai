@@ -74,7 +74,7 @@ export function FileUpload({ onFileUpload, loading }) {
       </div>
 
       <div className="mt-6 text-center text-xs text-gray-500">
-        <p>Your data is processed locally and securely. Maximum file size: 50MB</p>
+        <p>Your data is processed locally and securely.</p>
       </div>
     </div>
   )

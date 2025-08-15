@@ -28,7 +28,7 @@ export const CONNECTORS = [
 
 export const FILE_UPLOAD_CONFIG = {
   validTypes: [".csv", ".xlsx", ".xls"],
-  maxSize: 50 * 1024 * 1024, // 50MB
+  maxSize: 128 * 1024 * 1024, // 50MB
   acceptedFormats: ".csv,.xlsx,.xls"
 }
 
