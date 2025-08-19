@@ -1023,7 +1023,9 @@ allowed_origins = [
     "https://*.lovable.app",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "http://20.197.12.172"
+    "http://20.197.12.172",
+    "https://insipredict.ai",
+    "https://www.insipredict.ai"
 ]
 
 CORS(app, origins=allowed_origins, supports_credentials=True)
