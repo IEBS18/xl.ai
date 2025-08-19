@@ -974,6 +974,9 @@ from auth import auth_blueprint, init_db
 import requests
 import tempfile
 
+from flask_mail import Mail
+
+
 load_dotenv()
 
 GOTENBERG_URL = os.getenv('GOTENBERG_URL')
@@ -984,6 +987,23 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 128 * 1024 * 1024  # 50MB max file size
 
 # Register auth blueprint
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT'))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'False').lower() == 'true'
+app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'True').lower() == 'true'
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_FROM')
+
+# Initialize Flask-Mail
+mail = Mail(app)
+
+# Make mail app available to blueprints through environ
+@app.before_request
+def set_mail_app():
+    from flask import request
+    request.environ['mail_app'] = app
+
 app.register_blueprint(auth_blueprint, url_prefix='/auth')
 
 # Initialize database on startup
@@ -1003,7 +1023,9 @@ allowed_origins = [
     "https://*.lovable.app",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "http://20.197.12.172"
+    "http://20.197.12.172",
+    "https://insipredict.ai",
+    "https://www.insipredict.ai"
 ]
 
 CORS(app, origins=allowed_origins, supports_credentials=True)

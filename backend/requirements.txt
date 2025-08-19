@@ -27,3 +27,4 @@ plotly
 xlrd
 odfpy
 pyxlsb
+flask-mail
