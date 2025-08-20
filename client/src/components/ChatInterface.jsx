@@ -25,6 +25,7 @@ import { BACKEND_URL } from "../utils/constants"
 import InputArea from "./InputArea"
 import FileInfo from "./FileInfo"
 import UploadProgress from "./UploadProgress"
+import FilePreviewModal from "./FilePreviewModal"
 
 const ChatInterface = ({
   messages,
@@ -54,6 +55,7 @@ const ChatInterface = ({
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [chatPanelWidth, setChatPanelWidth] = useState(65)
   const [isDragging, setIsDragging] = useState(false)
+  const [isFilePreviewModalOpen, setIsFilePreviewModalOpen] = useState(false)
   const containerRef = useRef(null)
   const { themeClasses } = useTheme()
 
@@ -156,25 +158,8 @@ const ChatInterface = ({
   const handleShowFilePreview = useCallback(() => {
     if (!fileInfo || isFileProcessing) return
 
-    // Create a preview message for the side panel
-    const previewMessage = {
-      id: `file-preview-${Date.now()}`,
-      type: "dataframe",
-      content: {
-        name: fileInfo.filename,
-        shape: fileInfo.shape,
-        columns: fileInfo.columns || [],
-        preview: fileInfo.preview,
-        data: fileInfo.data || []
-      },
-      timestamp: new Date().toISOString()
-    }
-
-    // Show in side panel
-    setSelectedQueryId(null)
-    setSelectedComponentId(previewMessage.id)
-    setSidePanelOpen(true)
-    setActiveSidePanel(previewMessage.id)
+    // Open the file preview modal
+    setIsFilePreviewModalOpen(true)
   }, [fileInfo, isFileProcessing])
 
   // Handle file removal
@@ -395,6 +380,13 @@ const ChatInterface = ({
           />
         </div>
       )}
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        isOpen={isFilePreviewModalOpen}
+        onClose={() => setIsFilePreviewModalOpen(false)}
+        fileInfo={fileInfo}
+      />
     </div>
   )
 }

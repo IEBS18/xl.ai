@@ -266,15 +266,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         dtype=str                      # Read everything as string (no type inference)
                     )
                 elif file_ext in [".xlsx", ".xlsm", ".xltx", ".xltm"]:
-                    # Optimize Excel reading too
-                    self.df = pd.read_excel(
-                        temp_path, 
-                        engine="openpyxl",
-                        na_filter=False,               # Skip NA parsing for speed
-                        keep_default_na=False
-                    )
+                    # Handle multiple sheets for Excel files
+                    self._load_excel_sheets(temp_path, "openpyxl")
                 elif file_ext == ".xls":
-                    self.df = pd.read_excel(temp_path, engine="xlrd", na_filter=False)
+                    # Handle multiple sheets for .xls files
+                    self._load_excel_sheets(temp_path, "xlrd")
                 elif file_ext == ".ods":
                     self.df = pd.read_excel(temp_path, engine="odf", na_filter=False)
                 elif file_ext == ".xlsb":
@@ -326,6 +322,254 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             print(f"❌ Error loading file from SAS URL: {str(e)}")
             logging.exception("Detailed error loading file from SAS URL")
             return False
+
+    def _load_excel_sheets(self, file_path: str, engine: str):
+        """
+        Load all sheets from Excel file and handle unstructured data.
+        Supports multiple sheets and detects data starting at arbitrary rows/columns.
+        """
+        try:
+            # Read all sheets
+            if engine == "xlrd":
+                sheet_dict = pd.read_excel(file_path, sheet_name=None, engine=engine, na_filter=False)
+            else:
+                sheet_dict = pd.read_excel(file_path, sheet_name=None, engine=engine, na_filter=False, keep_default_na=False)
+            
+            print(f"📊 Found {len(sheet_dict)} sheets: {list(sheet_dict.keys())}")
+            
+            # Store all sheets info for preview
+            self.sheets_info = {}
+            self.all_sheets = {}
+            
+            # Process each sheet
+            for sheet_name, df in sheet_dict.items():
+                print(f"🔍 Processing sheet '{sheet_name}' with shape {df.shape}")
+                
+                # Handle unstructured data by finding the actual data start
+                processed_df = self._detect_and_process_unstructured_data(df, sheet_name)
+                
+                if processed_df is not None and not processed_df.empty:
+                    print(f"✅ Successfully processed sheet '{sheet_name}' - final shape: {processed_df.shape}")
+                    self.all_sheets[sheet_name] = processed_df
+                    
+                    # Generate preview
+                    print(f"🎨 Generating preview for sheet '{sheet_name}'...")
+                    preview_html = self._generate_sheet_preview(processed_df)
+                    print(f"📝 Preview length for '{sheet_name}': {len(preview_html)} chars")
+                    
+                    # Convert data to records safely
+                    try:
+                        data_records = processed_df.head(100).to_dict('records')
+                        print(f"📊 Converted {len(data_records)} data records for sheet '{sheet_name}'")
+                    except Exception as e:
+                        print(f"❌ Error converting data to records for sheet '{sheet_name}': {e}")
+                        data_records = []
+                    
+                    self.sheets_info[sheet_name] = {
+                        'name': sheet_name,
+                        'shape': processed_df.shape,
+                        'columns': list(processed_df.columns),
+                        'preview': preview_html,
+                        'data': data_records
+                    }
+                    print(f"💾 Sheet info created for '{sheet_name}' with {len(data_records)} data records")
+                else:
+                    print(f"⚠️ Sheet '{sheet_name}' is empty or could not be processed")
+            
+            # Set the main df to the first non-empty sheet
+            if self.all_sheets:
+                first_sheet = next(iter(self.all_sheets.values()))
+                self.df = first_sheet
+                print(f"✅ Set main dataframe to first sheet with shape: {self.df.shape}")
+            else:
+                raise ValueError("No valid data found in any sheet")
+                
+        except Exception as e:
+            print(f"❌ Error loading Excel sheets: {e}")
+            raise e
+
+    def _detect_and_process_unstructured_data(self, df, sheet_name):
+        """
+        Detect where actual data starts in unstructured sheets and clean it up.
+        Returns processed dataframe or None if no data found.
+        """
+        if df.empty:
+            return None
+            
+        try:
+            # Convert everything to string first
+            df = df.astype(str)
+            
+            # Method 1: Find first row with substantial non-empty data
+            data_start_row = None
+            min_columns_threshold = max(2, len(df.columns) * 0.3)  # At least 30% of columns should have data
+            
+            for idx in range(len(df)):
+                row = df.iloc[idx]
+                non_empty_count = sum(1 for val in row if val and str(val).strip() and str(val) != 'nan')
+                
+                if non_empty_count >= min_columns_threshold:
+                    data_start_row = idx
+                    break
+            
+            if data_start_row is None:
+                print(f"⚠️ No substantial data found in sheet '{sheet_name}'")
+                return None
+            
+            # Skip to data start
+            df_trimmed = df.iloc[data_start_row:].copy()
+            
+            # Method 2: Find first column with substantial data
+            data_start_col = None
+            min_rows_threshold = max(2, len(df_trimmed) * 0.1)  # At least 10% of rows should have data
+            
+            for col_idx in range(len(df_trimmed.columns)):
+                col = df_trimmed.iloc[:, col_idx]
+                non_empty_count = sum(1 for val in col if val and str(val).strip() and str(val) != 'nan')
+                
+                if non_empty_count >= min_rows_threshold:
+                    data_start_col = col_idx
+                    break
+            
+            if data_start_col is None:
+                data_start_col = 0
+            
+            # Trim columns from the start
+            df_final = df_trimmed.iloc[:, data_start_col:].copy()
+            
+            # Clean up: remove completely empty rows and columns
+            # Remove rows where all values are empty/NaN
+            df_final = df_final.loc[~(df_final.astype(str).apply(lambda x: x.str.strip()).eq('') | 
+                                    df_final.astype(str).eq('nan')).all(axis=1)]
+            
+            # Remove columns where all values are empty/NaN
+            df_final = df_final.loc[:, ~(df_final.astype(str).apply(lambda x: x.str.strip()).eq('') | 
+                                       df_final.astype(str).eq('nan')).all(axis=0)]
+            
+            if df_final.empty:
+                return None
+                
+            # Reset index and set proper column names
+            df_final = df_final.reset_index(drop=True)
+            
+            # Use first row as headers if they look like headers
+            first_row = df_final.iloc[0]
+            if self._looks_like_headers(first_row):
+                df_final.columns = [str(col).strip() for col in first_row]
+                df_final = df_final.iloc[1:].reset_index(drop=True)
+            else:
+                df_final.columns = [f"Column_{i+1}" for i in range(len(df_final.columns))]
+            
+            # Final cleanup: ensure column names are strings
+            df_final.columns = df_final.columns.astype(str)
+            
+            print(f"✅ Processed sheet '{sheet_name}': {df_final.shape} (started at row {data_start_row}, col {data_start_col})")
+            return df_final
+            
+        except Exception as e:
+            print(f"❌ Error processing sheet '{sheet_name}': {e}")
+            return None
+
+    def _looks_like_headers(self, row):
+        """Check if a row looks like column headers"""
+        row_str = [str(val).strip() for val in row if val and str(val) != 'nan']
+        if len(row_str) < 2:
+            return False
+            
+        # Headers usually have:
+        # 1. More text than numbers
+        # 2. No duplicate values
+        # 3. Reasonable length strings
+        
+        numeric_count = sum(1 for val in row_str if val.replace('.', '').replace('-', '').isdigit())
+        text_count = len(row_str) - numeric_count
+        
+        has_duplicates = len(set(row_str)) != len(row_str)
+        avg_length = sum(len(val) for val in row_str) / len(row_str) if row_str else 0
+        
+        return (text_count > numeric_count and 
+                not has_duplicates and 
+                2 < avg_length < 50)
+
+    def _generate_sheet_preview(self, df):
+        """Generate image-based HTML preview for a sheet"""
+        try:
+            # Import the new image-based function
+            from utils.utils import generate_sheet_images_with_highlighting
+            import tempfile
+            import os
+            
+            # Create temporary CSV file from DataFrame
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, f"sheet_preview_{id(df)}.csv")
+            
+            # Generate preview with more rows for better visibility  
+            preview_df = df.head(100) if len(df) > 100 else df
+            preview_df.to_csv(temp_file_path, index=False)
+            
+            # Generate image-based preview
+            preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=1)
+            
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+            
+            print(f"✅ Generated image-based preview for sheet with {len(preview_df)} rows")
+            return preview_html
+        except Exception as e:
+            print(f"❌ Error generating image-based sheet preview: {e}")
+            print(f"❌ Falling back to simple message...")
+            return f'''
+            <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 text-center">
+                        <div class="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
+                            <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">Sheet Available</h3>
+                            <p class="text-blue-800 dark:text-blue-200">
+                                {df.shape[0]} rows × {df.shape[1]} columns ready for analysis
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            '''
+
+    def _generate_simple_html_table(self, df):
+        """Generate a simple HTML table as fallback"""
+        try:
+            if df.empty:
+                return "<p class='text-gray-500 text-center p-4'>No data available</p>"
+            
+            html = ["<div class='overflow-auto'>"]
+            html.append("<table class='min-w-full text-xs border-collapse'>")
+            
+            # Headers
+            html.append("<thead class='bg-gray-50 dark:bg-gray-800'>")
+            html.append("<tr>")
+            for col in df.columns:
+                html.append(f"<th class='px-2 py-1 text-left font-medium border border-gray-300 dark:border-gray-600'>{str(col)}</th>")
+            html.append("</tr>")
+            html.append("</thead>")
+            
+            # Body
+            html.append("<tbody>")
+            for _, row in df.iterrows():
+                html.append("<tr class='hover:bg-gray-50 dark:hover:bg-gray-700'>")
+                for value in row:
+                    cell_value = str(value) if value is not None else ""
+                    # Truncate long values
+                    if len(cell_value) > 100:
+                        cell_value = cell_value[:100] + "..."
+                    html.append(f"<td class='px-2 py-1 border border-gray-300 dark:border-gray-600' title='{str(value) if value is not None else ''}'>{cell_value}</td>")
+                html.append("</tr>")
+            html.append("</tbody>")
+            html.append("</table>")
+            html.append("</div>")
+            
+            return "".join(html)
+        except Exception as e:
+            print(f"❌ Error generating simple HTML table: {e}")
+            return f"<p class='text-red-500 text-center p-4'>Preview generation failed: {str(e)}</p>"
+
     def _upload_to_assistants_parallel(self, temp_path: str, file_ext: str):
         """
         NEW METHOD: Upload file to OpenAI Assistants in parallel (non-blocking)
