@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
+from utils.session_memory import SessionMemoryManager
 
 @dataclass
 class ReportSection:
@@ -32,6 +33,9 @@ class StructuredReportGenerator:
         self.session_id = session_id
         self.thread_id = thread_manager.create_or_get_thread(session_id) if thread_manager else None
         
+        # Initialize session memory manager
+        self.session_memory = SessionMemoryManager(session_id)
+        
         # Track generated sections and data
         self.generated_sections = {}
         self.section_metadata = {}
@@ -41,23 +45,36 @@ class StructuredReportGenerator:
     def generate_comprehensive_report(self, user_query: str, analysis_result: Dict[str, Any], 
                                     image_sas_urls: List[str]) -> Dict[str, Any]:
         """
-        Main method to generate comprehensive structured HTML report
+        Main method to generate comprehensive structured HTML report with session memory
         """
         try:
-            print("🏗️ Starting fixed structured HTML report generation...")
+            print("[INFO] Starting fixed structured HTML report generation...")
             
-            # Use original proven structure but with improvements
-            report_structure = self._generate_report_structure(user_query, analysis_result, image_sas_urls)
+            # Load all charts from session history for comprehensive reporting
+            session_charts = self.session_memory.get_all_chart_urls()
+            all_chart_urls = list(dict.fromkeys(image_sas_urls + session_charts))  # Remove duplicates, preserve order
+            
+            print(f"[INFO] Report generation starting...")
+            print(f"[INFO] Current query images: {len(image_sas_urls)} -> {image_sas_urls}")
+            print(f"[INFO] Session history images: {len(session_charts)} -> {session_charts}")
+            print(f"[INFO] Total unique images for report: {len(all_chart_urls)} -> {all_chart_urls}")
+            
+            if len(session_charts) > 0:
+                print(f"[SUCCESS] Loaded {len(session_charts)} charts from session history")
+                print(f"[SUCCESS] Using {len(all_chart_urls)} total charts for report generation")
+            
+            # Use original proven structure but with improvements and all charts
+            report_structure = self._generate_report_structure(user_query, analysis_result, all_chart_urls)
             
             if not report_structure.get("success"):
                 return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls)
             
-            # Generate sections with original proven method
+            # Generate sections with original proven method using all charts
             section_results = self._generate_sections_iteratively(
                 report_structure["sections"], 
                 user_query, 
                 analysis_result, 
-                image_sas_urls
+                all_chart_urls
             )
             
             # Combine sections with enhanced formatting but keep original content quality
@@ -65,22 +82,24 @@ class StructuredReportGenerator:
                 report_structure, 
                 section_results, 
                 user_query,
-                image_sas_urls
+                all_chart_urls
             )
             
             # Apply enhanced formatting
-            formatted_html_report = self._format_final_html_report(final_html_report, image_sas_urls)
+            formatted_html_report = self._format_final_html_report(final_html_report, all_chart_urls)
             
             return {
                 "success": True,
                 "html_report": formatted_html_report["content"],
-                "embedded_images": image_sas_urls,
-                "report_type": "fixed_structured_html_report",
+                "embedded_images": all_chart_urls,
+                "report_type": "fixed_structured_html_report_with_session_memory",
                 "sections_generated": len(section_results),
                 "report_structure": report_structure,
                 "section_metadata": self.section_metadata,
-                "generation_method": "fixed_iterative_assistant_html_sections",
-                "data_tables_included": len(self.data_tables)
+                "generation_method": "fixed_iterative_assistant_html_sections_with_session_memory",
+                "data_tables_included": len(self.data_tables),
+                "session_charts_used": len(session_charts),
+                "total_charts_in_report": len(all_chart_urls)
             }
             
         except Exception as e:
@@ -268,7 +287,7 @@ Generate the complete HTML table structure now (including container div and styl
         ORIGINAL METHOD: Generate JSON structure defining all report sections (KEEP WORKING VERSION)
         """
         try:
-            print("📋 Generating report structure (JSON outline)...")
+            print("[INFO] Generating report structure (JSON outline)...")
             
             # Create structure generation assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("report_generator") if self.assistant_manager else None
@@ -657,16 +676,40 @@ DATA TABLE INTEGRATION:
 """
         
         if "visualizations" in section.get("data_sources", []) and image_sas_urls:
+            # Get session context for better chart descriptions
+            session_charts = self.session_memory.get_charts_for_report()
+            
             prompt += f"""
 CHART EMBEDDING INSTRUCTIONS:
-When referencing visualizations, use this HTML format:
+You have access to {len(image_sas_urls)} visualizations from the current session. Embed them using this HTML format:
+
+AVAILABLE CHARTS FOR EMBEDDING:"""
+            
+            for i, url in enumerate(image_sas_urls):
+                # Find context from session memory if available
+                chart_context = next((c for c in session_charts if c['url'] == url), None)
+                if chart_context:
+                    description = f"Chart from query: '{chart_context['query'][:50]}...'"
+                else:
+                    description = f"Analysis Chart {i+1}"
+                    
+                prompt += f"""
+Chart {i+1}: <img src="{url}" alt="{description}" class="chart-image">
+Context: {description}"""
+            
+            prompt += f"""
+
+EMBEDDING FORMAT:
 <div class="chart-container">
-    <img src="{image_sas_urls[0] if image_sas_urls else '[URL]'}" alt="Analysis Chart" class="chart-image">
+    <img src="[USE_ACTUAL_URL_FROM_ABOVE]" alt="Analysis Chart" class="chart-image">
     <p class="chart-description">The analysis shows significant trends indicating...</p>
 </div>
 
-Available charts: {len(image_sas_urls)} visualizations
-"""
+IMPORTANT: 
+- Always use the ACTUAL URLs provided above, not placeholders
+- Embed charts that are relevant to this section's content
+- Include meaningful descriptions of what each chart shows
+- You can embed multiple charts in one section if relevant"""
         
         prompt += f"""
 HTML OUTPUT REQUIREMENTS:
@@ -727,9 +770,16 @@ Generate the HTML section content now:
                         f'\n{dynamic_table}\n</div>\n</div>'
                     )
             
-            # Ensure proper image URL formatting
+            # Enhanced image URL formatting and embedding
             for i, url in enumerate(image_sas_urls, 1):
-                chart_patterns = [f"Chart {i}", f"Figure {i}", f"Visualization {i}"]
+                # Multiple patterns to catch different ways the AI might reference charts
+                chart_patterns = [
+                    f"Chart {i}", f"Figure {i}", f"Visualization {i}", f"Image {i}",
+                    f"chart {i}", f"figure {i}", f"visualization {i}", f"image {i}",
+                    f"Graph {i}", f"Plot {i}", f"graph {i}", f"plot {i}"
+                ]
+                
+                # Replace specific chart references
                 for pattern in chart_patterns:
                     if pattern in processed_content and f'src="{url}"' not in processed_content:
                         chart_html = f'''<div class="chart-container">
@@ -737,6 +787,24 @@ Generate the HTML section content now:
     <p class="chart-description">{pattern}: Generated from data analysis</p>
 </div>'''
                         processed_content = processed_content.replace(pattern, chart_html)
+                
+                # Also handle generic references that should be replaced with actual images
+                generic_patterns = [
+                    "refer to that image with bar/histogram graph",
+                    "refer to the chart", "see the visualization", "as shown in the chart",
+                    "the chart shows", "the graph displays", "visualization reveals"
+                ]
+                
+                # Replace generic references with the first available image (for the first URL)
+                if i == 1:  # Only do this once for the first image
+                    for generic in generic_patterns:
+                        if generic in processed_content.lower() and f'src="{url}"' not in processed_content:
+                            chart_html = f'''<div class="chart-container">
+    <img src="{url}" alt="Analysis Chart" class="chart-image">
+    <p class="chart-description">Chart showing key insights from the analysis</p>
+</div>'''
+                            # Replace the generic text with actual image
+                            processed_content = processed_content.replace(generic, chart_html)
             
             # Remove excessive whitespace for PDF optimization
             processed_content = re.sub(r'\n\s*\n\s*\n', '\n\n', processed_content)
@@ -1200,6 +1268,7 @@ SECTION REQUIREMENTS:
             <p><strong>Analysis Query:</strong> {user_query}</p>
             <p><strong>Report Sections:</strong> {len(section_results)}</p>
             <p><strong>Visualizations:</strong> {len(image_sas_urls)}</p>
+            <p><strong>Session Charts:</strong> {len(self.session_memory.get_all_chart_urls())}</p>
             <p><strong>Dynamic Tables:</strong> {len(self.data_tables)}</p>
         </div>"""
             
@@ -1324,6 +1393,9 @@ SECTION REQUIREMENTS:
             # Apply additional HTML enhancements
             formatted_content = self._apply_html_enhancements(formatted_content)
             
+            # Final aggressive image embedding check
+            formatted_content = self._final_image_embedding_check(formatted_content, image_sas_urls)
+            
             # Validate HTML report structure
             validation_result = self._validate_html_report_structure(formatted_content)
             
@@ -1359,31 +1431,45 @@ SECTION REQUIREMENTS:
                 else:
                     # Look for placeholder chart containers and add missing images
                     chart_patterns = [
-                        f"Chart {i}",
-                        f"Figure {i}",
-                        f"Visualization {i}",
-                        f"Image {i}"
+                        f"Chart {i}", f"Figure {i}", f"Visualization {i}", f"Image {i}",
+                        f"chart {i}", f"figure {i}", f"visualization {i}", f"image {i}",
+                        f"Graph {i}", f"Plot {i}", f"graph {i}", f"plot {i}"
                     ]
                     
+                    # Also look for generic text references that indicate charts should be embedded
+                    generic_references = [
+                        "refer to that image with bar/histogram graph",
+                        "refer to the chart", "see the visualization", "as shown in the chart",
+                        "the chart shows", "the graph displays", "visualization reveals",
+                        "histogram graph", "bar chart", "visualization shows"
+                    ]
+                    
+                    # Replace specific patterns
                     for pattern in chart_patterns:
                         if pattern in formatted_content and url not in formatted_content:
-                            # Find location to insert chart
-                            pattern_location = formatted_content.find(pattern)
-                            if pattern_location != -1:
-                                # Insert chart HTML after the pattern
-                                chart_html = f'''
+                            chart_html = f'''
             <div class="chart-container">
                 <img src="{url}" alt="Analysis Chart {i}" class="chart-image">
                 <p class="chart-description">Chart {i}: Generated from data analysis</p>
             </div>'''
-                                # Insert after the current paragraph
-                                insertion_point = formatted_content.find('</p>', pattern_location)
-                                if insertion_point != -1:
-                                    formatted_content = (formatted_content[:insertion_point + 4] + 
-                                                       chart_html + 
-                                                       formatted_content[insertion_point + 4:])
-                                    embedded_urls.add(url)
-                                    break
+                            formatted_content = formatted_content.replace(pattern, chart_html)
+                            embedded_urls.add(url)
+                            break
+                    
+                    # Replace generic references (only for first image to avoid duplicates)
+                    if i == 1:
+                        for generic in generic_references:
+                            if generic in formatted_content.lower() and url not in formatted_content:
+                                chart_html = f'''
+            <div class="chart-container">
+                <img src="{url}" alt="Analysis Chart" class="chart-image">
+                <p class="chart-description">Visualization from data analysis</p>
+            </div>'''
+                                # Case-insensitive replace
+                                import re
+                                formatted_content = re.sub(re.escape(generic), chart_html, formatted_content, flags=re.IGNORECASE)
+                                embedded_urls.add(url)
+                                break
             
             # If some URLs weren't embedded, add them in a dedicated visualizations section
             missing_urls = [url for url in image_sas_urls if url not in embedded_urls]
@@ -1450,6 +1536,109 @@ SECTION REQUIREMENTS:
             
         except Exception as e:
             print(f"⚠️ Error applying HTML enhancements: {e}")
+            return content
+    
+    def _final_image_embedding_check(self, content: str, image_sas_urls: List[str]) -> str:
+        """
+        Final aggressive check to ensure ALL images are embedded somewhere in the report.
+        This runs after all other processing to catch any missed embeddings.
+        """
+        try:
+            if not image_sas_urls:
+                return content
+            
+            # Check which images are already embedded
+            embedded_count = 0
+            print(f"[DEBUG] Checking embedding status for {len(image_sas_urls)} images...")
+            for i, url in enumerate(image_sas_urls, 1):
+                if url in content:
+                    embedded_count += 1
+                    print(f"[DEBUG] Image {i} already embedded: {url[:80]}...")
+                else:
+                    print(f"[DEBUG] Image {i} NOT embedded: {url[:80]}...")
+            
+            # If all images are embedded, we're good
+            if embedded_count == len(image_sas_urls):
+                print(f"[SUCCESS] All {len(image_sas_urls)} images already embedded in report")
+                return content
+            
+            print(f"[WARNING] Only {embedded_count}/{len(image_sas_urls)} images embedded. Adding missing images...")
+            
+            enhanced_content = content
+            
+            # Find a good location to insert missing images (before footer or at end of content)
+            insertion_points = [
+                '<div class="footer">',
+                '</div>\n</div>\n</body>',
+                '</body>',
+                '</html>'
+            ]
+            
+            insertion_point = -1
+            chosen_marker = None
+            
+            for marker in insertion_points:
+                point = enhanced_content.find(marker)
+                if point != -1:
+                    insertion_point = point
+                    chosen_marker = marker
+                    break
+            
+            if insertion_point == -1:
+                # Just append at the end
+                insertion_point = len(enhanced_content)
+                chosen_marker = ""
+            
+            # Create a comprehensive visualizations section with ALL images
+            viz_section = '''
+    <div class="section-container">
+        <h2 class="section-title">Data Visualizations</h2>
+        <div class="section-content">
+            <p>The following charts and visualizations were generated from your data analysis:</p>
+'''
+            
+            added_images = 0
+            for i, url in enumerate(image_sas_urls, 1):
+                if url not in enhanced_content:  # Only add if not already embedded
+                    # Get context from session memory if available
+                    chart_context = ""
+                    session_charts = self.session_memory.get_charts_for_report()
+                    for chart in session_charts:
+                        if chart['url'] == url:
+                            chart_context = f"Generated from query: {chart['query'][:80]}..."
+                            break
+                    
+                    if not chart_context:
+                        chart_context = f"Visualization {i} generated from your data analysis"
+                    
+                    viz_section += f'''
+            <div class="chart-container">
+                <h3>Chart {i}</h3>
+                <img src="{url}" alt="Analysis Chart {i}" class="chart-image" style="max-width: 100%; height: auto; margin: 10px 0;">
+                <p class="chart-description">{chart_context}</p>
+            </div>
+'''
+                    added_images += 1
+                    print(f"[DEBUG] Added missing image {i}: {url}")
+            
+            print(f"[INFO] Added {added_images} missing images to visualization section")
+            
+            viz_section += '''
+        </div>
+    </div>
+'''
+            
+            # Insert the visualizations section
+            if chosen_marker:
+                enhanced_content = enhanced_content[:insertion_point] + viz_section + enhanced_content[insertion_point:]
+            else:
+                enhanced_content += viz_section
+            
+            print(f"[SUCCESS] Added missing images in dedicated visualization section")
+            return enhanced_content
+            
+        except Exception as e:
+            print(f"[ERROR] Error in final image embedding check: {e}")
             return content
     
     def _validate_html_report_structure(self, content: str) -> Dict[str, Any]:

@@ -935,9 +935,12 @@ except Exception as e:
     print(f"⚠️  Eventlet monkey patch failed: {e}")
     print("   Continuing with threading mode...")
 
+import base64
 import logging
 import os
 import json
+import re
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime
 import threading
@@ -1189,42 +1192,190 @@ def upload_file_with_session():
         logging.exception("Detailed upload error")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+def convert_external_images_to_base64(html_content):
+    """Convert external image URLs in HTML to base64 data URLs - robust version"""
+    
+    # More comprehensive regex to catch different img tag formats
+    img_patterns = [
+        r'<img[^>]+src\s*=\s*["\']([^"\']+)["\'][^>]*>',  # Standard format
+        r'<img[^>]+src\s*=\s*([^\s>]+)[^>]*>',            # No quotes
+    ]
+    
+    converted_urls = set()  # Track converted URLs to avoid duplicates
+    
+    for pattern in img_patterns:
+        matches = list(re.finditer(pattern, html_content, re.IGNORECASE))
+        
+        # Process in reverse order to maintain string indices
+        for match in reversed(matches):
+            full_img_tag = match.group(0)
+            img_url = match.group(1).strip('\'"')  # Remove any quotes
+            
+            # Skip if already processed, base64, or relative URL
+            if (img_url in converted_urls or 
+                img_url.startswith('data:') or 
+                not img_url.startswith(('http://', 'https://'))):
+                continue
+            
+            try:
+                print(f"🔄 Converting: {img_url[:80]}...")
+                
+                # Download with retry logic
+                success = False
+                for attempt in range(2):  # Try twice
+                    try:
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                            'Accept': 'image/*,*/*;q=0.8',
+                            'Cache-Control': 'no-cache'
+                        }
+                        
+                        response = requests.get(img_url, timeout=20, headers=headers, stream=True)
+                        response.raise_for_status()
+                        
+                        # Read content
+                        content = response.content
+                        if len(content) == 0:
+                            raise ValueError("Empty image content")
+                        
+                        success = True
+                        break
+                        
+                    except Exception as e:
+                        print(f"❌ Attempt {attempt + 1} failed: {str(e)}")
+                        if attempt == 1:  # Last attempt
+                            raise
+                
+                if not success:
+                    continue
+                
+                # Determine content type
+                content_type = response.headers.get('content-type', '')
+                if not content_type or not content_type.startswith('image/'):
+                    # Try to guess from URL extension
+                    parsed_url = urlparse(img_url)
+                    extension = os.path.splitext(parsed_url.path)[1].lower()
+                    extension_map = {
+                        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                        '.png': 'image/png', '.gif': 'image/gif',
+                        '.svg': 'image/svg+xml', '.webp': 'image/webp'
+                    }
+                    content_type = extension_map.get(extension, 'image/png')
+                
+                # Convert to base64
+                img_base64 = base64.b64encode(content).decode('utf-8')
+                data_url = f"data:{content_type};base64,{img_base64}"
+                
+                # Create new img tag with base64 src
+                new_img_tag = re.sub(
+                    r'src\s*=\s*["\']?[^"\'>\s]+["\']?', 
+                    f'src="{data_url}"', 
+                    full_img_tag, 
+                    flags=re.IGNORECASE
+                )
+                
+                # Replace in HTML content
+                html_content = html_content.replace(full_img_tag, new_img_tag)
+                converted_urls.add(img_url)
+                
+                print(f"✅ Converted successfully ({len(content)} bytes)")
+                
+            except Exception as e:
+                print(f"❌ Failed to convert {img_url}: {str(e)}")
+                continue
+    
+    logging.info(f"🎯 Total images converted: {len(converted_urls)}")
+    return html_content
+    
 
 @app.route("/generate-pdf", methods=["POST"])
 def generate_pdf():
     """Generate PDF from HTML content using Gotenberg."""
-    html_content = request.data.decode("utf-8")
-
-    # Create a temporary HTML file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8") as tmp_html:
-        tmp_html.write(html_content)
-        tmp_html_path = tmp_html.name
-
+    html_file_path = None
+    pdf_file_path = None
+    
     try:
+        html_content = request.data.decode("utf-8")
+        logging.info(f"📄 Processing HTML content ({len(html_content)} characters)")
+        
+        # Convert external images to base64
+        html_content = convert_external_images_to_base64(html_content)
+        # logging.info(f"converted images ({len(html_content)})")
+
+        # Create temporary HTML file - use delete=False for manual cleanup
+        html_fd, html_file_path = tempfile.mkstemp(suffix=".html", text=True)
+        try:
+            with os.fdopen(html_fd, 'w', encoding='utf-8') as tmp_html:
+                tmp_html.write(html_content)
+        except:
+            os.close(html_fd)  # Close if write failed
+            raise
+
         # Send HTML to Gotenberg
-        with open(tmp_html_path, "rb") as html_file:
+        with open(html_file_path, "rb") as html_file:
             files = {
                 "files": ("index.html", html_file, "text/html"),
             }
+            
+            data = {
+                'waitDelay': '5s',
+                'waitForSelector': 'body',
+                'printBackground': 'true',
+                'emulateMediaType': 'print',
+                'scale': '1.0',
+                'preferCSSPageSize': 'true',
+            }
 
-            response = requests.post(GOTENBERG_URL, files=files)
+            logging.info(f"📤 Sending to Gotenberg...")
+            response = requests.post(GOTENBERG_URL, files=files, data=data, timeout=45)
 
         if response.status_code == 200:
-            # Save PDF to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-                tmp_pdf.write(response.content)
-                tmp_pdf_path = tmp_pdf.name
+            logging.info(f"✅ PDF generated successfully ({len(response.content)} bytes)")
+            
+            # Create temporary PDF file - use delete=False for manual cleanup
+            pdf_fd, pdf_file_path = tempfile.mkstemp(suffix=".pdf")
+            try:
+                with os.fdopen(pdf_fd, 'wb') as tmp_pdf:
+                    tmp_pdf.write(response.content)
+            except:
+                os.close(pdf_fd)  # Close if write failed
+                raise
 
-            return send_file(tmp_pdf_path, as_attachment=True, download_name="output.pdf", mimetype="application/pdf")
+            # Clean up HTML file before sending PDF
+            if html_file_path and os.path.exists(html_file_path):
+                os.remove(html_file_path)
+                html_file_path = None  # Mark as cleaned up
+
+            # Return the PDF file
+            return send_file(
+                pdf_file_path, 
+                as_attachment=True, 
+                download_name="output.pdf", 
+                mimetype="application/pdf"
+            )
         else:
-            return jsonify({"error": "Gotenberg conversion failed", "details": response.text}), 500
+            logging.info(f"❌ Gotenberg failed: {response.status_code}")
+            return jsonify({
+                "error": "Gotenberg conversion failed", 
+                "status_code": response.status_code,
+                "details": response.text
+            }), 500
+
+    except Exception as e:
+        logging.info(f"💥 Error in generate_pdf: {str(e)}")
+        return jsonify({"error": "PDF generation failed", "details": str(e)}), 500
 
     finally:
-        # Clean up temp HTML (PDF will be deleted by Flask after send_file)
-        if os.path.exists(tmp_html_path):
-            os.remove(tmp_html_path)
+        # Clean up HTML file if it still exists
+        if html_file_path and os.path.exists(html_file_path):
+            try:
+                os.remove(html_file_path)
+            except:
+                pass  # Ignore cleanup errors
 
+        # Note: PDF file cleanup is handled by Flask after send_file completes
  # SESSION MANAGEMENT ROUTES
+
 @app.route('/session/<session_id>/info', methods=['GET', 'OPTIONS'])
 def get_session_info(session_id):
     """Get information about a specific session - ENHANCED for Assistants"""
@@ -1256,15 +1407,22 @@ def get_session_info(session_id):
         # Add enhanced analyzer capabilities info
         enhanced_info = {}
         if isinstance(analyzer, EnhancedStreamingAnalyzer):
-            enhanced_info = {
+            enhanced_info ={
                 'enhanced_analyzer': True,
-                'assistants_enabled': True,  # New
-                'thread_id': getattr(analyzer, 'thread_id', None),  # New
-                'uploaded_files_count': len(getattr(analyzer, 'current_file_ids', [])),  # New
+                'ai_routing_enabled': True,  # NEW
+                'query_router_available': hasattr(analyzer.query_classifier, 'routers'),  # NEW
+                'assistants_enabled': True,
+                'thread_id': getattr(analyzer, 'thread_id', None),
+                'uploaded_files_count': len(getattr(analyzer, 'current_file_ids', [])),
                 'capabilities': analyzer.get_analysis_capabilities(),
-                'conversation_context': analyzer.get_conversation_context()
+                'conversation_context': analyzer.get_conversation_context(),
+                'routing_features': {  # NEW
+                    'intelligent_classification': True,
+                    'context_aware_routing': True,
+                    'automatic_fallback': True,
+                    'dynamic_assistant_selection': True
+                }
             }
-        
         # Add data preview if DataFrame is available
         data_preview = None
         if analyzer.df is not None:
@@ -1679,6 +1837,7 @@ def list_sessions():
                 # Add enhanced analyzer info
                 if isinstance(analyzers[session_id], EnhancedStreamingAnalyzer):
                     session_summary['enhanced_analyzer'] = True
+                    session_summary['ai_routing_enabled'] = True  # NEW
                     session_summary['assistants_enabled'] = True
                     session_summary['thread_id'] = getattr(analyzers[session_id], 'thread_id', None)
                 
@@ -1695,8 +1854,13 @@ def list_sessions():
                            if isinstance(analyzer, EnhancedStreamingAnalyzer))
         assistants_count = sum(1 for analyzer in analyzers.values() 
                              if isinstance(analyzer, EnhancedStreamingAnalyzer) and hasattr(analyzer, 'thread_id'))
+        ai_routing_count = sum(1 for analyzer in analyzers.values()
+                             if isinstance(analyzer, EnhancedStreamingAnalyzer) and 
+                             hasattr(analyzer.query_classifier, 'routers'))
+
         stats['enhanced_analyzers_count'] = enhanced_count
         stats['assistants_enabled_count'] = assistants_count
+        stats['ai_routing_enabled_count'] = ai_routing_count
         
         response = jsonify({
             'success': True,
@@ -2641,12 +2805,21 @@ def handle_get_session_status(data):
 # ==================== BACKGROUND TASKS ====================
 
 def cleanup_session_data_with_assistants(session_id: str, session_data: dict, analyzers: dict):
-    """Enhanced cleanup that includes assistants resources"""
+    """Enhanced cleanup that includes AI routing and assistants resources"""
     deleted_items = []
     
-    # Remove from analyzers with assistants cleanup
+    # Remove from analyzers with enhanced cleanup
     if session_id in analyzers:
         analyzer = analyzers[session_id]
+        
+        # Enhanced cleanup for AI routing
+        if hasattr(analyzer, 'query_classifier') and hasattr(analyzer.query_classifier, 'cleanup_session'):
+            try:
+                analyzer.query_classifier.cleanup_session(session_id)
+                deleted_items.append('ai_query_router')
+                print(f"🧭 Cleaned up AI query router for session: {session_id}")
+            except Exception as e:
+                print(f"⚠️ Error cleaning up AI query router: {e}")
         
         # Enhanced cleanup for assistants
         if hasattr(analyzer, 'cleanup_assistants_resources'):
@@ -2661,8 +2834,34 @@ def cleanup_session_data_with_assistants(session_id: str, session_data: dict, an
             analyzer.cleanup()
         
         del analyzers[session_id]
-        deleted_items.append('analyzer')
-        print(f"🗑️ Deleted enhanced analyzer for session: {session_id}")
+        deleted_items.append('enhanced_analyzer')
+        print(f"🗑️ Deleted enhanced analyzer with AI routing for session: {session_id}")
+    
+    # Remove from session data (existing logic)
+    if session_id in session_data:
+        file_path = session_data[session_id].get('filepath')
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                deleted_items.append('uploaded_file')
+                print(f"🗑️ Deleted uploaded file: {file_path}")
+            except Exception as e:
+                print(f"⚠️ Could not delete file {file_path}: {e}")
+        
+        del session_data[session_id]
+        deleted_items.append('session_data')
+        print(f"🗑️ Deleted session data for: {session_id}")
+    
+    # Clear stop signals (existing logic)
+    if hasattr(__import__('utils.utils'), 'stop_signals'):
+        stop_signals = getattr(__import__('utils.utils'), 'stop_signals')
+        if session_id in stop_signals:
+            del stop_signals[session_id]
+            deleted_items.append('stop_signal')
+            print(f"🗑️ Cleared stop signal for: {session_id}")
+    
+    return deleted_items
+
     
     # Remove from session data
     if session_id in session_data:

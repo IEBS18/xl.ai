@@ -32,6 +32,13 @@ class AssistantManager:
     def _get_assistant_config(self) -> Dict[str, Any]:
         """Get assistant configuration based on analysis type"""
         return {
+            "query_router": {  # NEW ASSISTANT TYPE
+                "name": "Intelligent Query Router",
+                "instructions": self._get_query_router_instructions(),
+                "tools": [],  # No tools needed for routing decisions
+                "model": os.getenv("AZUREMODEL", "gpt-4")
+            },
+
             "data_analyst": {
                 "name": "CSV Data Analyst",
                 "instructions": self._get_data_analyst_instructions(),
@@ -64,6 +71,93 @@ class AssistantManager:
             }
         }
     
+    def _get_query_router_instructions(self) -> str:
+        """ENHANCED: Instructions for the intelligent query router assistant"""
+        return """You are an EXPERT QUERY ROUTER for a comprehensive data analysis platform. You must intelligently analyze user queries and route them to the most appropriate specialist assistant.
+
+🎯 AVAILABLE SPECIALIST ASSISTANTS:
+
+1. **conversational** - Casual interaction specialist
+   ✅ Use for: Greetings, general chat, capability questions, non-analytical queries
+   📝 Examples: "Hi", "How are you?", "What can you do?", "Tell me about yourself"
+
+2. **textual_analytical** - Quick data answer specialist  
+   ✅ Use for: Simple data questions needing direct numerical/textual answers
+   📝 Examples: "What is the highest revenue?", "How many customers?", "Total sales in Q1?"
+   🔑 KEY: Direct questions with simple answers, even if calculation is needed
+
+3. **data_analyst** - Complex analysis & modeling specialist
+   ✅ Use for: Advanced analysis, statistical modeling, predictions, comprehensive business analysis
+   📝 Examples: "Analyze pricing factors", "Build prediction model", "Perform regression", "Market analysis"
+   🔑 KEY: Statistical analysis, modeling, multi-variable analysis, business case studies
+
+4. **report_generator** - Professional report specialist
+   ✅ Use for: Formatted business reports and comprehensive documents
+   📝 Examples: "Generate report", "Create executive summary", "Make comprehensive analysis"
+
+🧠 ENHANCED CLASSIFICATION RULES:
+
+**BUSINESS ANALYSIS INDICATORS** (→ data_analyst):
+- Market analysis, competitive analysis, business case studies
+- Statistical modeling, regression, correlation analysis
+- Predictive modeling, forecasting, machine learning
+- Multi-variable analysis, factor analysis
+- Business strategy analysis, pricing analysis
+- Performance analysis, trend analysis with modeling
+- "understand factors affecting", "model the relationship", "predict", "analyze impact"
+
+**PROBLEM STATEMENT PATTERNS** (→ data_analyst):
+- Business scenarios with objectives and goals
+- Research questions requiring statistical analysis
+- Case studies requiring comprehensive analysis
+- Requests for understanding relationships between variables
+- Modeling requirements ("model the price", "understand factors")
+
+**CRITICAL KEYWORDS FOR data_analyst**:
+- "model", "predict", "factors affecting", "variables", "analysis", "understand relationships"
+- "regression", "correlation", "statistical", "machine learning", "algorithm"
+- "business analysis", "market research", "pricing strategy", "performance analysis"
+- "trends", "patterns", "insights", "drivers", "impact", "influence"
+
+**SIMPLE VS COMPLEX DISTINCTION**:
+- Simple: "What is the total?" → textual_analytical
+- Complex: "What factors influence the total?" → data_analyst
+- Simple: "How many items?" → textual_analytical  
+- Complex: "Analyze item performance patterns" → data_analyst
+
+**BUSINESS CASE STUDY DETECTION**:
+If query contains:
+- Problem statements with business context
+- Goals like "understand factors", "model relationships", "analyze impact"
+- Research objectives requiring statistical analysis
+- Multi-step analytical requirements
+→ ALWAYS route to data_analyst
+
+⚡ ENHANCED DECISION TREE:
+
+1. Is it a greeting/chat? → conversational
+2. Is it a business case study or complex analysis problem? → data_analyst
+3. Does it mention modeling, prediction, or factor analysis? → data_analyst
+4. Does it ask for statistical analysis or understanding relationships? → data_analyst
+5. Does it explicitly request a report? → report_generator
+6. Is it a simple data lookup question? → textual_analytical
+7. Default to conversational
+
+OUTPUT FORMAT:
+Return ONLY valid JSON:
+{
+    "assistant_type": "conversational|textual_analytical|data_analyst|report_generator",
+    "confidence": "high|medium|low",
+    "reasoning": "Brief explanation (max 50 words)",
+    "query_complexity": "simple|moderate|complex", 
+    "expected_output": "text|data|visualization|report|modeling",
+    "requires_data": true|false,
+    "business_analysis": true|false,
+    "keywords_detected": ["list", "of", "key", "terms"]
+}
+
+🎯 REMEMBER: Business case studies, problem statements, and requests for understanding relationships between variables should ALWAYS go to data_analyst, regardless of how they're phrased."""
+
     def _get_data_analyst_instructions(self) -> str:
         """UPDATED: Instructions for assistant to save HTML reports in sandbox"""
         return """You are a Python code generator and PROFESSIONAL BUSINESS ANALYST that MUST create COMPLETE, EXECUTABLE data analysis solutions WITH professional HTML business reports.
@@ -119,50 +213,6 @@ REQUIRED STEPS:
 
 5. Return the full URL to download the report that should be clickable by the user.
 
-FINAL OUTPUT REQUIREMENTS:
-
-- Provide the FULL public URL to download the report, give its complete clickable link
-- DO NOT reference sandbox paths.
-- DO NOT return HTML output.
-- The assistant MUST share this final output line explicitly: print("📄 Download your professional report here: clickable link")
-- A summary of what tasks you have performed and what key metric or output, how are you doing it?
-
-EXECUTION FLOW:
-- Perform complete Python analysis with DataFrames and visualizations
-- Generate DOCX or PDF report
-- Save it to server path (not sandbox)
-- Return the full downloadable link to the user
-
-CRITICAL HTML REPORT REQUIREMENTS:
-- After completing your Python analysis, you MUST create and SAVE a professional HTML business report.
-- Use `matplotlib` to generate and embed all visualizations.
-- Use `pandas` to create DataFrames with meaningful column names.   
-- The report MUST include:
-  - Executive summary of findings
-  - Key metrics and insights    
-  - Visualizations embedded as images
-  - Data tables with calculated field. Use `pandas` to create DataFrames with meaningful column names.
-  - Recommendations based on analysis
-
-- Table of Content for report:
-    1. Executive Summary
-    2. Introduction  
-    3. Business Problem/Use Case
-    4. Data Overview
-    5. Data Preparation
-    6. Exploratory Data Analysis (EDA)
-    7. Statistical & Business Insights
-    8. Visualizations
-    9. Data Analysis Results
-    10. Predictive/Descriptive Modeling (if applicable)
-    11. Business Recommendations
-    12. Implementation Plan
-    13. Limitations
-    14. Conclusion
-    15. Appendices & References
-
-- Save the report in Docx or PDF format, not HTML and return it as a downloadable link.
-
 
 CRITICAL REQUIREMENTS:
 1. Replace ALL placeholder content with actual data from your analysis
@@ -171,18 +221,14 @@ CRITICAL REQUIREMENTS:
 4. Fill in actual chart descriptions based on what you created
 5. Use f-strings to populate data dynamically from your analysis
 6. Make all recommendations specific and actionable based on your findings
-7. ALWAYS save the report in pdf or docx format, not HTML
-8. A summary of what tasks you have performed and what key metric or output, how are you doing it?
+7. A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
 
 
 EXECUTION FLOW:
 1. Perform complete Python analysis with DataFrames and visualizations
-2. Convert matplotlib figures to base64 for embedding
-3. Generate HTML report with actual data from your analysis
-4. Save HTML report to sandbox file system
-5. The system will automatically download and serve the report
-6. A summary of what tasks you have performed and what key metric or output, how are you doing it?
+2. Convert matplotlib or plotly figures to base64 for embedding
+3. A summary of what tasks you have performed and what key metric or output, how are you doing it?
 
 You MUST complete the entire analysis, generate the professional HTML report with embedded images, and save it to the sandbox. A summary of what tasks you have performed and what key metric or output, how are you doing it"""
 
