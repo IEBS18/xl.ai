@@ -946,6 +946,7 @@ from datetime import datetime
 import threading
 import traceback
 from pathlib import Path
+import asyncio
 
 from flask import Flask, render_template, request, jsonify, session, send_file, Response
 from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
@@ -1193,78 +1194,125 @@ def upload_file_with_session():
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 def convert_external_images_to_base64(html_content):
-    """Convert external image URLs in HTML to base64 data URLs - robust version"""
+    """
+    Convert external image URLs in HTML to base64 data URLs - FIXED VERSION
+    Handles duplicate images by downloading once and reusing base64 data
+    """
     
     # More comprehensive regex to catch different img tag formats
-    img_patterns = [
-        r'<img[^>]+src\s*=\s*["\']([^"\']+)["\'][^>]*>',  # Standard format
-        r'<img[^>]+src\s*=\s*([^\s>]+)[^>]*>',            # No quotes
-    ]
+    img_pattern = r'<img[^>]+src\s*=\s*["\']([^"\']+)["\'][^>]*>'
     
-    converted_urls = set()  # Track converted URLs to avoid duplicates
+    # Cache for downloaded images: URL -> base64 data URL
+    image_cache = {}
+    processed_count = 0
     
-    for pattern in img_patterns:
-        matches = list(re.finditer(pattern, html_content, re.IGNORECASE))
+    logging.info(f"Starting image conversion process...")
+    
+    def replace_img_src(match):
+        nonlocal processed_count
+        full_img_tag = match.group(0)
+        img_url = match.group(1).strip('\'"')  # Remove any quotes
         
-        # Process in reverse order to maintain string indices
-        for match in reversed(matches):
-            full_img_tag = match.group(0)
-            img_url = match.group(1).strip('\'"')  # Remove any quotes
+        # Skip if already base64 or relative URL
+        if (img_url.startswith('data:') or 
+            not img_url.startswith(('http://', 'https://'))):
+            return full_img_tag
+        
+        # Check if we already have this image cached
+        if img_url in image_cache:
+            logging.info(f"🔄 Using cached base64 for: {img_url[:80]}...")
+            # Create new img tag with cached base64 src
+            new_img_tag = re.sub(
+                r'src\s*=\s*["\']?[^"\'>\s]+["\']?', 
+                f'src="{image_cache[img_url]}"', 
+                full_img_tag, 
+                flags=re.IGNORECASE
+            )
+            processed_count += 1
+            return new_img_tag
+        
+        try:
+            logging.info(f"🔄 Converting: {img_url[:80]}...")
             
-            # Skip if already processed, base64, or relative URL
-            if (img_url in converted_urls or 
-                img_url.startswith('data:') or 
-                not img_url.startswith(('http://', 'https://'))):
-                continue
+            # Download with retry logic and proper headers
+            success = False
+            content = None
+            content_type = None
             
-            try:
-                print(f"🔄 Converting: {img_url[:80]}...")
-                
-                # Download with retry logic
-                success = False
-                for attempt in range(2):  # Try twice
-                    try:
-                        headers = {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                            'Accept': 'image/*,*/*;q=0.8',
-                            'Cache-Control': 'no-cache'
-                        }
-                        
-                        response = requests.get(img_url, timeout=20, headers=headers, stream=True)
-                        response.raise_for_status()
-                        
-                        # Read content
-                        content = response.content
-                        if len(content) == 0:
-                            raise ValueError("Empty image content")
-                        
-                        success = True
-                        break
-                        
-                    except Exception as e:
-                        print(f"❌ Attempt {attempt + 1} failed: {str(e)}")
-                        if attempt == 1:  # Last attempt
-                            raise
-                
-                if not success:
-                    continue
-                
-                # Determine content type
-                content_type = response.headers.get('content-type', '')
-                if not content_type or not content_type.startswith('image/'):
-                    # Try to guess from URL extension
-                    parsed_url = urlparse(img_url)
-                    extension = os.path.splitext(parsed_url.path)[1].lower()
-                    extension_map = {
-                        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                        '.png': 'image/png', '.gif': 'image/gif',
-                        '.svg': 'image/svg+xml', '.webp': 'image/webp'
+            for attempt in range(3):  # Try 3 times
+                try:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
                     }
-                    content_type = extension_map.get(extension, 'image/png')
-                
-                # Convert to base64
+                    
+                    response = requests.get(
+                        img_url, 
+                        timeout=30, 
+                        headers=headers, 
+                        stream=False,
+                        allow_redirects=True,
+                        verify=True
+                    )
+                    response.raise_for_status()
+                    
+                    # Read content
+                    content = response.content
+                    if len(content) == 0:
+                        raise ValueError("Empty image content")
+                    
+                    # Get content type
+                    content_type = response.headers.get('content-type', '').lower()
+                    
+                    success = True
+                    break
+                    
+                except Exception as e:
+                    logging.warning(f"⚠️ Attempt {attempt + 1} failed for {img_url}: {str(e)}")
+                    if attempt == 2:  # Last attempt
+                        raise
+            
+            if not success or not content:
+                logging.error(f"❌ Failed to download {img_url}")
+                return full_img_tag
+            
+            # Determine content type if not provided or invalid
+            if not content_type or not content_type.startswith('image/'):
+                # Try to guess from URL extension
+                parsed_url = urlparse(img_url)
+                extension = os.path.splitext(parsed_url.path)[1].lower()
+                extension_map = {
+                    '.jpg': 'image/jpeg', 
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png', 
+                    '.gif': 'image/gif',
+                    '.svg': 'image/svg+xml', 
+                    '.webp': 'image/webp',
+                    '.bmp': 'image/bmp',
+                    '.tiff': 'image/tiff',
+                    '.ico': 'image/x-icon'
+                }
+                content_type = extension_map.get(extension, 'image/png')
+            
+            # Clean content type (remove charset and other parameters)
+            content_type = content_type.split(';')[0].strip()
+            
+            # Convert to base64
+            try:
                 img_base64 = base64.b64encode(content).decode('utf-8')
                 data_url = f"data:{content_type};base64,{img_base64}"
+                
+                # Validate base64 encoding
+                if len(img_base64) < 10:
+                    raise ValueError("Base64 encoding too short")
+                
+                # Cache the base64 data URL for reuse
+                image_cache[img_url] = data_url
                 
                 # Create new img tag with base64 src
                 new_img_tag = re.sub(
@@ -1274,108 +1322,185 @@ def convert_external_images_to_base64(html_content):
                     flags=re.IGNORECASE
                 )
                 
-                # Replace in HTML content
-                html_content = html_content.replace(full_img_tag, new_img_tag)
-                converted_urls.add(img_url)
+                processed_count += 1
+                logging.info(f"✅ Converted successfully ({len(content)} bytes) -> {len(img_base64)} base64 chars")
                 
-                print(f"✅ Converted successfully ({len(content)} bytes)")
+                return new_img_tag
                 
-            except Exception as e:
-                print(f"❌ Failed to convert {img_url}: {str(e)}")
-                continue
+            except Exception as encode_error:
+                logging.error(f"❌ Base64 encoding failed for {img_url}: {str(encode_error)}")
+                return full_img_tag
+                
+        except Exception as e:
+            logging.error(f"❌ Failed to convert {img_url}: {str(e)}")
+            return full_img_tag
     
-    logging.info(f"🎯 Total images converted: {len(converted_urls)}")
-    return html_content
-    
+    # Process all img tags
+    try:
+        updated_html = re.sub(img_pattern, replace_img_src, html_content, flags=re.IGNORECASE)
+        logging.info(f"🎯 Total unique images downloaded: {len(image_cache)}")
+        logging.info(f"🎯 Total image tags processed: {processed_count}")
+        return updated_html
+    except Exception as e:
+        logging.error(f"❌ Error processing HTML: {str(e)}")
+        return html_content
+
+
+async def generate_pdf_with_playwright(html_content):
+    """
+    Generate PDF using Playwright - works perfectly in Docker
+    """
+    try:
+        from playwright.async_api import async_playwright
+        
+        async with async_playwright() as p:
+            # Launch browser with Docker-friendly settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection'
+                ]
+            )
+            
+            page = await browser.new_page()
+            
+            # Set viewport for consistent rendering
+            await page.set_viewport_size({"width": 1200, "height": 800})
+            
+            # Set content and wait for everything to load
+            await page.set_content(html_content, wait_until='networkidle')
+            
+            # Wait for all images to load (this handles external images automatically)
+            await page.wait_for_load_state('networkidle')
+            
+            # Additional wait for any lazy-loaded content
+            await page.wait_for_timeout(5000)  # 5 seconds
+            
+            # Wait for all images specifically
+            try:
+                await page.wait_for_function("""
+                    () => {
+                        const images = Array.from(document.images);
+                        return images.every(img => img.complete);
+                    }
+                """, timeout=10000)
+            except:
+                logging.warning("Some images may not have loaded completely")
+            
+            # Generate PDF with high quality settings
+            pdf_bytes = await page.pdf(
+                format='A4',
+                margin={
+                    'top': '0.4in',
+                    'bottom': '0.4in', 
+                    'left': '0.4in',
+                    'right': '0.4in'
+                },
+                print_background=True,
+                prefer_css_page_size=True,
+                display_header_footer=False,
+                scale=1.0
+            )
+            
+            await browser.close()
+            logging.info(f"✅ PDF generated successfully with Playwright ({len(pdf_bytes)} bytes)")
+            return pdf_bytes
+            
+    except Exception as e:
+        logging.error(f"❌ Playwright PDF generation failed: {e}")
+        raise
+
+
+def generate_pdf_with_playwright_sync(html_content):
+    """Synchronous wrapper for Playwright - handles event loops properly"""
+    try:
+        # Check if we're in an existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in a running loop, we need to use run_in_executor
+            import concurrent.futures
+            import threading
+            
+            def run_async():
+                return asyncio.run(generate_pdf_with_playwright(html_content))
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async)
+                return future.result(timeout=60)  # 60 second timeout
+                
+        except RuntimeError:
+            # No event loop running, safe to use asyncio.run
+            return asyncio.run(generate_pdf_with_playwright(html_content))
+            
+    except Exception as e:
+        logging.error(f"❌ Playwright sync wrapper failed: {e}")
+        raise
+
 
 @app.route("/generate-pdf", methods=["POST"])
 def generate_pdf():
-    """Generate PDF from HTML content using Gotenberg."""
-    html_file_path = None
-    pdf_file_path = None
-    
+    """
+    Generate PDF from HTML content using Playwright - DOCKER OPTIMIZED
+    """
     try:
         html_content = request.data.decode("utf-8")
         logging.info(f"📄 Processing HTML content ({len(html_content)} characters)")
         
-        # Convert external images to base64
-        html_content = convert_external_images_to_base64(html_content)
-        # logging.info(f"converted images ({len(html_content)})")
-
-        # Create temporary HTML file - use delete=False for manual cleanup
-        html_fd, html_file_path = tempfile.mkstemp(suffix=".html", text=True)
-        try:
-            with os.fdopen(html_fd, 'w', encoding='utf-8') as tmp_html:
-                tmp_html.write(html_content)
-        except:
-            os.close(html_fd)  # Close if write failed
-            raise
-
-        # Send HTML to Gotenberg
-        with open(html_file_path, "rb") as html_file:
-            files = {
-                "files": ("index.html", html_file, "text/html"),
-            }
-            
-            data = {
-                'waitDelay': '5s',
-                'waitForSelector': 'body',
-                'printBackground': 'true',
-                'emulateMediaType': 'print',
-                'scale': '1.0',
-                'preferCSSPageSize': 'true',
-            }
-
-            logging.info(f"📤 Sending to Gotenberg...")
-            response = requests.post(GOTENBERG_URL, files=files, data=data, timeout=45)
-
-        if response.status_code == 200:
-            logging.info(f"✅ PDF generated successfully ({len(response.content)} bytes)")
-            
-            # Create temporary PDF file - use delete=False for manual cleanup
-            pdf_fd, pdf_file_path = tempfile.mkstemp(suffix=".pdf")
-            try:
-                with os.fdopen(pdf_fd, 'wb') as tmp_pdf:
-                    tmp_pdf.write(response.content)
-            except:
-                os.close(pdf_fd)  # Close if write failed
-                raise
-
-            # Clean up HTML file before sending PDF
-            if html_file_path and os.path.exists(html_file_path):
-                os.remove(html_file_path)
-                html_file_path = None  # Mark as cleaned up
-
-            # Return the PDF file
-            return send_file(
-                pdf_file_path, 
-                as_attachment=True, 
-                download_name="output.pdf", 
-                mimetype="application/pdf"
-            )
-        else:
-            logging.info(f"❌ Gotenberg failed: {response.status_code}")
-            return jsonify({
-                "error": "Gotenberg conversion failed", 
-                "status_code": response.status_code,
-                "details": response.text
-            }), 500
-
+        # Count images for debugging
+        import re
+        img_pattern = r'<img[^>]*?src\s*=\s*["\']([^"\']+)["\']'
+        images = re.findall(img_pattern, html_content, re.IGNORECASE)
+        external_images = [img for img in images if img.startswith(('http://', 'https://'))]
+        
+        logging.info(f"🔍 Found {len(images)} total images, {len(external_images)} external")
+        
+        # Generate PDF with Playwright (handles images automatically)
+        pdf_bytes = generate_pdf_with_playwright_sync(html_content)
+        
+        if not pdf_bytes:
+            raise ValueError("PDF generation returned empty result")
+        
+        # Create temporary PDF file
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+            f.write(pdf_bytes)
+            pdf_path = f.name
+        
+        logging.info(f"💾 PDF saved to: {pdf_path}")
+        
+        return send_file(
+            pdf_path,
+            as_attachment=True,
+            download_name="business_analysis_report.pdf",
+            mimetype="application/pdf"
+        )
+        
+    except ImportError as e:
+        logging.error(f"❌ Playwright not available: {e}")
+        return jsonify({
+            "error": "Playwright not installed", 
+            "details": "Please install playwright: pip install playwright && playwright install chromium"
+        }), 500
+        
     except Exception as e:
-        logging.info(f"💥 Error in generate_pdf: {str(e)}")
-        return jsonify({"error": "PDF generation failed", "details": str(e)}), 500
-
-    finally:
-        # Clean up HTML file if it still exists
-        if html_file_path and os.path.exists(html_file_path):
-            try:
-                os.remove(html_file_path)
-            except:
-                pass  # Ignore cleanup errors
-
-        # Note: PDF file cleanup is handled by Flask after send_file completes
- # SESSION MANAGEMENT ROUTES
-
+        logging.error(f"💥 Error in generate_pdf: {str(e)}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            "error": "PDF generation failed", 
+            "details": str(e)
+        }), 500
+    
 @app.route('/session/<session_id>/info', methods=['GET', 'OPTIONS'])
 def get_session_info(session_id):
     """Get information about a specific session - ENHANCED for Assistants"""
