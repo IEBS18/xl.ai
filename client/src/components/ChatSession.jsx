@@ -21,48 +21,59 @@ const ChatSession = () => {
   const [loading, setLoading] = useState(true)
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
   const [currentQueryCategory, setCurrentQueryCategory] = useState(null)
-  
+
   // Sidebar state - Default to collapsed
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
   const [chatHistory, setChatHistory] = useState([])
   
-  const { messages, addMessage, handleStreamData, ...messageProps } = useMessages()
-  
+  // Track if we've set the initial file processing state to prevent loops
+  const [hasSetInitialProcessingState, setHasSetInitialProcessingState] = useState(false)
+
+  // Updated useMessages hook now includes file processing state
+  const {
+    messages,
+    addMessage,
+    handleStreamData,
+    isFileProcessing,        // File processing state from useMessages
+    setFileProcessingState,  // Function to control file processing state
+    ...messageProps
+  } = useMessages()
+
   // Enhanced socket handling for different query types
   const { socket, isConnected, sendMessage } = useSocket(
     BACKEND_URL,
     (data) => {
       console.log('Socket data received:', data)
-      
-      handleStreamData(data)
-      
-      if (data.type === "completion" || 
-          data.type === "analysis_complete" ||
-          data.type === "conversational_complete") {
-        
+
+      handleStreamData(data) // This now handles assistant_upload_complete automatically
+
+      if (data.type === "completion" ||
+        data.type === "analysis_complete" ||
+        data.type === "conversational_complete") {
+
         setIsAnalyzing(false)
-        
+
         if (data.result && data.result.query_category) {
           console.log('Query completed with category:', data.result.query_category)
         }
-        
+
         setCurrentQueryCategory(null)
-        
+
         // Update chat history when conversation completes
         updateChatHistory()
       }
-      
+
       if (data.type === "output") {
         setIsAnalyzing(false)
         setCurrentQueryCategory(null)
         updateChatHistory()
       }
-      
+
       if (data.type === "error") {
         setIsAnalyzing(false)
         setCurrentQueryCategory(null)
       }
-      
+
       if (data.type === "analysis_started") {
         console.log('Analysis started')
         setIsAnalyzing(true)
@@ -72,11 +83,16 @@ const ChatSession = () => {
     sessionId
   )
 
-  const { 
-    fileUploaded, 
-    fileInfo, 
+  // Enhanced file upload hook with processing state handling
+  const {
+    fileUploaded,
+    fileInfo,
     validateSession,
-    ...fileProps 
+    uploadProgress,
+    fileInputRef,
+    handleFileUpload: originalHandleFileUpload,
+    triggerFileUpload: originalTriggerFileUpload,
+    ...fileProps
   } = useSessionFileUpload(
     BACKEND_URL,
     sessionId,
@@ -84,6 +100,36 @@ const ChatSession = () => {
       addMessage(type, content)
     }
   )
+
+  // Enhanced file upload handler with processing state
+  const handleEnhancedFileUpload = async (event) => {
+    try {
+      // Set processing state to true when upload starts
+      setFileProcessingState(true)
+      console.log('🔄 Starting file processing...')
+
+      // Call the original file upload handler
+      await originalHandleFileUpload(event)
+
+      // Note: Don't set processing to false here - 
+      // it will be automatically set to false when 
+      // assistant_upload_complete event is received via handleStreamData
+    } catch (error) {
+      console.error('File upload failed:', error)
+      // Reset processing state on error
+      setFileProcessingState(false)
+    }
+  }
+
+  // Enhanced trigger file upload with processing check
+  const handleEnhancedTriggerFileUpload = () => {
+    // Only trigger if not currently processing
+    if (!isFileProcessing) {
+      originalTriggerFileUpload()
+    } else {
+      console.log('⏳ File is currently being processed, please wait...')
+    }
+  }
 
   // Load chat history from localStorage or API
   const loadChatHistory = async () => {
@@ -93,7 +139,7 @@ const ChatSession = () => {
       if (savedHistory) {
         setChatHistory(JSON.parse(savedHistory))
       }
-      
+
       // Then try to load from API if authenticated
       if (isAuthenticated) {
         // You can implement an API call here to fetch user's chat history
@@ -115,7 +161,7 @@ const ChatSession = () => {
     if (messages.length > 0) {
       const lastUserMessage = [...messages].reverse().find(msg => msg.type === 'user')
       const lastAssistantMessage = [...messages].reverse().find(msg => msg.type === 'assistant' || msg.type === 'output')
-      
+
       if (lastUserMessage) {
         const chatEntry = {
           id: sessionId,
@@ -124,14 +170,14 @@ const ChatSession = () => {
           createdAt: new Date().toISOString(),
           attachedFiles: fileInfo ? [fileInfo.filename] : []
         }
-        
+
         setChatHistory(prev => {
           const updated = prev.filter(chat => chat.id !== sessionId)
           const newHistory = [chatEntry, ...updated].slice(0, 50) // Keep last 50 chats
-          
+
           // Save to localStorage
           localStorage.setItem('chatHistory', JSON.stringify(newHistory))
-          
+
           return newHistory
         })
       }
@@ -184,9 +230,25 @@ const ChatSession = () => {
     }
   }, [messages, sessionValid])
 
-  // Enhanced message sending with query classification support
+  // Set initial file processing state when file is uploaded (only once to prevent loops)
+  useEffect(() => {
+    if (fileUploaded && !hasSetInitialProcessingState) {
+      console.log('🔄 Session file detected on page load - file already processed, NOT setting processing state')
+      // Don't automatically set processing to true on page reload
+      // File uploads that were already completed should stay completed
+      setHasSetInitialProcessingState(true)
+    }
+  }, [fileUploaded, hasSetInitialProcessingState, setFileProcessingState])
+
+  // Enhanced message sending with query classification support and processing check
   const handleSendMessage = (message) => {
-    if (!message.trim() || isAnalyzing) return
+    if (!message.trim() || isAnalyzing || isFileProcessing) {
+      if (isFileProcessing) {
+        addMessage("error", "Please wait for the file to finish processing before sending messages.")
+        return
+      }
+      return
+    }
 
     if (!isConnected) {
       addMessage("error", "Not connected to server. Please check your connection.")
@@ -200,7 +262,7 @@ const ChatSession = () => {
 
     const classifyQueryLocally = (query) => {
       const lowerQuery = query.toLowerCase().trim()
-      
+
       if (lowerQuery.match(/^(hi|hello|hey|what can you|what do you|help|thanks|thank you|bye|goodbye)/)) {
         return "conversational"
       } else if (lowerQuery.match(/(what is|what's|how many|average|maximum|minimum|sum|count|total)/)) {
@@ -208,20 +270,20 @@ const ChatSession = () => {
       } else if (lowerQuery.match(/(generate|create|analyze|forecast|predict|report|comprehensive|detailed)/)) {
         return "fully_analytical"
       }
-      
+
       return "unknown"
     }
 
     const estimatedCategory = classifyQueryLocally(message)
     console.log('Estimated query category:', estimatedCategory)
-    
+
     if (estimatedCategory !== "unknown") {
       setCurrentQueryCategory(estimatedCategory)
     }
 
     addMessage("user", message, true, estimatedCategory)
     setIsAnalyzing(true)
-    
+
     sendMessage(message)
   }
 
@@ -249,7 +311,7 @@ const ChatSession = () => {
       localStorage.setItem('chatHistory', JSON.stringify(updated))
       return updated
     })
-    
+
     // If deleting current chat, go to home
     if (chatId === sessionId) {
       navigate('/')
@@ -272,6 +334,21 @@ const ChatSession = () => {
   const closeAuthModal = () => {
     setAuthModal({ isOpen: false, mode: "login" })
   }
+
+  // Debug logging
+  console.log('🔍 ChatSession State Check:', {
+    isFileProcessing: isFileProcessing,
+    typeOfIsFileProcessing: typeof isFileProcessing,
+    setFileProcessingState: typeof setFileProcessingState,
+    fileUploaded,
+    fileInfo: fileInfo ? fileInfo.filename : null,
+    hasSetInitialProcessingState
+  })
+
+  // Monitor file processing state changes
+  useEffect(() => {
+    console.log('📊 File Processing State Changed in ChatSession:', isFileProcessing)
+  }, [isFileProcessing])
 
   // Show loading while checking auth or session
   if (isLoading || loading) {
@@ -315,7 +392,7 @@ const ChatSession = () => {
             </div>
           </div>
         </div>
-        
+
         <AuthModal
           isOpen={authModal.isOpen}
           mode={authModal.mode}
@@ -362,16 +439,16 @@ const ChatSession = () => {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleSidebarToggle}
         />
-        
+
         {/* Main Content Area - No header in chat session */}
-        <div 
+        <div
           className="flex-1 flex flex-col transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)]"
           style={{
             marginLeft: isSidebarCollapsed ? '64px' : '320px'
           }}
         >
           {/* No Header component rendered here since we're in session */}
-          
+
           {/* Chat Interface - Full height since no header */}
           <div className="flex-1 min-h-0">
             <div className="h-full pt-2">
@@ -384,8 +461,22 @@ const ChatSession = () => {
                 onSendMessage={handleSendMessage}
                 sessionId={sessionId}
                 currentQueryCategory={currentQueryCategory}
+                // File processing props
+                isFileProcessing={isFileProcessing}
+                setFileProcessingState={setFileProcessingState}
+                // Enhanced file handling
+                uploadProgress={uploadProgress}
+                fileInputRef={fileInputRef}
+                handleFileUpload={handleEnhancedFileUpload}
+                triggerFileUpload={handleEnhancedTriggerFileUpload}
+                // Original message props
                 {...messageProps}
-                {...fileProps}
+                // Original file props (excluding the ones we're overriding)
+                {...Object.fromEntries(
+                  Object.entries(fileProps).filter(([key]) =>
+                    !['uploadProgress', 'fileInputRef', 'handleFileUpload', 'triggerFileUpload'].includes(key)
+                  )
+                )}
               />
             </div>
           </div>
