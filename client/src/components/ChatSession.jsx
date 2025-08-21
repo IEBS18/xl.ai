@@ -233,8 +233,9 @@ const ChatSession = () => {
   // Set initial file processing state when file is uploaded (only once to prevent loops)
   useEffect(() => {
     if (fileUploaded && !hasSetInitialProcessingState) {
-      console.log('🔄 Session file detected, setting initial processing state')
-      setFileProcessingState(true)
+      console.log('🔄 Session file detected on page load - file already processed, NOT setting processing state')
+      // Don't automatically set processing to true on page reload
+      // File uploads that were already completed should stay completed
       setHasSetInitialProcessingState(true)
     }
   }, [fileUploaded, hasSetInitialProcessingState, setFileProcessingState])

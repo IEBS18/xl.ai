@@ -626,6 +626,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         logging.info(f"⏳ Progress update sent: {elapsed:.0f}s elapsed")
                 
                 # Start progress updates in a separate thread for large files
+                progress_timer = None
                 if file_size > 5000000:  # 5MB threshold
                     progress_timer = threading.Timer(10.0, progress_callback)
                     progress_timer.daemon = True
@@ -658,8 +659,17 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     
                     logging.info(f"✅ OpenAI API upload completed: {file_id}")
                     
+                    # Cancel progress timer since upload completed
+                    if progress_timer and progress_timer.is_alive():
+                        progress_timer.cancel()
+                    
                 except TimeoutError:
                     logging.error(f"❌ Upload timeout after {timeout_seconds}s for file size {file_size} bytes")
+                    
+                    # Cancel progress timer since upload timed out
+                    if progress_timer and progress_timer.is_alive():
+                        progress_timer.cancel()
+                    
                     if self.socketio:
                         self.socketio.emit('stream_data', {
                             'type': 'assistant_upload_timeout',
