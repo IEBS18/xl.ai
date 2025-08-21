@@ -134,6 +134,7 @@ def init_db():
             user_agent TEXT,
             session_id VARCHAR(50) NOT NULL,
             remember_me BOOLEAN DEFAULT FALSE
+<<<<<<< HEAD
         )
         ''')
         
@@ -165,6 +166,8 @@ def init_db():
             width INTEGER DEFAULT 400,
             height INTEGER DEFAULT 300,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+=======
+>>>>>>> 96219fdc8ecd710d5bd49e2a40e1593e6e095392
         )
         ''')
         
