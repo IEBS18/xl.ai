@@ -5,6 +5,7 @@ import json
 import tempfile
 import traceback
 import logging
+import shutil
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from pathlib import Path
@@ -299,6 +300,15 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 # OPTIMIZATION 5: Parallel assistant upload (new)
                 self._upload_to_assistants_parallel(temp_path, file_ext)
                 
+                # Test WebSocket connection immediately
+                if self.socketio:
+                    self.socketio.emit('stream_data', {
+                        'type': 'test_connection',
+                        'data': 'Testing WebSocket connection after file load',
+                        'timestamp': datetime.now().isoformat()
+                    }, room=self.session_id)
+                    logging.info(f"🧪 Test event emitted to room {self.session_id}")
+                
             finally:
                 # Clean up temp file (unchanged)
                 try:
@@ -580,10 +590,20 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         import threading
         import time
         
+        # Create a copy of the temp file for background upload
+        import uuid
+        background_temp_path = f"/tmp/upload_{uuid.uuid4().hex}_{file_ext}"
+        shutil.copy2(temp_path, background_temp_path)
+        
+        # Log file info for debugging
+        file_size = os.path.getsize(background_temp_path) if os.path.exists(background_temp_path) else 0
+        logging.info(f"📁 Starting upload for file: size={file_size} bytes, path={background_temp_path}")
+        
         def upload_worker():
             upload_start = time.time()
             try:
                 print("🚀 Starting parallel upload to Assistants API...")
+                logging.info(f"⏰ Upload worker started at {datetime.now().isoformat()}")
                 
                 # Emit progress to frontend
                 if self.socketio:
@@ -592,23 +612,112 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         'data': 'Uploading file to Assistants API...',
                         'timestamp': datetime.now().isoformat()
                     }, room=self.session_id)
+                    logging.info(f"📡 Emitted assistant_upload_started to room {self.session_id}")
                 
-                # Upload to assistants (existing logic)
-                file_id = self.file_manager.upload_csv_file(temp_path, self.session_id)
+                # Add periodic progress updates for large files
+                def progress_callback():
+                    elapsed = time.time() - upload_start
+                    if elapsed > 10 and self.socketio:  # After 10 seconds, send progress
+                        self.socketio.emit('stream_data', {
+                            'type': 'assistant_upload_progress',
+                            'data': f'Still uploading... {elapsed:.0f}s elapsed',
+                            'timestamp': datetime.now().isoformat()
+                        }, room=self.session_id)
+                        logging.info(f"⏳ Progress update sent: {elapsed:.0f}s elapsed")
+                
+                # Start progress updates in a separate thread for large files
+                if file_size > 5000000:  # 5MB threshold
+                    progress_timer = threading.Timer(10.0, progress_callback)
+                    progress_timer.daemon = True
+                    progress_timer.start()
+                
+                # Upload to assistants using the copied file with timeout handling
+                logging.info(f"🔄 Starting OpenAI Assistants API upload...")
+                
+                # Set a reasonable timeout for large files (5 minutes)
+                import signal
+                
+                class TimeoutError(Exception):
+                    pass
+                
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Upload timeout")
+                
+                # Set timeout for very large files
+                timeout_seconds = 300 if file_size > 5000000 else 120  # 5 min for large files, 2 min for smaller
+                
+                try:
+                    if hasattr(signal, 'SIGALRM'):  # Unix systems only
+                        signal.signal(signal.SIGALRM, timeout_handler)
+                        signal.alarm(timeout_seconds)
+                    
+                    file_id = self.file_manager.upload_csv_file(background_temp_path, self.session_id)
+                    
+                    if hasattr(signal, 'SIGALRM'):
+                        signal.alarm(0)  # Cancel alarm
+                    
+                    logging.info(f"✅ OpenAI API upload completed: {file_id}")
+                    
+                except TimeoutError:
+                    logging.error(f"❌ Upload timeout after {timeout_seconds}s for file size {file_size} bytes")
+                    if self.socketio:
+                        self.socketio.emit('stream_data', {
+                            'type': 'assistant_upload_timeout',
+                            'data': f'Upload timed out after {timeout_seconds}s. File too large for Assistants API.',
+                            'timestamp': datetime.now().isoformat()
+                        }, room=self.session_id)
+                    return  # Exit early on timeout
                 self.current_file_ids.append(file_id)
                 
                 upload_time = time.time() - upload_start
                 logging.info(f"✅ Parallel upload to assistants completed in {upload_time:.1f}s: {file_id}")
                 
+                # Extra debugging for healthcare dataset file
+                if "healthcare_dataset" in background_temp_path.lower():
+                    logging.info(f"🏥 HEALTHCARE FILE DEBUG: Session={self.session_id}, FileID={file_id}, UploadTime={upload_time:.1f}s")
+                    logging.info(f"🏥 SocketIO available: {self.socketio is not None}")
+                    if self.socketio:
+                        # Check active rooms
+                        try:
+                            from flask import current_app
+                            with current_app.app_context():
+                                logging.info(f"🏥 Current app context available")
+                        except Exception as ctx_error:
+                            logging.error(f"🏥 App context error: {ctx_error}")
+                        
+                        # Try multiple emission methods
+                        test_event = {
+                            'type': 'healthcare_test',
+                            'data': f'Healthcare file upload test - {upload_time:.1f}s',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        
+                        # Method 1: room
+                        self.socketio.emit('stream_data', test_event, room=self.session_id)
+                        logging.info(f"🏥 Test event emitted to room: {self.session_id}")
+                        
+                        # Method 2: to specific session
+                        self.socketio.emit('stream_data', test_event, to=self.session_id)
+                        logging.info(f"🏥 Test event emitted to session: {self.session_id}")
+                        
+                        # Method 3: broadcast to all
+                        self.socketio.emit('stream_data', test_event)
+                        logging.info(f"🏥 Test event broadcasted to all clients")
+                
                 # Notify frontend of completion
                 if self.socketio:
-                    self.socketio.emit('stream_data', {
+                    event_data = {
                         'type': 'assistant_upload_complete',
                         'data': f'Assistants API ready! Upload completed in {upload_time:.1f}s',
                         'file_id': file_id,
                         'upload_time': upload_time,
                         'timestamp': datetime.now().isoformat()
-                    }, room=self.session_id)
+                    }
+                    logging.info(f"🔔 Emitting assistant_upload_complete to room {self.session_id}: {event_data}")
+                    self.socketio.emit('stream_data', event_data, room=self.session_id)
+                    
+                    # Also emit to the session directly as backup
+                    self.socketio.emit('stream_data', event_data, to=self.session_id)
                     
             except Exception as e:
                 logging.error(f"❌ Parallel assistants upload failed: {e}")
@@ -619,10 +728,22 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         'data': f'Assistants upload failed but basic analysis still available: {str(e)}',
                         'timestamp': datetime.now().isoformat()
                     }, room=self.session_id)
+            finally:
+                # Clean up the background temp file
+                try:
+                    if os.path.exists(background_temp_path):
+                        os.unlink(background_temp_path)
+                        logging.info(f"🧹 Cleaned up background temp file: {background_temp_path}")
+                except Exception as cleanup_error:
+                    logging.warning(f"⚠️ Could not delete background temp file {background_temp_path}: {cleanup_error}")
         
         # Start upload in background thread (non-blocking)
-        upload_thread = threading.Thread(target=upload_worker, daemon=True)
-        upload_thread.start()
+        # Use Flask-SocketIO's background task if available, otherwise use threading
+        if hasattr(self.socketio, 'start_background_task'):
+            self.socketio.start_background_task(upload_worker)
+        else:
+            upload_thread = threading.Thread(target=upload_worker, daemon=True)
+            upload_thread.start()
         print("🔄 Assistant upload started in background...")
     
     def _upload_to_assistants(self, sas_url: str, file_ext: str):

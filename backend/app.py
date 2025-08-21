@@ -89,6 +89,10 @@ def set_mail_app():
 
 app.register_blueprint(auth_blueprint, url_prefix='/auth')
 
+# Import dashboard functions
+from auth import get_db_connection
+import psycopg2.extras
+
 # Initialize database on startup
 try:
     init_db()
@@ -1305,6 +1309,581 @@ def cleanup_sessions():
         return jsonify({
             'success': False,
             'error': f'Cleanup failed: {str(e)}'
+        }), 500
+
+# ==================== DASHBOARD ROUTES ====================
+
+@app.route('/dashboards', methods=['GET', 'OPTIONS'])
+def get_user_dashboards():
+    """Get all dashboards for the current user"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Get dashboards with visualization count
+        cursor.execute('''
+            SELECT d.*, COUNT(dv.id) as visualization_count 
+            FROM dashboards d 
+            LEFT JOIN dashboard_visualizations dv ON d.id = dv.dashboard_id 
+            WHERE d.user_id = %s
+            GROUP BY d.id 
+            ORDER BY d.updated_at DESC
+        ''', (user_id,))
+        
+        dashboards = []
+        for row in cursor.fetchall():
+            dashboards.append({
+                'id': str(row['id']),
+                'name': row['name'],
+                'description': row['description'],
+                'created_at': row['created_at'].isoformat(),
+                'updated_at': row['updated_at'].isoformat(),
+                'visualization_count': row['visualization_count']
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        response = jsonify({
+            'success': True,
+            'dashboards': dashboards
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error getting dashboards: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get dashboards: {str(e)}'
+        }), 500
+
+@app.route('/dashboards', methods=['POST'])
+def create_dashboard():
+    """Create a new dashboard"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('name'):
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard name is required'
+            }), 400
+        
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+            
+        name = data.get('name')
+        description = data.get('description', '')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        cursor.execute('''
+            INSERT INTO dashboards (name, description, user_id) 
+            VALUES (%s, %s, %s) 
+            RETURNING id, name, description, created_at, updated_at
+        ''', (name, description, user_id))
+        
+        dashboard = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        response_data = {
+            'success': True,
+            'dashboard': {
+                'id': str(dashboard['id']),
+                'name': dashboard['name'],
+                'description': dashboard['description'],
+                'created_at': dashboard['created_at'].isoformat(),
+                'updated_at': dashboard['updated_at'].isoformat(),
+                'visualization_count': 0
+            }
+        }
+        
+        response = jsonify(response_data)
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error creating dashboard: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to create dashboard: {str(e)}'
+        }), 500
+
+@app.route('/dashboards/<dashboard_id>/visualizations', methods=['POST'])
+def add_visualization_to_dashboard(dashboard_id):
+    """Add a visualization to a dashboard"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Visualization data is required'
+            }), 400
+        
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        # Verify dashboard belongs to user
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        cursor.execute('SELECT id FROM dashboards WHERE id = %s AND user_id = %s', 
+                      (dashboard_id, user_id))
+        dashboard = cursor.fetchone()
+        
+        if not dashboard:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard not found'
+            }), 404
+        
+        # Add visualization
+        title = data.get('title', 'Untitled Visualization')
+        chart_data = data.get('chart_data', '')
+        filename = data.get('filename', '')
+        chart_type = data.get('chart_type', 'unknown')
+        position = data.get('position', {})
+        
+        cursor.execute('''
+            INSERT INTO dashboard_visualizations 
+            (dashboard_id, title, chart_data, filename, chart_type, position_x, position_y, width, height) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) 
+            RETURNING id, title, chart_data, filename, chart_type, position_x, position_y, width, height, created_at
+        ''', (
+            dashboard_id, title, chart_data, filename, chart_type,
+            position.get('x', 0), position.get('y', 0), 
+            position.get('width', 400), position.get('height', 300)
+        ))
+        
+        visualization = cursor.fetchone()
+        
+        # Update dashboard updated_at
+        cursor.execute('UPDATE dashboards SET updated_at = CURRENT_TIMESTAMP WHERE id = %s', (dashboard_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        response_data = {
+            'success': True,
+            'visualization': {
+                'id': str(visualization['id']),
+                'title': visualization['title'],
+                'chart_data': visualization['chart_data'],
+                'filename': visualization['filename'],
+                'chart_type': visualization['chart_type'],
+                'position': {
+                    'x': visualization['position_x'],
+                    'y': visualization['position_y'],
+                    'width': visualization['width'],
+                    'height': visualization['height']
+                },
+                'created_at': visualization['created_at'].isoformat()
+            }
+        }
+        
+        response = jsonify(response_data)
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error adding visualization to dashboard: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to add visualization: {str(e)}'
+        }), 500
+
+@app.route('/dashboards/<dashboard_id>', methods=['GET', 'OPTIONS'])
+def get_dashboard_with_visualizations(dashboard_id):
+    """Get a dashboard with all its visualizations"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Get dashboard
+        cursor.execute('SELECT * FROM dashboards WHERE id = %s AND user_id = %s', 
+                      (dashboard_id, user_id))
+        dashboard = cursor.fetchone()
+        
+        if not dashboard:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard not found'
+            }), 404
+        
+        # Get visualizations
+        cursor.execute('''
+            SELECT * FROM dashboard_visualizations 
+            WHERE dashboard_id = %s 
+            ORDER BY created_at ASC
+        ''', (dashboard_id,))
+        
+        visualizations = []
+        for viz in cursor.fetchall():
+            visualizations.append({
+                'id': str(viz['id']),
+                'title': viz['title'],
+                'chart_data': viz['chart_data'],
+                'filename': viz['filename'],
+                'chart_type': viz['chart_type'],
+                'position': {
+                    'x': viz['position_x'],
+                    'y': viz['position_y'],
+                    'width': viz['width'],
+                    'height': viz['height']
+                },
+                'created_at': viz['created_at'].isoformat()
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        dashboard_data = {
+            'id': str(dashboard['id']),
+            'name': dashboard['name'],
+            'description': dashboard['description'],
+            'created_at': dashboard['created_at'].isoformat(),
+            'updated_at': dashboard['updated_at'].isoformat(),
+            'visualizations': visualizations
+        }
+        
+        response = jsonify({
+            'success': True,
+            'dashboard': dashboard_data
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error getting dashboard: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to get dashboard: {str(e)}'
+        }), 500
+
+@app.route('/dashboards/<dashboard_id>/visualizations/<visualization_id>', methods=['DELETE', 'OPTIONS'])
+def remove_visualization_from_dashboard(dashboard_id, visualization_id):
+    """Remove a visualization from a dashboard"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Verify dashboard belongs to user
+        cursor.execute('SELECT id FROM dashboards WHERE id = %s AND user_id = %s', 
+                      (dashboard_id, user_id))
+        dashboard = cursor.fetchone()
+        
+        if not dashboard:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard not found'
+            }), 404
+        
+        # Remove visualization
+        cursor.execute('DELETE FROM dashboard_visualizations WHERE id = %s AND dashboard_id = %s', 
+                      (visualization_id, dashboard_id))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Visualization not found'
+            }), 404
+        
+        # Update dashboard updated_at
+        cursor.execute('UPDATE dashboards SET updated_at = CURRENT_TIMESTAMP WHERE id = %s', (dashboard_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        response = jsonify({
+            'success': True,
+            'message': 'Visualization removed successfully'
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error removing visualization: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to remove visualization: {str(e)}'
+        }), 500
+
+@app.route('/dashboards/<dashboard_id>', methods=['DELETE', 'OPTIONS'])
+def delete_dashboard(dashboard_id):
+    """Delete a dashboard and all its visualizations"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Verify dashboard belongs to user
+        cursor.execute('SELECT id FROM dashboards WHERE id = %s AND user_id = %s', 
+                      (dashboard_id, user_id))
+        dashboard = cursor.fetchone()
+        
+        if not dashboard:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard not found'
+            }), 404
+        
+        # Delete dashboard (cascade will delete visualizations)
+        cursor.execute('DELETE FROM dashboards WHERE id = %s', (dashboard_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        response = jsonify({
+            'success': True,
+            'message': 'Dashboard deleted successfully'
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error deleting dashboard: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete dashboard: {str(e)}'
+        }), 500
+
+@app.route('/dashboards/<dashboard_id>/visualizations/<visualization_id>/position', methods=['PUT', 'OPTIONS'])
+def update_visualization_position(dashboard_id, visualization_id):
+    """Update the position and size of a visualization in a dashboard"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Methods', 'PUT')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Position data is required'
+            }), 400
+        
+        user_id = request.cookies.get('user_insipredict_id')
+        if not user_id:
+            return jsonify({
+                'success': False,
+                'error': 'User not authenticated'
+            }), 401
+        
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid user session'
+            }), 401
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        
+        # Verify dashboard belongs to user
+        cursor.execute('SELECT id FROM dashboards WHERE id = %s AND user_id = %s', 
+                      (dashboard_id, user_id))
+        dashboard = cursor.fetchone()
+        
+        if not dashboard:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Dashboard not found'
+            }), 404
+        
+        # Update visualization position
+        cursor.execute('''
+            UPDATE dashboard_visualizations 
+            SET position_x = %s, position_y = %s, width = %s, height = %s 
+            WHERE id = %s AND dashboard_id = %s
+        ''', (
+            data.get('x', 0), data.get('y', 0), 
+            data.get('width', 400), data.get('height', 300),
+            visualization_id, dashboard_id
+        ))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Visualization not found'
+            }), 404
+        
+        # Update dashboard updated_at
+        cursor.execute('UPDATE dashboards SET updated_at = CURRENT_TIMESTAMP WHERE id = %s', (dashboard_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        response = jsonify({
+            'success': True,
+            'message': 'Position updated successfully'
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Error updating visualization position: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to update position: {str(e)}'
         }), 500
 
 @socketio.on('connect')

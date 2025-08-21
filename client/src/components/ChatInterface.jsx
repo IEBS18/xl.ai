@@ -17,7 +17,9 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
-  X
+  X,
+  LayoutDashboard,
+  Plus
 } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 import { copyToClipboard } from "../utils/helpers"
@@ -350,7 +352,6 @@ const ChatInterface = ({
           className="hidden"
         />
       </div>
-
       {/* Resize Handle */}
       {sidePanelOpen && (
         <div
@@ -876,6 +877,107 @@ const EnhancedSidePanel = ({
 }) => {
   const { themeClasses, isDark } = useTheme()
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [dashboards, setDashboards] = useState([])
+  const [showDashboardDropdown, setShowDashboardDropdown] = useState(false)
+  const [isLoadingDashboards, setIsLoadingDashboards] = useState(false)
+  const [showNewDashboardForm, setShowNewDashboardForm] = useState(false)
+  const [newDashboardName, setNewDashboardName] = useState('')
+
+  // Load dashboards when dropdown is opened
+  const loadDashboards = async () => {
+    if (isLoadingDashboards) return
+    
+    setIsLoadingDashboards(true)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/dashboards`, {
+        credentials: 'include'
+      })
+      const data = await response.json()
+      if (data.success) {
+        setDashboards(data.dashboards)
+      }
+    } catch (error) {
+      console.error('Error loading dashboards:', error)
+    } finally {
+      setIsLoadingDashboards(false)
+    }
+  }
+
+  // Create new dashboard
+  const createNewDashboard = async () => {
+    if (!newDashboardName.trim()) return
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/dashboards`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newDashboardName.trim()
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await loadDashboards() // Refresh the list
+        setNewDashboardName('')
+        setShowNewDashboardForm(false)
+        // Automatically add to the newly created dashboard
+        await addToDashboard(data.dashboard.id)
+      }
+    } catch (error) {
+      console.error('Error creating dashboard:', error)
+    }
+  }
+
+  // Add visualization to dashboard
+  const addToDashboard = async (dashboardId) => {
+    if (!items.length) return
+    
+    const item = items[0]
+    let chartData = ''
+    let title = 'Visualization'
+    let chartType = 'unknown'
+    
+    if (item.type === 'image' && item.content) {
+      chartData = item.content.data || item.content.path || ''
+      title = item.content.filename || 'Chart'
+      chartType = 'image'
+    }
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/dashboards/${dashboardId}/visualizations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          title,
+          chart_data: chartData,
+          filename: item.content?.filename || '',
+          chart_type: chartType
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        setShowDashboardDropdown(false)
+        // You could show a success message here
+        console.log('Added to dashboard successfully')
+      }
+    } catch (error) {
+      console.error('Error adding to dashboard:', error)
+    }
+  }
+
+  // Handle dashboard button click
+  const handleDashboardClick = () => {
+    if (!showDashboardDropdown) {
+      loadDashboards()
+    }
+    setShowDashboardDropdown(!showDashboardDropdown)
+  }
 
   const downloadFile = (content, type, item) => {
     let blob, fileName
@@ -1082,6 +1184,110 @@ const EnhancedSidePanel = ({
             </h3>
           </div>
           <div className="flex items-center gap-2">
+            {/* Dashboard Button - only show for image/chart visualizations */}
+            {item.type === 'image' && (
+              <div className="relative">
+                <button
+                  onClick={handleDashboardClick}
+                  className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-lg transition-colors`}
+                  title="Add to Dashboard"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                </button>
+                
+                {/* Dashboard Dropdown */}
+                {showDashboardDropdown && (
+                  <div className={`absolute top-full right-0 mt-2 w-64 ${themeClasses.surface} ${themeClasses.border} border rounded-lg shadow-lg z-50`}>
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className={`text-sm font-medium ${themeClasses.text}`}>Add to Dashboard</h4>
+                        <button
+                          onClick={() => setShowDashboardDropdown(false)}
+                          className={`p-1 ${themeClasses.textSecondary} hover:${themeClasses.text} rounded`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      
+                      {isLoadingDashboards ? (
+                        <div className="flex items-center justify-center py-4">
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {dashboards.length > 0 && (
+                            <div className="space-y-1">
+                              {dashboards.map((dashboard) => (
+                                <button
+                                  key={dashboard.id}
+                                  onClick={() => addToDashboard(dashboard.id)}
+                                  className={`w-full text-left p-2 text-sm ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} rounded border ${themeClasses.border} transition-colors`}
+                                >
+                                  <div className={`font-medium ${themeClasses.text}`}>{dashboard.name}</div>
+                                  {dashboard.visualization_count > 0 && (
+                                    <div className={`text-xs ${themeClasses.textSecondary}`}>
+                                      {dashboard.visualization_count} visualizations
+                                    </div>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {!showNewDashboardForm ? (
+                            <button
+                              onClick={() => setShowNewDashboardForm(true)}
+                              className={`w-full p-2 text-sm ${themeClasses.button} hover:opacity-80 rounded transition-colors flex items-center gap-2`}
+                            >
+                              <Plus className="w-4 h-4" />
+                              Create New Dashboard
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <input
+                                type="text"
+                                value={newDashboardName}
+                                onChange={(e) => setNewDashboardName(e.target.value)}
+                                placeholder="Dashboard name"
+                                className={`w-full p-2 text-sm ${themeClasses.surface} ${themeClasses.border} border rounded focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                autoFocus
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    createNewDashboard()
+                                  } else if (e.key === 'Escape') {
+                                    setShowNewDashboardForm(false)
+                                    setNewDashboardName('')
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={createNewDashboard}
+                                  disabled={!newDashboardName.trim()}
+                                  className={`flex-1 p-2 text-xs ${themeClasses.button} hover:opacity-80 rounded transition-colors disabled:opacity-50`}
+                                >
+                                  Create
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setShowNewDashboardForm(false)
+                                    setNewDashboardName('')
+                                  }}
+                                  className={`flex-1 p-2 text-xs ${themeClasses.textSecondary} hover:${themeClasses.text} rounded transition-colors`}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
             <button
               onClick={() => downloadFile(item.content, item.type, item)}
               disabled={isGeneratingPDF}

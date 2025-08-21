@@ -137,6 +137,37 @@ def init_db():
         )
         ''')
         
+        # Create dashboards table
+        logging.info("Creating dashboards table if it doesn't exist...")
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dashboards (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        # Create dashboard_visualizations table
+        logging.info("Creating dashboard_visualizations table if it doesn't exist...")
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dashboard_visualizations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            dashboard_id UUID REFERENCES dashboards(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            chart_data TEXT NOT NULL,
+            filename VARCHAR(255),
+            chart_type VARCHAR(100) DEFAULT 'unknown',
+            position_x INTEGER DEFAULT 0,
+            position_y INTEGER DEFAULT 0,
+            width INTEGER DEFAULT 400,
+            height INTEGER DEFAULT 300,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
         conn.commit()
         logging.info("Database tables initialized successfully")
         
