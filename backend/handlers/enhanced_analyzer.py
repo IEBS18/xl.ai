@@ -1245,7 +1245,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         """
         ENHANCED: Handle complex analytical queries with AI context for better results
         """
-        
+        assistant_type = metadata.get('assistant_type', 'conversational')
         print("🔬 Handling complex analytical query with AI-enhanced context")
         
         try:
