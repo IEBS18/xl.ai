@@ -17,7 +17,9 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
-  X
+  X,
+  LayoutDashboard,
+  Plus
 } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 import { copyToClipboard } from "../utils/helpers"
@@ -25,6 +27,7 @@ import { BACKEND_URL } from "../utils/constants"
 import InputArea from "./InputArea"
 import FileInfo from "./FileInfo"
 import UploadProgress from "./UploadProgress"
+import FilePreviewModal from "./FilePreviewModal"
 
 const ChatInterface = ({
   messages,
@@ -44,7 +47,9 @@ const ChatInterface = ({
   manualSessionSync,
   onUpdateMessage,
   sessionId,
-  currentQueryCategory
+  currentQueryCategory,
+  isFileProcessing, // New prop for file processing state
+  setFileProcessingState // New prop to control file processing state
 }) => {
   const [activeSidePanel, setActiveSidePanel] = useState(null)
   const [selectedQueryId, setSelectedQueryId] = useState(null)
@@ -52,8 +57,9 @@ const ChatInterface = ({
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [chatPanelWidth, setChatPanelWidth] = useState(65)
   const [isDragging, setIsDragging] = useState(false)
+  const [isFilePreviewModalOpen, setIsFilePreviewModalOpen] = useState(false)
   const containerRef = useRef(null)
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
 
   // Process messages into query groups (user message + all related responses)
   const processMessagesIntoQueries = (messages) => {
@@ -119,78 +125,71 @@ const ChatInterface = ({
     setActiveSidePanel(componentId)
   }
 
+  // Enhanced file upload handler with processing state
+  const handleEnhancedFileUpload = useCallback(async (event) => {
+    try {
+      // Set processing state to true when upload starts
+      if (setFileProcessingState) {
+        setFileProcessingState(true)
+      }
 
-  // Key changes needed in your ChatInterface.jsx:
+      // Call the original file upload handler
+      await handleFileUpload(event)
+      
+      // Note: Don't set processing to false here - 
+      // it will be automatically set to false when 
+      // assistant_upload_complete event is received in useMessages
+    } catch (error) {
+      console.error('File upload failed:', error)
+      // Reset processing state on error
+      if (setFileProcessingState) {
+        setFileProcessingState(false)
+      }
+    }
+  }, [handleFileUpload, setFileProcessingState])
 
-  // 1. Update the InputArea props to include file handling
-  // 2. Add handlers for file preview and removal
-  // 3. Remove or simplify the FileInfo component usage
+  // Enhanced trigger file upload
+  const handleEnhancedTriggerFileUpload = useCallback(() => {
+    // Only trigger if not currently processing
+    if (!isFileProcessing) {
+      triggerFileUpload()
+    }
+  }, [triggerFileUpload, isFileProcessing])
 
-  // Add these handler functions to your ChatInterface component:
-
+  // Handle file preview
   const handleShowFilePreview = useCallback(() => {
-    if (!fileInfo) return
+    if (!fileInfo || isFileProcessing) return
 
-    // Create a preview message for the side panel
-    const previewMessage = {
-      id: `file-preview-${Date.now()}`,
-      type: "dataframe",
-      content: {
-        name: fileInfo.filename,
-        shape: fileInfo.shape,
-        columns: fileInfo.columns || [],
-        preview: fileInfo.preview,
-        data: fileInfo.data || []
-      },
-      timestamp: new Date().toISOString()
-    }
+    // Open the file preview modal
+    setIsFilePreviewModalOpen(true)
+  }, [fileInfo, isFileProcessing])
 
-    // Show in side panel
-    setSelectedQueryId(null)
-    setSelectedComponentId(previewMessage.id)
-    setSidePanelOpen(true)
-    setActiveSidePanel(previewMessage.id)
-
-    // You might need to add this preview to your items list or handle it differently
-    // depending on how your side panel management works
-  }, [fileInfo])
-
+  // Handle file removal
   const handleRemoveFile = useCallback(() => {
-    // Add your file removal logic here
-    // This should clear the fileInfo and close any related previews
-    if (window.confirm('Remove the uploaded file?')) {
-      // Clear file state
-      // You'll need to implement this based on your state management
-      console.log('File removed')
+    if (isFileProcessing) {
+      // If currently processing, ask for confirmation
+      if (window.confirm('File is currently being processed. Are you sure you want to remove it?')) {
+        // Reset processing state
+        if (setFileProcessingState) {
+          setFileProcessingState(false)
+        }
+        // Close any related previews
+        if (sidePanelOpen && selectedComponentId && selectedComponentId.startsWith('file-preview-')) {
+          handleCloseSidePanel()
+        }
+        console.log('File removed during processing')
+      }
+    } else {
+      // Normal removal
+      if (window.confirm('Remove the uploaded file?')) {
+        // Close any related previews
+        if (sidePanelOpen && selectedComponentId && selectedComponentId.startsWith('file-preview-')) {
+          handleCloseSidePanel()
+        }
+        console.log('File removed')
+      }
     }
-  }, [])
-
-  // Update your InputArea usage in the render:
-  // {
-  //   fileUploaded && (
-  //     <InputArea
-  //       isConnected={isConnected}
-  //       isAnalyzing={isAnalyzing}
-  //       onSendMessage={onSendMessage}
-  //       onFileUpload={triggerFileUpload}
-  //       fileInfo={fileInfo}
-  //       onShowFilePreview={handleShowFilePreview}
-  //       onRemoveFile={handleRemoveFile}
-  //     />
-  //   )
-  // }
-
-  // Remove or simplify the FileInfo component usage:
-  {/* Remove this block since file info is now in InputArea
-{fileUploaded && fileInfo && (
-  <FileInfo
-    fileInfo={fileInfo}
-    onDebug={debugSession}
-    onSync={manualSessionSync}
-    sessionId={sessionId}
-  />
-)}
-*/}
+  }, [isFileProcessing, setFileProcessingState, sidePanelOpen, selectedComponentId])
 
   // Handle closing side panel
   const handleCloseSidePanel = () => {
@@ -329,30 +328,19 @@ const ChatInterface = ({
           {/* Upload Progress */}
           {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
 
-          {/* File Info */}
-          {/* {fileUploaded && fileInfo && (
-            <FileInfo
+          {/* Input Area - Always visible at bottom with enhanced file processing */}
+          {fileUploaded && (
+            <InputArea
+              isConnected={isConnected}
+              isAnalyzing={isAnalyzing}
+              onSendMessage={onSendMessage}
+              onFileUpload={handleEnhancedTriggerFileUpload}
               fileInfo={fileInfo}
-              onDebug={debugSession}
-              onSync={manualSessionSync}
-              sessionId={sessionId}
+              onShowFilePreview={handleShowFilePreview}
+              onRemoveFile={handleRemoveFile}
+              isFileProcessing={isFileProcessing} // Pass the processing state
             />
-          )} */}
-
-          {/* Input Area - Always visible at bottom */}
-          {
-            fileUploaded && (
-              <InputArea
-                isConnected={isConnected}
-                isAnalyzing={isAnalyzing}
-                onSendMessage={onSendMessage}
-                onFileUpload={triggerFileUpload}
-                fileInfo={fileInfo}
-                onShowFilePreview={handleShowFilePreview}
-                onRemoveFile={handleRemoveFile}
-              />
-            )
-          }
+          )}
         </div>
 
         {/* Hidden File Input */}
@@ -360,11 +348,10 @@ const ChatInterface = ({
           ref={fileInputRef}
           type="file"
           accept=".csv,.xlsx,.xls"
-          onChange={handleFileUpload}
+          onChange={handleEnhancedFileUpload}
           className="hidden"
         />
       </div>
-
       {/* Resize Handle */}
       {sidePanelOpen && (
         <div
@@ -394,6 +381,13 @@ const ChatInterface = ({
           />
         </div>
       )}
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        isOpen={isFilePreviewModalOpen}
+        onClose={() => setIsFilePreviewModalOpen(false)}
+        fileInfo={fileInfo}
+      />
     </div>
   )
 }
@@ -447,7 +441,7 @@ const PerplexityMessageTimeline = ({
               <div className={`flex-shrink-0 w-8 h-8 rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center`}>
                 <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
-              <div className={`px-4 py-3 rounded-2xl shadow-sm border bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 ${themeClasses.text}`}>
+              <div className={`px-4 py-3 rounded-2xl shadow-sm border ${themeClasses.surface} ${themeClasses.border} ${themeClasses.text}`}>
                 <span className="text-sm">{getAnalyzingMessage(currentQueryCategory)}</span>
               </div>
             </div>
@@ -651,7 +645,7 @@ const ConnectedTimelineStep = ({
   }
 
   const getStepColorClass = (type) => {
-    return isDark ? "bg-gray-600" : "bg-gray-700"
+    return themeClasses.surfaceSecondary
   }
 
   const isClickableComponent = ['code', 'image', 'dataframe', 'report', 'file'].includes(step.type)
@@ -661,11 +655,11 @@ const ConnectedTimelineStep = ({
     <div className="relative pl-6 pb-6">
       {/* Timeline line */}
       {!isLast && (
-        <div className={`absolute left-3 top-6 bottom-0 w-px ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+        <div className={`absolute left-3 top-6 bottom-0 w-px ${themeClasses.border}`}></div>
       )}
 
       {/* Step indicator */}
-      <div className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(step.type)} flex items-center justify-center text-white shadow-lg z-10 transition-colors`}>
+      <div className={`absolute left-0 top-1 w-6 h-6 rounded-full ${getStepColorClass(step.type)} flex items-center justify-center ${themeClasses.textOnGradient} shadow-lg z-10 transition-colors`}>
         {getStepIcon(step.type, step.isCompleted)}
       </div>
 
@@ -816,7 +810,7 @@ const ConnectedTimelineStep = ({
 
 // Component Pill for clickable components
 const ComponentPill = ({ component, onClick }) => {
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
 
   const getComponentInfo = (type) => {
     switch (type) {
@@ -824,37 +818,37 @@ const ComponentPill = ({ component, onClick }) => {
         return {
           label: 'Generated Code',
           icon: <Code className="w-4 h-4" />,
-          color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+          color: isDark ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-100 text-blue-800'
         }
       case 'image':
         return {
           label: 'Visualization',
           icon: <Image className="w-4 h-4" />,
-          color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
+          color: isDark ? 'bg-purple-900/30 text-purple-300' : 'bg-purple-100 text-purple-800'
         }
       case 'dataframe':
         return {
           label: 'Data Table',
           icon: <Database className="w-4 h-4" />,
-          color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+          color: isDark ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-800'
         }
       case 'report':
         return {
           label: 'Report',
           icon: <FileText className="w-4 h-4" />,
-          color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+          color: isDark ? 'bg-orange-900/30 text-orange-300' : 'bg-orange-100 text-orange-800'
         }
       case 'file':
         return {
           label: 'File',
           icon: <File className="w-4 h-4" />,
-          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
+          color: isDark ? 'bg-gray-900/30 text-gray-300' : 'bg-gray-100 text-gray-800'
         }
       default:
         return {
           label: type,
           icon: <File className="w-4 h-4" />,
-          color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
+          color: isDark ? 'bg-gray-900/30 text-gray-300' : 'bg-gray-100 text-gray-800'
         }
     }
   }
@@ -883,6 +877,140 @@ const EnhancedSidePanel = ({
 }) => {
   const { themeClasses, isDark } = useTheme()
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [dashboards, setDashboards] = useState([])
+  const [showDashboardDropdown, setShowDashboardDropdown] = useState(false)
+  const [isLoadingDashboards, setIsLoadingDashboards] = useState(false)
+  const [showNewDashboardForm, setShowNewDashboardForm] = useState(false)
+  const [newDashboardName, setNewDashboardName] = useState('')
+  const [addingToDashboard, setAddingToDashboard] = useState(null) // Track which dashboard is being added to
+  const [isCreatingDashboard, setIsCreatingDashboard] = useState(false) // Track creating new dashboard
+  const dashboardDropdownRef = useRef(null)
+
+  // Load dashboards when dropdown is opened
+  const loadDashboards = async () => {
+    if (isLoadingDashboards) return
+    
+    setIsLoadingDashboards(true)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/dashboards`, {
+        credentials: 'include'
+      })
+      const data = await response.json()
+      if (data.success) {
+        setDashboards(data.dashboards)
+      }
+    } catch (error) {
+      console.error('Error loading dashboards:', error)
+    } finally {
+      setIsLoadingDashboards(false)
+    }
+  }
+
+  // Create new dashboard
+  const createNewDashboard = async () => {
+    if (!newDashboardName.trim() || isCreatingDashboard) return
+    
+    try {
+      setIsCreatingDashboard(true)
+      
+      const response = await fetch(`${BACKEND_URL}/api/dashboards`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newDashboardName.trim()
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await loadDashboards() // Refresh the list
+        setNewDashboardName('')
+        setShowNewDashboardForm(false)
+        // Automatically add to the newly created dashboard
+        await addToDashboard(data.dashboard.id)
+      } else {
+        throw new Error(data.error || 'Failed to create dashboard')
+      }
+    } catch (error) {
+      console.error('Error creating dashboard:', error)
+    } finally {
+      setIsCreatingDashboard(false)
+    }
+  }
+
+  // Add visualization to dashboard
+  const addToDashboard = async (dashboardId) => {
+    if (!items.length) return
+    
+    const item = items[0]
+    let chartData = ''
+    let title = 'Visualization'
+    let chartType = 'unknown'
+    
+    if (item.type === 'image' && item.content) {
+      chartData = item.content.data || item.content.path || ''
+      title = item.content.filename || 'Chart'
+      chartType = 'image'
+    }
+    
+    try {
+      setAddingToDashboard(dashboardId) // Set loading state
+      
+      const response = await fetch(`${BACKEND_URL}/api/dashboards/${dashboardId}/visualizations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          title,
+          chart_data: chartData,
+          filename: item.content?.filename || '',
+          chart_type: chartType
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        setShowDashboardDropdown(false)
+        setAddingToDashboard(null)
+        console.log('Added to dashboard successfully')
+        // Optional: Show success notification
+      } else {
+        throw new Error(data.error || 'Failed to add to dashboard')
+      }
+    } catch (error) {
+      console.error('Error adding to dashboard:', error)
+      setAddingToDashboard(null)
+      // Optional: Show error notification
+    }
+  }
+
+  // Handle dashboard button click
+  const handleDashboardClick = () => {
+    if (!showDashboardDropdown) {
+      loadDashboards()
+    }
+    setShowDashboardDropdown(!showDashboardDropdown)
+  }
+
+  // Handle outside click for dashboard dropdown
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (dashboardDropdownRef.current && !dashboardDropdownRef.current.contains(event.target)) {
+        setShowDashboardDropdown(false)
+      }
+    }
+
+    if (showDashboardDropdown) {
+      document.addEventListener('mousedown', handleOutsideClick)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+    }
+  }, [showDashboardDropdown])
 
   const downloadFile = (content, type, item) => {
     let blob, fileName
@@ -1089,6 +1217,128 @@ const EnhancedSidePanel = ({
             </h3>
           </div>
           <div className="flex items-center gap-2">
+            {/* Dashboard Button - only show for image/chart visualizations */}
+            {item.type === 'image' && (
+              <div className="relative" ref={dashboardDropdownRef}>
+                <button
+                  onClick={handleDashboardClick}
+                  className={`p-2 ${themeClasses.textSecondary} hover:${themeClasses.text} hover:${themeClasses.surfaceSecondary} rounded-lg transition-colors`}
+                  title="Add to Dashboard"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                </button>
+                
+                {/* Dashboard Dropdown */}
+                {showDashboardDropdown && (
+                  <div 
+                    className={`absolute top-full right-0 mt-2 w-64 ${themeClasses.surface} ${themeClasses.border} border rounded-lg shadow-lg z-50`}
+                    onClick={(e) => e.stopPropagation()} // Prevent dropdown from closing when clicking inside
+                  >
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className={`text-sm font-medium ${themeClasses.text}`}>Add to Dashboard</h4>
+                        <button
+                          onClick={() => setShowDashboardDropdown(false)}
+                          className={`p-1 ${themeClasses.textSecondary} hover:${themeClasses.text} rounded`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      
+                      {isLoadingDashboards ? (
+                        <div className="flex items-center justify-center py-4">
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {dashboards.length > 0 && (
+                            <div className="space-y-1">
+                              {dashboards.map((dashboard) => (
+                                <button
+                                  key={dashboard.id}
+                                  onClick={() => addToDashboard(dashboard.id)}
+                                  disabled={addingToDashboard === dashboard.id}
+                                  className={`w-full text-left p-2 text-sm ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} rounded border ${themeClasses.border} transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
+                                  <div className="flex-1">
+                                    <div className={`font-medium ${themeClasses.text}`}>{dashboard.name}</div>
+                                    {dashboard.visualization_count > 0 && (
+                                      <div className={`text-xs ${themeClasses.textSecondary}`}>
+                                        {dashboard.visualization_count} visualizations
+                                      </div>
+                                    )}
+                                  </div>
+                                  {addingToDashboard === dashboard.id && (
+                                    <div className="flex items-center ml-2">
+                                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    </div>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {!showNewDashboardForm ? (
+                            <button
+                              onClick={() => setShowNewDashboardForm(true)}
+                              className={`w-full p-2 text-sm ${themeClasses.button} hover:opacity-80 rounded transition-colors flex items-center gap-2`}
+                            >
+                              <Plus className="w-4 h-4" />
+                              Create New Dashboard
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <input
+                                type="text"
+                                value={newDashboardName}
+                                onChange={(e) => setNewDashboardName(e.target.value)}
+                                placeholder="Dashboard name"
+                                className={`w-full p-2 text-sm ${themeClasses.surface} ${themeClasses.border} border rounded focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                autoFocus
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    createNewDashboard()
+                                  } else if (e.key === 'Escape') {
+                                    setShowNewDashboardForm(false)
+                                    setNewDashboardName('')
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={createNewDashboard}
+                                  disabled={!newDashboardName.trim() || isCreatingDashboard}
+                                  className={`flex-1 p-2 text-xs ${themeClasses.button} hover:opacity-80 rounded transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
+                                >
+                                  {isCreatingDashboard ? (
+                                    <>
+                                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                      Creating...
+                                    </>
+                                  ) : (
+                                    'Create'
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setShowNewDashboardForm(false)
+                                    setNewDashboardName('')
+                                  }}
+                                  className={`flex-1 p-2 text-xs ${themeClasses.textSecondary} hover:${themeClasses.text} rounded transition-colors`}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
             <button
               onClick={() => downloadFile(item.content, item.type, item)}
               disabled={isGeneratingPDF}
@@ -1137,11 +1387,11 @@ const EnhancedSidePanel = ({
                 }}
               />
             </div>
-            {item.content?.filename && (
-              <div className={`text-sm ${themeClasses.textSecondary} text-center mt-2`}>
-                {item.content.filename}
-              </div>
-            )}
+            {/* {item.content?.filename && (
+              // <div className={`text-sm ${themeClasses.textSecondary} text-center mt-2`}>
+              //   {item.content.filename}
+              // </div>
+            )} */}
           </div>
         )}
 
@@ -1180,7 +1430,7 @@ const EnhancedSidePanel = ({
 
 // Enhanced Sample Questions Component
 const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
   const [selectedCategory, setSelectedCategory] = useState("all")
 
   const categories = [
@@ -1228,16 +1478,16 @@ const EnhancedSampleQuestions = ({ questions, onSelectQuestion }) => {
             >
               <div className="flex items-start gap-2">
                 <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs ${item.category === "conversational"
-                  ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                  ? (isDark ? "bg-green-900/30 text-green-400" : "bg-green-100 text-green-600")
                   : item.category === "textual_analytical"
-                    ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
-                    : "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
+                    ? (isDark ? "bg-blue-900/30 text-blue-400" : "bg-blue-100 text-blue-600")
+                    : (isDark ? "bg-purple-900/30 text-purple-400" : "bg-purple-100 text-purple-600")
                   }`}>
                   {item.category === "conversational" ? <User className="w-3 h-3" /> :
                     item.category === "textual_analytical" ? <Database className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm ${themeClasses.text} font-medium mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors`}>
+                  <div className={`text-sm ${themeClasses.text} font-medium mb-1 ${isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600'} transition-colors`}>
                     {item.question}
                   </div>
                   <div className={`text-xs ${themeClasses.textSecondary}`}>

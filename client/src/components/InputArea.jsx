@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Send, Paperclip, Loader2, X, FileText } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 
@@ -12,13 +12,37 @@ const InputArea = ({
   fileInfo,
   onShowFilePreview,
   onRemoveFile,
+  isFileProcessing = false, // New prop for file processing state
 }) => {
   const [inputMessage, setInputMessage] = useState("")
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
   const textareaRef = useRef(null)
 
+  // Debug logging
+  useEffect(() => {
+    console.log('🔍 InputArea Debug:', {
+      isFileProcessing,
+      fileInfo: fileInfo ? { filename: fileInfo.filename } : null,
+      isConnected,
+      isAnalyzing
+    })
+  }, [isFileProcessing, fileInfo, isConnected, isAnalyzing])
+
   const handleSendMessage = () => {
-    if (!inputMessage.trim() || isAnalyzing) return
+    console.log('🚀 Send button clicked:', {
+      hasMessage: !!inputMessage.trim(),
+      isAnalyzing,
+      isFileProcessing,
+      isConnected
+    })
+
+    if (!inputMessage.trim() || isAnalyzing || isFileProcessing) {
+      if (isFileProcessing) {
+        console.log('❌ Blocked: File is still processing')
+      }
+      return
+    }
+
     onSendMessage(inputMessage)
     setInputMessage("")
     if (textareaRef.current) {
@@ -35,17 +59,40 @@ const InputArea = ({
   }
 
   const handleFilePreview = () => {
-    if (onShowFilePreview && fileInfo) {
+    console.log('👁️ File preview clicked:', {
+      hasFileInfo: !!fileInfo,
+      isFileProcessing,
+      hasPreviewHandler: !!onShowFilePreview
+    })
+
+    if (onShowFilePreview && fileInfo && !isFileProcessing) {
       onShowFilePreview()
     }
   }
 
   const handleRemoveFile = (e) => {
     e.stopPropagation()
+    console.log('🗑️ Remove file clicked:', { isFileProcessing })
     if (onRemoveFile) {
       onRemoveFile()
     }
   }
+
+  const handleFileUpload = () => {
+    console.log('📎 File upload clicked:', { isFileProcessing })
+    if (!isFileProcessing && onFileUpload) {
+      onFileUpload()
+    }
+  }
+
+  // Calculate if send button should be disabled
+  const isSendDisabled = !inputMessage.trim() || isAnalyzing || !isConnected || isFileProcessing
+
+  console.log('🎛️ InputArea State:', {
+    isFileProcessing,
+    isSendDisabled,
+    inputDisabled: isAnalyzing || !isConnected || isFileProcessing
+  })
 
   return (
     <div className={`${themeClasses.bg} ${themeClasses.border} border-t transition-colors`}>
@@ -56,18 +103,33 @@ const InputArea = ({
               <div className="px-6 pt-4 pb-2">
                 <button
                   onClick={handleFilePreview}
-                  className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group border ${themeClasses.border} shadow-sm`}
-                  title="Click to view file preview"
+                  disabled={isFileProcessing}
+                  className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group border ${themeClasses.border} shadow-sm ${isFileProcessing ? 'cursor-default opacity-75' : 'cursor-pointer'}`}
+                  title={isFileProcessing ? "Preprocessing file for analysis..." : "Click to view file preview"}
                 >
-                  <FileText size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
+                  {isFileProcessing ? (
+                    <>
+                      <Loader2 size={14} className={`${themeClasses.textSecondary} flex-shrink-0 animate-spin`} />
+                      <span className={`text-xs ${themeClasses.textSecondary} font-medium ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                        PROCESSING
+                      </span>
+                    </>
+                  ) : (
+                    <FileText size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
+                  )}
                   <span
-                    className={`text-sm ${themeClasses.text} truncate max-w-[200px] group-hover:text-blue-600 dark:group-hover:text-blue-400`}
+                    className={`text-sm ${themeClasses.text} truncate max-w-[200px] ${!isFileProcessing ? (isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600') : ''}`}
                   >
                     {fileInfo.filename}
                   </span>
+                  {isFileProcessing && (
+                    <span className={`text-xs ${themeClasses.textSecondary} whitespace-nowrap animate-pulse`}>
+                      Processing...
+                    </span>
+                  )}
                   <button
                     onClick={handleRemoveFile}
-                    className={`p-0.5 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
+                    className={`p-0.5 rounded-full ${isDark ? 'hover:bg-red-900/30' : 'hover:bg-red-100'} ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
                     title="Remove file"
                   >
                     <X size={12} />
@@ -91,39 +153,85 @@ const InputArea = ({
                   placeholder={
                     !isConnected
                       ? "Connecting to server..."
+                      : isFileProcessing
+                        ? "⏳ Processing file... Please wait"
                       : fileInfo
                         ? "Ask a follow-up..."
                         : "Upload a file or describe what you'd like to analyze..."
                   }
-                  disabled={isAnalyzing || !isConnected}
-                  className={`w-full px-6 ${fileInfo ? "py-2 pb-4" : "py-4"} bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none`}
+                  disabled={isAnalyzing || !isConnected || isFileProcessing}
+                  className={`w-full px-6 ${fileInfo ? "py-2 pb-4" : "py-4"} bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none ${
+                    isFileProcessing ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
                   style={{ minHeight: fileInfo ? "40px" : "56px", maxHeight: "200px" }}
                   rows={1}
                 />
+                
+                {/* Processing overlay */}
+                {isFileProcessing && (
+                  <div className={`absolute inset-0 ${isDark ? 'bg-gray-800/50' : 'bg-gray-100/50'} rounded-3xl flex items-center justify-center pointer-events-none`}>
+                    <div className={`flex items-center space-x-2 text-sm ${themeClasses.textSecondary}`}>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Processing file...</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={onFileUpload}
-                  className={`p-3 ${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors rounded-2xl hover:${themeClasses.surfaceSecondary} flex-shrink-0`}
-                  title="Upload file"
+                  onClick={handleFileUpload}
+                  disabled={isFileProcessing}
+                  className={`p-3 ${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors rounded-2xl hover:${themeClasses.surfaceSecondary} flex-shrink-0 ${isFileProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={isFileProcessing ? "Processing current file..." : "Upload file"}
                 >
-                  <Paperclip size={20} />
+                  {isFileProcessing ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : (
+                    <Paperclip size={20} />
+                  )}
                 </button>
 
                 <button
                   onClick={handleSendMessage}
-                  disabled={!inputMessage.trim() || isAnalyzing || !isConnected}
-                  className={`${themeClasses.button} p-3 rounded-2xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transform hover:scale-105 disabled:transform-none flex-shrink-0`}
-                  title={!isConnected ? "Not connected" : "Send message"}
+                  disabled={isSendDisabled}
+                  className={`${themeClasses.button} p-3 rounded-2xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transform hover:scale-105 disabled:transform-none flex-shrink-0 ${
+                    isFileProcessing ? `${themeClasses.surface} cursor-not-allowed` : ''
+                  }`}
+                  title={
+                    !isConnected 
+                      ? "Not connected" 
+                      : isFileProcessing 
+                        ? "⏳ Processing file... Please wait" 
+                        : isAnalyzing
+                          ? "Analyzing..."
+                          : "Send message"
+                  }
                 >
-                  {isAnalyzing ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                  {isAnalyzing ? (
+                    <Loader2 size={20} className="animate-spin" />
+                  ) : isFileProcessing ? (
+                    <div className="flex items-center space-x-1">
+                      <Loader2 size={16} className="animate-spin" />
+                    </div>
+                  ) : (
+                    <Send size={20} />
+                  )}
                 </button>
               </div>
             </div>
           </div>
         </div>
       </div>
+      
+      {/* Debug info in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="max-w-4xl mx-auto px-4 py-1">
+          <div className={`text-xs ${themeClasses.textSecondary} ${themeClasses.surface} rounded px-2 py-1`}>
+            Debug: isFileProcessing={String(isFileProcessing)} | isAnalyzing={String(isAnalyzing)} | isConnected={String(isConnected)}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

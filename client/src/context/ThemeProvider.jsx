@@ -1,9 +1,17 @@
-import React, { createContext, useContext, useState } from "react"
+import React, { createContext, useContext, useState, useEffect } from "react"
 
 const ThemeContext = createContext()
 
 export const ThemeProvider = ({ children }) => {
-  const [isDark, setIsDark] = useState(false)
+  // Detect system theme preference
+  const getSystemTheme = () => {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return true // Dark mode
+    }
+    return false // Light mode
+  }
+
+  const [isDark, setIsDark] = useState(getSystemTheme)
 
   const toggleTheme = () => setIsDark(!isDark)
 

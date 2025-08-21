@@ -3,8 +3,10 @@
 import { useCallback } from "react"
 import { useDropzone } from "react-dropzone"
 import { Upload, FileSpreadsheet, Loader2, CloudUpload } from "lucide-react"
+import { useTheme } from "../context/ThemeProvider"
 
 export function FileUpload({ onFileUpload, loading }) {
+  const { themeClasses, isDark } = useTheme()
   const onDrop = useCallback(
     (acceptedFiles) => {
       if (acceptedFiles.length > 0) {
@@ -29,8 +31,8 @@ export function FileUpload({ onFileUpload, loading }) {
     <div className="w-full max-w-2xl">
       <div className="text-center mb-8">
         <CloudUpload className="w-16 h-16 text-primary-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Import Your Data</h2>
-        <p className="text-gray-600">Upload CSV or Excel files to start analyzing your data with AI-powered insights</p>
+        <h2 className={`text-2xl font-bold ${themeClasses.text} mb-2`}>Import Your Data</h2>
+        <p className={themeClasses.textSecondary}>Upload CSV or Excel files to start analyzing your data with AI-powered insights</p>
       </div>
 
       <div
@@ -47,20 +49,20 @@ export function FileUpload({ onFileUpload, loading }) {
           {loading ? (
             <Loader2 className="w-12 h-12 text-primary-500 animate-spin" />
           ) : (
-            <FileSpreadsheet className="w-12 h-12 text-gray-400" />
+            <FileSpreadsheet className={`w-12 h-12 ${themeClasses.textSecondary}`} />
           )}
 
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className={`text-lg font-semibold ${themeClasses.text} mb-2`}>
               {loading ? "Processing your file..." : isDragActive ? "Drop your file here" : "Choose a file to upload"}
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className={`text-sm ${themeClasses.textSecondary} mb-4`}>
               {isDragActive ? "Release to upload your data file" : "Drag and drop your file here, or click to browse"}
             </p>
-            <div className="flex items-center justify-center space-x-4 text-xs text-gray-500">
-              <span className="badge bg-gray-100 text-gray-700">.CSV</span>
-              <span className="badge bg-gray-100 text-gray-700">.XLSX</span>
-              <span className="badge bg-gray-100 text-gray-700">.XLS</span>
+            <div className={`flex items-center justify-center space-x-4 text-xs ${themeClasses.textMuted}`}>
+              <span className={`badge ${themeClasses.surface} ${themeClasses.textSecondary}`}>.CSV</span>
+              <span className={`badge ${themeClasses.surface} ${themeClasses.textSecondary}`}>.XLSX</span>
+              <span className={`badge ${themeClasses.surface} ${themeClasses.textSecondary}`}>.XLS</span>
             </div>
           </div>
 
@@ -73,8 +75,8 @@ export function FileUpload({ onFileUpload, loading }) {
         </div>
       </div>
 
-      <div className="mt-6 text-center text-xs text-gray-500">
-        <p>Your data is processed locally and securely. Maximum file size: 50MB</p>
+      <div className={`mt-6 text-center text-xs ${themeClasses.textMuted}`}>
+        <p>Your data is processed locally and securely.</p>
       </div>
     </div>
   )
