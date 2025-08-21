@@ -673,36 +673,36 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 logging.info(f"✅ Parallel upload to assistants completed in {upload_time:.1f}s: {file_id}")
                 
                 # Extra debugging for healthcare dataset file
-                if "healthcare_dataset" in background_temp_path.lower():
-                    logging.info(f"🏥 HEALTHCARE FILE DEBUG: Session={self.session_id}, FileID={file_id}, UploadTime={upload_time:.1f}s")
-                    logging.info(f"🏥 SocketIO available: {self.socketio is not None}")
-                    if self.socketio:
-                        # Check active rooms
-                        try:
-                            from flask import current_app
-                            with current_app.app_context():
-                                logging.info(f"🏥 Current app context available")
-                        except Exception as ctx_error:
-                            logging.error(f"🏥 App context error: {ctx_error}")
+                # if "healthcare_dataset" in background_temp_path.lower():
+                #     logging.info(f"🏥 HEALTHCARE FILE DEBUG: Session={self.session_id}, FileID={file_id}, UploadTime={upload_time:.1f}s")
+                #     logging.info(f"🏥 SocketIO available: {self.socketio is not None}")
+                #     if self.socketio:
+                #         # Check active rooms
+                #         try:
+                #             from flask import current_app
+                #             with current_app.app_context():
+                #                 logging.info(f"🏥 Current app context available")
+                #         except Exception as ctx_error:
+                #             logging.error(f"🏥 App context error: {ctx_error}")
                         
-                        # Try multiple emission methods
-                        test_event = {
-                            'type': 'healthcare_test',
-                            'data': f'Healthcare file upload test - {upload_time:.1f}s',
-                            'timestamp': datetime.now().isoformat()
-                        }
+                #         # Try multiple emission methods
+                #         test_event = {
+                #             'type': 'healthcare_test',
+                #             'data': f'Healthcare file upload test - {upload_time:.1f}s',
+                #             'timestamp': datetime.now().isoformat()
+                #         }
                         
-                        # Method 1: room
-                        self.socketio.emit('stream_data', test_event, room=self.session_id)
-                        logging.info(f"🏥 Test event emitted to room: {self.session_id}")
+                #         # Method 1: room
+                #         self.socketio.emit('stream_data', test_event, room=self.session_id)
+                #         logging.info(f"🏥 Test event emitted to room: {self.session_id}")
                         
-                        # Method 2: to specific session
-                        self.socketio.emit('stream_data', test_event, to=self.session_id)
-                        logging.info(f"🏥 Test event emitted to session: {self.session_id}")
+                #         # Method 2: to specific session
+                #         self.socketio.emit('stream_data', test_event, to=self.session_id)
+                #         logging.info(f"🏥 Test event emitted to session: {self.session_id}")
                         
-                        # Method 3: broadcast to all
-                        self.socketio.emit('stream_data', test_event)
-                        logging.info(f"🏥 Test event broadcasted to all clients")
+                #         # Method 3: broadcast to all
+                #         self.socketio.emit('stream_data', test_event)
+                #         logging.info(f"🏥 Test event broadcasted to all clients")
                 
                 # Notify frontend of completion
                 if self.socketio:
