@@ -43,7 +43,7 @@ class StructuredReportGenerator:
         self.data_tables = {}  # Store formatted data tables
         
     def generate_comprehensive_report(self, user_query: str, analysis_result: Dict[str, Any], 
-                                    image_sas_urls: List[str]) -> Dict[str, Any]:
+                                    image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """
         Main method to generate comprehensive structured HTML report with session memory
         """
@@ -82,7 +82,8 @@ class StructuredReportGenerator:
                 report_structure, 
                 section_results, 
                 user_query,
-                all_chart_urls
+                all_chart_urls,
+                theme
             )
             
             # Apply enhanced formatting
@@ -105,7 +106,316 @@ class StructuredReportGenerator:
         except Exception as e:
             print(f"❌ Error in fixed structured HTML report generation: {e}")
             logging.exception("Fixed structured HTML report generation failed")
-            return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls)
+            return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls, theme)
+    
+    def _get_theme_aware_css(self, theme: str = "light") -> str:
+        """Generate theme-aware CSS styles based on the current theme"""
+        
+        if theme == "dark":
+            # Dark theme colors
+            colors = {
+                'bg_primary': '#1a1a1a',
+                'bg_secondary': '#2d2d2d', 
+                'bg_card': '#2d2d2d',
+                'bg_surface': '#3d3d3d',
+                'text_primary': '#ffffff',
+                'text_secondary': '#b0b0b0',
+                'text_muted': '#808080',
+                'border': '#4d4d4d',
+                'accent': '#3498db',
+                'accent_dark': '#2980b9',
+                'gradient_start': '#667eea',
+                'gradient_end': '#764ba2',
+                'insight_bg': '#1e3a5f',
+                'insight_border': '#3498db',
+                'table_header': '#34495e',
+                'table_row_even': '#2a2a2a',
+                'shadow': 'rgba(255,255,255,0.1)'
+            }
+        else:
+            # Light theme colors (default)
+            colors = {
+                'bg_primary': '#f8f9fa',
+                'bg_secondary': '#ffffff',
+                'bg_card': '#ffffff', 
+                'bg_surface': '#f8f9fa',
+                'text_primary': '#333333',
+                'text_secondary': '#666666',
+                'text_muted': '#7f8c8d',
+                'border': '#dee2e6',
+                'accent': '#3498db',
+                'accent_dark': '#2980b9',
+                'gradient_start': '#667eea',
+                'gradient_end': '#764ba2',
+                'insight_bg': '#e8f4fd',
+                'insight_border': '#3498db',
+                'table_header': '#34495e',
+                'table_row_even': '#f8f9fa',
+                'shadow': 'rgba(0,0,0,0.1)'
+            }
+        
+        return f"""
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: {colors['text_primary']};
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            background: {colors['bg_primary']};
+        }}
+        .report-container {{
+            background: {colors['bg_secondary']};
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px {colors['shadow']};
+        }}
+        .header {{
+            text-align: center;
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+        .header h1 {{
+            color: {colors['accent']};
+            font-size: 2.2rem;
+            margin: 0;
+            font-weight: 700;
+        }}
+        .header h2 {{
+            color: {colors['text_secondary']};
+            font-size: 1.2rem;
+            margin: 0.5rem 0 0 0;
+            font-weight: 400;
+        }}
+        .metadata {{
+            background: {colors['bg_surface']};
+            color: {colors['text_primary']};
+            padding: 1.2rem;
+            border-radius: 6px;
+            margin: 1.5rem 0;
+            border-left: 4px solid {colors['accent']};
+        }}
+        .metadata strong {{
+            color: {colors['text_primary']};
+        }}
+        .toc {{
+            background: {colors['bg_surface']};
+            padding: 1.5rem;
+            border-radius: 6px;
+            margin: 1.5rem 0;
+        }}
+        .toc h3 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+            border-bottom: 2px solid {colors['accent']};
+            padding-bottom: 0.5rem;
+        }}
+        .toc-list {{
+            list-style: none;
+            padding: 0;
+        }}
+        .toc-item {{
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px dotted {colors['border']};
+            color: {colors['text_primary']};
+        }}
+        .toc-item:last-child {{
+            border-bottom: none;
+        }}
+        .section-container {{
+            margin: 2rem 0;
+            page-break-inside: avoid;
+        }}
+        .section-title {{
+            color: {colors['text_primary']};
+            font-size: 1.6rem;
+            margin: 1.5rem 0 1rem 0;
+            border-left: 5px solid {colors['accent']};
+            padding-left: 1rem;
+            page-break-after: avoid;
+        }}
+        .section-content {{
+            margin-left: 1rem;
+            color: {colors['text_primary']};
+        }}
+        .insight-box {{
+            background: {colors['insight_bg']};
+            border-left: 5px solid {colors['insight_border']};
+            padding: 1.2rem;
+            margin: 1.2rem 0;
+            border-radius: 0 6px 6px 0;
+        }}
+        .insight-box h3 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+        }}
+        .insight-box p {{
+            color: {colors['text_primary']};
+        }}
+        .metric-highlight {{
+            background: {colors['accent']};
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }}
+        .recommendation-item {{
+            background: {colors['bg_surface']};
+            border: 1px solid {colors['border']};
+            border-radius: 6px;
+            padding: 1.2rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px {colors['shadow']};
+        }}
+        .recommendation-item h4 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+        }}
+        .recommendation-item p {{
+            color: {colors['text_primary']};
+        }}
+        .findings-list {{
+            list-style: none;
+            padding: 0;
+        }}
+        .finding-item {{
+            background: {colors['bg_surface']};
+            color: {colors['text_primary']};
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-left: 4px solid #27ae60;
+            border-radius: 0 4px 4px 0;
+        }}
+        .chart-container {{
+            margin: 1.5rem 0;
+            text-align: center;
+            background: {colors['bg_surface']};
+            padding: 1.2rem;
+            border-radius: 6px;
+        }}
+        .chart-image {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px {colors['shadow']};
+        }}
+        .chart-description {{
+            margin-top: 1rem;
+            font-style: italic;
+            color: {colors['text_secondary']};
+        }}
+        .kpi-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }}
+        .kpi-card {{
+            background: linear-gradient(135deg, {colors['gradient_start']}, {colors['gradient_end']});
+            color: white;
+            padding: 1.2rem;
+            border-radius: 6px;
+            text-align: center;
+        }}
+        .kpi-value {{
+            font-size: 1.8rem;
+            font-weight: bold;
+            display: block;
+        }}
+        .kpi-label {{
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }}
+        /* Data Table Styles */
+        .data-table-container {{
+            margin: 1.5rem 0;
+            page-break-inside: avoid;
+        }}
+        .table-title {{
+            color: {colors['text_primary']};
+            font-size: 1.1rem;
+            margin: 0 0 0.8rem 0;
+            font-weight: 600;
+        }}
+        .table-responsive {{
+            overflow-x: auto;
+        }}
+        .data-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+            background: {colors['bg_secondary']};
+        }}
+        .data-table th {{
+            background: {colors['table_header']};
+            color: white;
+            padding: 0.8rem;
+            text-align: left;
+        }}
+        .data-table td {{
+            padding: 0.6rem;
+            border-bottom: 1px solid {colors['border']};
+            color: {colors['text_primary']};
+        }}
+        .data-table tr:nth-child(even) {{
+            background: {colors['table_row_even']};
+        }}
+        .table-note {{
+            font-style: italic;
+            color: {colors['text_secondary']};
+            margin: 0.5rem 0;
+        }}
+        .footer {{
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 2px solid {colors['border']};
+            text-align: center;
+            color: {colors['text_muted']};
+            font-size: 0.9rem;
+        }}
+        @media print {{
+            body {{ 
+                background: white !important; 
+                color: #000 !important;
+                font-size: 11pt;
+                line-height: 1.4;
+            }}
+            .report-container {{ 
+                box-shadow: none !important; 
+                padding: 0;
+                background: white !important;
+            }}
+            .section-container {{ 
+                page-break-inside: avoid; 
+                margin: 1rem 0;
+            }}
+            .chart-container {{ 
+                page-break-inside: avoid; 
+            }}
+            .insight-box {{
+                page-break-inside: avoid;
+                background: #f5f5f5 !important;
+                color: #000 !important;
+            }}
+            .recommendation-item {{
+                page-break-inside: avoid;
+                background: #f9f9f9 !important;
+                color: #000 !important;
+            }}
+            .data-table-container {{
+                page-break-inside: avoid;
+            }}
+            .data-table td, .data-table th {{
+                color: #000 !important;
+            }}
+            .section-title, .header h1, .header h2, .insight-box h3, .recommendation-item h4, .table-title {{
+                color: #000 !important;
+            }}
+        }}
+        """
     
     def _generate_dynamic_table_for_section(self, section: Dict[str, Any], analysis_result: Dict[str, Any], 
                                           image_sas_urls: List[str]) -> str:
@@ -998,7 +1308,7 @@ SECTION REQUIREMENTS:
     
     def _combine_sections_into_html_report(self, report_structure: Dict[str, Any], 
                                          section_results: Dict[str, Dict[str, Any]], 
-                                         user_query: str, image_sas_urls: List[str]) -> Dict[str, Any]:
+                                         user_query: str, image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """
         ENHANCED: Combine all generated sections into final HTML report with better formatting
         """
@@ -1009,7 +1319,9 @@ SECTION REQUIREMENTS:
             report_title = structure.get("report_title", "Comprehensive Business Analysis Report")
             report_subtitle = structure.get("report_subtitle", "Data Analysis and Strategic Insights")
             
-            # Enhanced HTML template with PDF optimization
+            # Enhanced HTML template with theme-aware CSS
+            theme_css = self._get_theme_aware_css(theme)
+            
             html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1017,243 +1329,7 @@ SECTION REQUIREMENTS:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{report_title}</title>
     <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1.5rem;
-            background: #f8f9fa;
-        }}
-        .report-container {{
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 3px solid #2c3e50;
-            padding-bottom: 1.5rem;
-            margin-bottom: 2rem;
-        }}
-        .header h1 {{
-            color: #1a472a;
-            font-size: 2.2rem;
-            margin: 0;
-            font-weight: 700;
-        }}
-        .header h2 {{
-            color: #666;
-            font-size: 1.2rem;
-            margin: 0.5rem 0 0 0;
-            font-weight: 400;
-        }}
-        .metadata {{
-            background: #f8f9fa;
-            padding: 1.2rem;
-            border-radius: 6px;
-            margin: 1.5rem 0;
-            border-left: 4px solid #3498db;
-        }}
-        .metadata strong {{
-            color: #2c3e50;
-        }}
-        .toc {{
-            background: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 6px;
-            margin: 1.5rem 0;
-        }}
-        .toc h3 {{
-            color: #2c3e50;
-            margin-top: 0;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 0.5rem;
-        }}
-        .toc-list {{
-            list-style: none;
-            padding: 0;
-        }}
-        .toc-item {{
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            border-bottom: 1px dotted #ccc;
-        }}
-        .toc-item:last-child {{
-            border-bottom: none;
-        }}
-        .section-container {{
-            margin: 2rem 0;
-            page-break-inside: avoid;
-        }}
-        .section-title {{
-            color: #2c3e50;
-            font-size: 1.6rem;
-            margin: 1.5rem 0 1rem 0;
-            border-left: 5px solid #3498db;
-            padding-left: 1rem;
-            page-break-after: avoid;
-        }}
-        .section-content {{
-            margin-left: 1rem;
-        }}
-        .insight-box {{
-            background: #e8f4fd;
-            border-left: 5px solid #3498db;
-            padding: 1.2rem;
-            margin: 1.2rem 0;
-            border-radius: 0 6px 6px 0;
-        }}
-        .insight-box h3 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .metric-highlight {{
-            background: #3498db;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-weight: bold;
-        }}
-        .recommendation-item {{
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 1.2rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .recommendation-item h4 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .findings-list {{
-            list-style: none;
-            padding: 0;
-        }}
-        .finding-item {{
-            background: #f8f9fa;
-            padding: 1rem;
-            margin: 0.5rem 0;
-            border-left: 4px solid #27ae60;
-            border-radius: 0 4px 4px 0;
-        }}
-        .chart-container {{
-            margin: 1.5rem 0;
-            text-align: center;
-            background: #f8f9fa;
-            padding: 1.2rem;
-            border-radius: 6px;
-        }}
-        .chart-image {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        .chart-description {{
-            margin-top: 1rem;
-            font-style: italic;
-            color: #666;
-        }}
-        .kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 1rem;
-            margin: 1.5rem 0;
-        }}
-        .kpi-card {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 1.2rem;
-            border-radius: 6px;
-            text-align: center;
-        }}
-        .kpi-value {{
-            font-size: 1.8rem;
-            font-weight: bold;
-            display: block;
-        }}
-        .kpi-label {{
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }}
-        /* Data Table Styles */
-        .data-table-container {{
-            margin: 1.5rem 0;
-            page-break-inside: avoid;
-        }}
-        .table-title {{
-            color: #2c3e50;
-            font-size: 1.1rem;
-            margin: 0 0 0.8rem 0;
-            font-weight: 600;
-        }}
-        .table-responsive {{
-            overflow-x: auto;
-        }}
-        .data-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0.5rem 0;
-            background: white;
-        }}
-        .data-table th {{
-            background: #34495e;
-            color: white;
-            padding: 0.8rem;
-            text-align: left;
-        }}
-        .data-table td {{
-            padding: 0.6rem;
-            border-bottom: 1px solid #eee;
-        }}
-        .data-table tr:nth-child(even) {{
-            background: #f8f9fa;
-        }}
-        .table-note {{
-            font-style: italic;
-            color: #666;
-            margin: 0.5rem 0;
-        }}
-        .footer {{
-            margin-top: 3rem;
-            padding-top: 1.5rem;
-            border-top: 2px solid #ecf0f1;
-            text-align: center;
-            color: #7f8c8d;
-            font-size: 0.9rem;
-        }}
-        @media print {{
-            body {{ 
-                background: white; 
-                font-size: 11pt;
-                line-height: 1.4;
-            }}
-            .report-container {{ 
-                box-shadow: none; 
-                padding: 0;
-            }}
-            .section-container {{ 
-                page-break-inside: avoid; 
-                margin: 1rem 0;
-            }}
-            .chart-container {{ 
-                page-break-inside: avoid; 
-            }}
-            .insight-box {{
-                page-break-inside: avoid;
-            }}
-            .recommendation-item {{
-                page-break-inside: avoid;
-            }}
-            .data-table-container {{
-                page-break-inside: avoid;
-            }}
-        }}
+        {theme_css}
     </style>
 </head>
 <body>
@@ -1954,13 +2030,16 @@ SECTION REQUIREMENTS:
         }
     
     def _fallback_html_report_generation(self, user_query: str, analysis_result: Dict[str, Any], 
-                                       image_sas_urls: List[str]) -> Dict[str, Any]:
+                                       image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """ENHANCED: Complete fallback HTML report generation with dynamic tables"""
         
         print("🔄 Using enhanced fallback HTML report generation...")
         
         dataframes_count = len(analysis_result.get('dataframes', {}))
         analysis_snippet = str(analysis_result.get('response', ''))[:500]
+        
+        # Generate theme-aware CSS
+        theme_css = self._get_theme_aware_css(theme)
         
         fallback_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1969,133 +2048,7 @@ SECTION REQUIREMENTS:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comprehensive Business Analysis Report</title>
     <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-            background: #f8f9fa;
-        }}
-        .report-container {{
-            background: white;
-            padding: 3rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 3px solid #2c3e50;
-            padding-bottom: 2rem;
-            margin-bottom: 3rem;
-        }}
-        .header h1 {{
-            color: #1a472a;
-            font-size: 2.5rem;
-            margin: 0;
-            font-weight: 700;
-        }}
-        .section-title {{
-            color: #2c3e50;
-            font-size: 1.8rem;
-            margin: 2rem 0 1rem 0;
-            border-left: 5px solid #3498db;
-            padding-left: 1rem;
-        }}
-        .insight-box {{
-            background: #e8f4fd;
-            border-left: 5px solid #3498db;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            border-radius: 0 8px 8px 0;
-        }}
-        .metric-highlight {{
-            background: #3498db;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-weight: bold;
-        }}
-        .chart-container {{
-            margin: 2rem 0;
-            text-align: center;
-            background: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 8px;
-        }}
-        .chart-image {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        .kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin: 2rem 0;
-        }}
-        .kpi-card {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            text-align: center;
-        }}
-        .kpi-value {{
-            font-size: 2rem;
-            font-weight: bold;
-            display: block;
-        }}
-        .kpi-label {{
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }}
-        .recommendation-item {{
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .recommendation-item h4 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .data-table-container {{
-            margin: 1.5rem 0;
-        }}
-        .table-title {{
-            color: #2c3e50;
-            font-size: 1.1rem;
-            margin: 0 0 0.8rem 0;
-            font-weight: 600;
-        }}
-        .data-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0.5rem 0;
-            background: white;
-        }}
-        .data-table th {{
-            background: #34495e;
-            color: white;
-            padding: 0.8rem;
-            text-align: left;
-        }}
-        .data-table td {{
-            padding: 0.6rem;
-            border-bottom: 1px solid #eee;
-        }}
-        .data-table tr:nth-child(even) {{
-            background: #f8f9fa;
-        }}
-        @media print {{
-            body {{ background: white !important; }}
-            .report-container {{ box-shadow: none !important; }}
-        }}
+        {theme_css}
     </style>
 </head>
 <body>
@@ -2199,7 +2152,7 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
     """Integration function - NO CHANGES to maintain compatibility"""
     
     def _generate_structured_html_report_with_sections(self, user_query: str, analysis_result: Dict[str, Any], 
-                                                     image_sas_urls: List[str]) -> Dict[str, Any]:
+                                                     image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         try:
             self.emit_stream('status', '🏗️ Initializing fixed structured HTML report generation...')
             
@@ -2214,7 +2167,8 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
             report_result = structured_generator.generate_comprehensive_report(
                 user_query,
                 analysis_result,
-                image_sas_urls
+                image_sas_urls,
+                theme
             )
             
             if report_result.get("success"):

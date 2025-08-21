@@ -156,13 +156,13 @@ export const useMessages = () => {
         })
         
         // Extra debugging for healthcare files
-        if (content && content.toLowerCase().includes('healthcare')) {
-          console.log("🏥 HEALTHCARE FILE - Frontend received assistant_upload_complete:", {
-            content,
-            additionalInfo,
-            timestamp: new Date().toISOString()
-          })
-        }
+        // if (content && content.toLowerCase().includes('healthcare')) {
+        //   console.log("🏥 HEALTHCARE FILE - Frontend received assistant_upload_complete:", {
+        //     content,
+        //     additionalInfo,
+        //     timestamp: new Date().toISOString()
+        //   })
+        // }
         
         // Mark file processing as complete
         setIsFileProcessing(false)
@@ -407,13 +407,13 @@ export const useMessages = () => {
         })
         break
 
-      case "healthcare_test":
-        console.log("🏥 HEALTHCARE TEST EVENT received on frontend:", {
-          content,
-          additionalInfo,
-          timestamp: new Date().toISOString()
-        })
-        break
+      // case "healthcare_test":
+      //   console.log("🏥 HEALTHCARE TEST EVENT received on frontend:", {
+      //     content,
+      //     additionalInfo,
+      //     timestamp: new Date().toISOString()
+      //   })
+      //   break
 
       default:
         console.warn(`Unknown stream data type: ${type}`, { content, additionalInfo })

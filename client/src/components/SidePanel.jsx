@@ -88,15 +88,15 @@ const SidePanel = ({
   const getItemColor = (type) => {
     switch (type) {
       case 'code':
-        return 'text-blue-600 dark:text-blue-400'
+        return isDark ? 'text-blue-400' : 'text-blue-600'
       case 'image':
-        return 'text-purple-600 dark:text-purple-400'
+        return isDark ? 'text-purple-400' : 'text-purple-600'
       case 'dataframe':
-        return 'text-green-600 dark:text-green-400'
+        return isDark ? 'text-green-400' : 'text-green-600'
       case 'report':
-        return 'text-orange-600 dark:text-orange-400'
+        return isDark ? 'text-orange-400' : 'text-orange-600'
       case 'file':
-        return 'text-gray-600 dark:text-gray-400'
+        return isDark ? 'text-gray-400' : 'text-gray-600'
       default:
         return themeClasses.textSecondary
     }

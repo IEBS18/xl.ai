@@ -166,14 +166,14 @@ const FilePreviewModal = ({
             <div className={`text-xs ${themeClasses.textSecondary}`}>
               Press Esc to close • Showing preview of data
             </div>
-            <div className="flex space-x-2">
+            {/* <div className="flex space-x-2">
               <button
                 onClick={onClose}
                 className={`px-4 py-2 text-sm ${themeClasses.textSecondary} hover:${themeClasses.text} transition-colors`}
               >
                 Close
               </button>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>

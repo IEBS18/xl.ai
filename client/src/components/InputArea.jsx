@@ -15,7 +15,7 @@ const InputArea = ({
   isFileProcessing = false, // New prop for file processing state
 }) => {
   const [inputMessage, setInputMessage] = useState("")
-  const { themeClasses } = useTheme()
+  const { themeClasses, isDark } = useTheme()
   const textareaRef = useRef(null)
 
   // Debug logging
@@ -110,7 +110,7 @@ const InputArea = ({
                   {isFileProcessing ? (
                     <>
                       <Loader2 size={14} className={`${themeClasses.textSecondary} flex-shrink-0 animate-spin`} />
-                      <span className={`text-xs ${themeClasses.textSecondary} font-medium text-orange-600 dark:text-orange-400`}>
+                      <span className={`text-xs ${themeClasses.textSecondary} font-medium ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
                         PROCESSING
                       </span>
                     </>
@@ -118,7 +118,7 @@ const InputArea = ({
                     <FileText size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
                   )}
                   <span
-                    className={`text-sm ${themeClasses.text} truncate max-w-[200px] ${!isFileProcessing ? 'group-hover:text-blue-600 dark:group-hover:text-blue-400' : ''}`}
+                    className={`text-sm ${themeClasses.text} truncate max-w-[200px] ${!isFileProcessing ? (isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600') : ''}`}
                   >
                     {fileInfo.filename}
                   </span>
@@ -129,7 +129,7 @@ const InputArea = ({
                   )}
                   <button
                     onClick={handleRemoveFile}
-                    className={`p-0.5 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
+                    className={`p-0.5 rounded-full ${isDark ? 'hover:bg-red-900/30' : 'hover:bg-red-100'} ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
                     title="Remove file"
                   >
                     <X size={12} />
@@ -169,8 +169,8 @@ const InputArea = ({
                 
                 {/* Processing overlay */}
                 {isFileProcessing && (
-                  <div className="absolute inset-0 bg-gray-100/50 dark:bg-gray-800/50 rounded-3xl flex items-center justify-center pointer-events-none">
-                    <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+                  <div className={`absolute inset-0 ${isDark ? 'bg-gray-800/50' : 'bg-gray-100/50'} rounded-3xl flex items-center justify-center pointer-events-none`}>
+                    <div className={`flex items-center space-x-2 text-sm ${themeClasses.textSecondary}`}>
                       <Loader2 size={16} className="animate-spin" />
                       <span>Processing file...</span>
                     </div>
@@ -196,7 +196,7 @@ const InputArea = ({
                   onClick={handleSendMessage}
                   disabled={isSendDisabled}
                   className={`${themeClasses.button} p-3 rounded-2xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transform hover:scale-105 disabled:transform-none flex-shrink-0 ${
-                    isFileProcessing ? 'bg-gray-400 cursor-not-allowed' : ''
+                    isFileProcessing ? `${themeClasses.surface} cursor-not-allowed` : ''
                   }`}
                   title={
                     !isConnected 
@@ -227,7 +227,7 @@ const InputArea = ({
       {/* Debug info in development */}
       {process.env.NODE_ENV === 'development' && (
         <div className="max-w-4xl mx-auto px-4 py-1">
-          <div className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-800 rounded px-2 py-1">
+          <div className={`text-xs ${themeClasses.textSecondary} ${themeClasses.surface} rounded px-2 py-1`}>
             Debug: isFileProcessing={String(isFileProcessing)} | isAnalyzing={String(isAnalyzing)} | isConnected={String(isConnected)}
           </div>
         </div>

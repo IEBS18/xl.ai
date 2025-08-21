@@ -6,6 +6,7 @@ import { useAuthUrl } from "./hooks/useAuthUrl"
 import Header from "./components/Header"
 import MainContent from "./components/MainContent"
 import ChatSession from "./components/ChatSession"
+import DashboardList from "./components/DashboardList"
 
 // Create a wrapper component to use hooks inside Router
 const AppContent = () => {
@@ -40,6 +41,12 @@ const AppContent = () => {
         <Route 
           path="/chat/:sessionId" 
           element={<ChatSession />} 
+        />
+        
+        {/* Dashboard routes */}
+        <Route 
+          path="/dashboards" 
+          element={<DashboardList onClose={() => window.history.back()} />} 
         />
         
         {/* Fallback to landing page */}
