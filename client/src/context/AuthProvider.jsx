@@ -23,6 +23,10 @@ export const AuthProvider = ({ children }) => {
     checkAuthStatus, 
     login, 
     register, 
+    verifyEmail,
+    resendVerification,
+    forgotPassword,
+    resetPassword,
     clearUser 
   } = useUserStore()
 
@@ -40,6 +44,10 @@ export const AuthProvider = ({ children }) => {
     authChecked,
     login,
     register,
+    verifyEmail,
+    resendVerification,
+    forgotPassword,
+    resetPassword,
     logout: clearUser,
     checkAuthStatus
   }

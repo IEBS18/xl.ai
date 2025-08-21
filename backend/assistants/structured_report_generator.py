@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
+from utils.session_memory import SessionMemoryManager
 
 @dataclass
 class ReportSection:
@@ -32,6 +33,9 @@ class StructuredReportGenerator:
         self.session_id = session_id
         self.thread_id = thread_manager.create_or_get_thread(session_id) if thread_manager else None
         
+        # Initialize session memory manager
+        self.session_memory = SessionMemoryManager(session_id)
+        
         # Track generated sections and data
         self.generated_sections = {}
         self.section_metadata = {}
@@ -39,25 +43,38 @@ class StructuredReportGenerator:
         self.data_tables = {}  # Store formatted data tables
         
     def generate_comprehensive_report(self, user_query: str, analysis_result: Dict[str, Any], 
-                                    image_sas_urls: List[str]) -> Dict[str, Any]:
+                                    image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """
-        Main method to generate comprehensive structured HTML report
+        Main method to generate comprehensive structured HTML report with session memory
         """
         try:
-            print("🏗️ Starting fixed structured HTML report generation...")
+            print("[INFO] Starting fixed structured HTML report generation...")
             
-            # Use original proven structure but with improvements
-            report_structure = self._generate_report_structure(user_query, analysis_result, image_sas_urls)
+            # Load all charts from session history for comprehensive reporting
+            session_charts = self.session_memory.get_all_chart_urls()
+            all_chart_urls = list(dict.fromkeys(image_sas_urls + session_charts))  # Remove duplicates, preserve order
+            
+            print(f"[INFO] Report generation starting...")
+            print(f"[INFO] Current query images: {len(image_sas_urls)} -> {image_sas_urls}")
+            print(f"[INFO] Session history images: {len(session_charts)} -> {session_charts}")
+            print(f"[INFO] Total unique images for report: {len(all_chart_urls)} -> {all_chart_urls}")
+            
+            if len(session_charts) > 0:
+                print(f"[SUCCESS] Loaded {len(session_charts)} charts from session history")
+                print(f"[SUCCESS] Using {len(all_chart_urls)} total charts for report generation")
+            
+            # Use original proven structure but with improvements and all charts
+            report_structure = self._generate_report_structure(user_query, analysis_result, all_chart_urls)
             
             if not report_structure.get("success"):
                 return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls)
             
-            # Generate sections with original proven method
+            # Generate sections with original proven method using all charts
             section_results = self._generate_sections_iteratively(
                 report_structure["sections"], 
                 user_query, 
                 analysis_result, 
-                image_sas_urls
+                all_chart_urls
             )
             
             # Combine sections with enhanced formatting but keep original content quality
@@ -65,28 +82,340 @@ class StructuredReportGenerator:
                 report_structure, 
                 section_results, 
                 user_query,
-                image_sas_urls
+                all_chart_urls,
+                theme
             )
             
             # Apply enhanced formatting
-            formatted_html_report = self._format_final_html_report(final_html_report, image_sas_urls)
+            formatted_html_report = self._format_final_html_report(final_html_report, all_chart_urls)
             
             return {
                 "success": True,
                 "html_report": formatted_html_report["content"],
-                "embedded_images": image_sas_urls,
-                "report_type": "fixed_structured_html_report",
+                "embedded_images": all_chart_urls,
+                "report_type": "fixed_structured_html_report_with_session_memory",
                 "sections_generated": len(section_results),
                 "report_structure": report_structure,
                 "section_metadata": self.section_metadata,
-                "generation_method": "fixed_iterative_assistant_html_sections",
-                "data_tables_included": len(self.data_tables)
+                "generation_method": "fixed_iterative_assistant_html_sections_with_session_memory",
+                "data_tables_included": len(self.data_tables),
+                "session_charts_used": len(session_charts),
+                "total_charts_in_report": len(all_chart_urls)
             }
             
         except Exception as e:
             print(f"❌ Error in fixed structured HTML report generation: {e}")
             logging.exception("Fixed structured HTML report generation failed")
-            return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls)
+            return self._fallback_html_report_generation(user_query, analysis_result, image_sas_urls, theme)
+    
+    def _get_theme_aware_css(self, theme: str = "light") -> str:
+        """Generate theme-aware CSS styles based on the current theme"""
+        
+        if theme == "dark":
+            # Dark theme colors
+            colors = {
+                'bg_primary': '#1a1a1a',
+                'bg_secondary': '#2d2d2d', 
+                'bg_card': '#2d2d2d',
+                'bg_surface': '#3d3d3d',
+                'text_primary': '#ffffff',
+                'text_secondary': '#b0b0b0',
+                'text_muted': '#808080',
+                'border': '#4d4d4d',
+                'accent': '#3498db',
+                'accent_dark': '#2980b9',
+                'gradient_start': '#667eea',
+                'gradient_end': '#764ba2',
+                'insight_bg': '#1e3a5f',
+                'insight_border': '#3498db',
+                'table_header': '#34495e',
+                'table_row_even': '#2a2a2a',
+                'shadow': 'rgba(255,255,255,0.1)'
+            }
+        else:
+            # Light theme colors (default)
+            colors = {
+                'bg_primary': '#f8f9fa',
+                'bg_secondary': '#ffffff',
+                'bg_card': '#ffffff', 
+                'bg_surface': '#f8f9fa',
+                'text_primary': '#333333',
+                'text_secondary': '#666666',
+                'text_muted': '#7f8c8d',
+                'border': '#dee2e6',
+                'accent': '#3498db',
+                'accent_dark': '#2980b9',
+                'gradient_start': '#667eea',
+                'gradient_end': '#764ba2',
+                'insight_bg': '#e8f4fd',
+                'insight_border': '#3498db',
+                'table_header': '#34495e',
+                'table_row_even': '#f8f9fa',
+                'shadow': 'rgba(0,0,0,0.1)'
+            }
+        
+        return f"""
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: {colors['text_primary']};
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            background: {colors['bg_primary']};
+        }}
+        .report-container {{
+            background: {colors['bg_secondary']};
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px {colors['shadow']};
+        }}
+        .header {{
+            text-align: center;
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+        .header h1 {{
+            color: {colors['accent']};
+            font-size: 2.2rem;
+            margin: 0;
+            font-weight: 700;
+        }}
+        .header h2 {{
+            color: {colors['text_secondary']};
+            font-size: 1.2rem;
+            margin: 0.5rem 0 0 0;
+            font-weight: 400;
+        }}
+        .metadata {{
+            background: {colors['bg_surface']};
+            color: {colors['text_primary']};
+            padding: 1.2rem;
+            border-radius: 6px;
+            margin: 1.5rem 0;
+            border-left: 4px solid {colors['accent']};
+        }}
+        .metadata strong {{
+            color: {colors['text_primary']};
+        }}
+        .toc {{
+            background: {colors['bg_surface']};
+            padding: 1.5rem;
+            border-radius: 6px;
+            margin: 1.5rem 0;
+        }}
+        .toc h3 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+            border-bottom: 2px solid {colors['accent']};
+            padding-bottom: 0.5rem;
+        }}
+        .toc-list {{
+            list-style: none;
+            padding: 0;
+        }}
+        .toc-item {{
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px dotted {colors['border']};
+            color: {colors['text_primary']};
+        }}
+        .toc-item:last-child {{
+            border-bottom: none;
+        }}
+        .section-container {{
+            margin: 2rem 0;
+            page-break-inside: avoid;
+        }}
+        .section-title {{
+            color: {colors['text_primary']};
+            font-size: 1.6rem;
+            margin: 1.5rem 0 1rem 0;
+            border-left: 5px solid {colors['accent']};
+            padding-left: 1rem;
+            page-break-after: avoid;
+        }}
+        .section-content {{
+            margin-left: 1rem;
+            color: {colors['text_primary']};
+        }}
+        .insight-box {{
+            background: {colors['insight_bg']};
+            border-left: 5px solid {colors['insight_border']};
+            padding: 1.2rem;
+            margin: 1.2rem 0;
+            border-radius: 0 6px 6px 0;
+        }}
+        .insight-box h3 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+        }}
+        .insight-box p {{
+            color: {colors['text_primary']};
+        }}
+        .metric-highlight {{
+            background: {colors['accent']};
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }}
+        .recommendation-item {{
+            background: {colors['bg_surface']};
+            border: 1px solid {colors['border']};
+            border-radius: 6px;
+            padding: 1.2rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px {colors['shadow']};
+        }}
+        .recommendation-item h4 {{
+            color: {colors['text_primary']};
+            margin-top: 0;
+        }}
+        .recommendation-item p {{
+            color: {colors['text_primary']};
+        }}
+        .findings-list {{
+            list-style: none;
+            padding: 0;
+        }}
+        .finding-item {{
+            background: {colors['bg_surface']};
+            color: {colors['text_primary']};
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-left: 4px solid #27ae60;
+            border-radius: 0 4px 4px 0;
+        }}
+        .chart-container {{
+            margin: 1.5rem 0;
+            text-align: center;
+            background: {colors['bg_surface']};
+            padding: 1.2rem;
+            border-radius: 6px;
+        }}
+        .chart-image {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px {colors['shadow']};
+        }}
+        .chart-description {{
+            margin-top: 1rem;
+            font-style: italic;
+            color: {colors['text_secondary']};
+        }}
+        .kpi-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }}
+        .kpi-card {{
+            background: linear-gradient(135deg, {colors['gradient_start']}, {colors['gradient_end']});
+            color: white;
+            padding: 1.2rem;
+            border-radius: 6px;
+            text-align: center;
+        }}
+        .kpi-value {{
+            font-size: 1.8rem;
+            font-weight: bold;
+            display: block;
+        }}
+        .kpi-label {{
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }}
+        /* Data Table Styles */
+        .data-table-container {{
+            margin: 1.5rem 0;
+            page-break-inside: avoid;
+        }}
+        .table-title {{
+            color: {colors['text_primary']};
+            font-size: 1.1rem;
+            margin: 0 0 0.8rem 0;
+            font-weight: 600;
+        }}
+        .table-responsive {{
+            overflow-x: auto;
+        }}
+        .data-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+            background: {colors['bg_secondary']};
+        }}
+        .data-table th {{
+            background: {colors['table_header']};
+            color: white;
+            padding: 0.8rem;
+            text-align: left;
+        }}
+        .data-table td {{
+            padding: 0.6rem;
+            border-bottom: 1px solid {colors['border']};
+            color: {colors['text_primary']};
+        }}
+        .data-table tr:nth-child(even) {{
+            background: {colors['table_row_even']};
+        }}
+        .table-note {{
+            font-style: italic;
+            color: {colors['text_secondary']};
+            margin: 0.5rem 0;
+        }}
+        .footer {{
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 2px solid {colors['border']};
+            text-align: center;
+            color: {colors['text_muted']};
+            font-size: 0.9rem;
+        }}
+        @media print {{
+            body {{ 
+                background: white !important; 
+                color: #000 !important;
+                font-size: 11pt;
+                line-height: 1.4;
+            }}
+            .report-container {{ 
+                box-shadow: none !important; 
+                padding: 0;
+                background: white !important;
+            }}
+            .section-container {{ 
+                page-break-inside: avoid; 
+                margin: 1rem 0;
+            }}
+            .chart-container {{ 
+                page-break-inside: avoid; 
+            }}
+            .insight-box {{
+                page-break-inside: avoid;
+                background: #f5f5f5 !important;
+                color: #000 !important;
+            }}
+            .recommendation-item {{
+                page-break-inside: avoid;
+                background: #f9f9f9 !important;
+                color: #000 !important;
+            }}
+            .data-table-container {{
+                page-break-inside: avoid;
+            }}
+            .data-table td, .data-table th {{
+                color: #000 !important;
+            }}
+            .section-title, .header h1, .header h2, .insight-box h3, .recommendation-item h4, .table-title {{
+                color: #000 !important;
+            }}
+        }}
+        """
     
     def _generate_dynamic_table_for_section(self, section: Dict[str, Any], analysis_result: Dict[str, Any], 
                                           image_sas_urls: List[str]) -> str:
@@ -268,7 +597,7 @@ Generate the complete HTML table structure now (including container div and styl
         ORIGINAL METHOD: Generate JSON structure defining all report sections (KEEP WORKING VERSION)
         """
         try:
-            print("📋 Generating report structure (JSON outline)...")
+            print("[INFO] Generating report structure (JSON outline)...")
             
             # Create structure generation assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("report_generator") if self.assistant_manager else None
@@ -657,16 +986,40 @@ DATA TABLE INTEGRATION:
 """
         
         if "visualizations" in section.get("data_sources", []) and image_sas_urls:
+            # Get session context for better chart descriptions
+            session_charts = self.session_memory.get_charts_for_report()
+            
             prompt += f"""
 CHART EMBEDDING INSTRUCTIONS:
-When referencing visualizations, use this HTML format:
+You have access to {len(image_sas_urls)} visualizations from the current session. Embed them using this HTML format:
+
+AVAILABLE CHARTS FOR EMBEDDING:"""
+            
+            for i, url in enumerate(image_sas_urls):
+                # Find context from session memory if available
+                chart_context = next((c for c in session_charts if c['url'] == url), None)
+                if chart_context:
+                    description = f"Chart from query: '{chart_context['query'][:50]}...'"
+                else:
+                    description = f"Analysis Chart {i+1}"
+                    
+                prompt += f"""
+Chart {i+1}: <img src="{url}" alt="{description}" class="chart-image">
+Context: {description}"""
+            
+            prompt += f"""
+
+EMBEDDING FORMAT:
 <div class="chart-container">
-    <img src="{image_sas_urls[0] if image_sas_urls else '[URL]'}" alt="Analysis Chart" class="chart-image">
+    <img src="[USE_ACTUAL_URL_FROM_ABOVE]" alt="Analysis Chart" class="chart-image">
     <p class="chart-description">The analysis shows significant trends indicating...</p>
 </div>
 
-Available charts: {len(image_sas_urls)} visualizations
-"""
+IMPORTANT: 
+- Always use the ACTUAL URLs provided above, not placeholders
+- Embed charts that are relevant to this section's content
+- Include meaningful descriptions of what each chart shows
+- You can embed multiple charts in one section if relevant"""
         
         prompt += f"""
 HTML OUTPUT REQUIREMENTS:
@@ -727,9 +1080,16 @@ Generate the HTML section content now:
                         f'\n{dynamic_table}\n</div>\n</div>'
                     )
             
-            # Ensure proper image URL formatting
+            # Enhanced image URL formatting and embedding
             for i, url in enumerate(image_sas_urls, 1):
-                chart_patterns = [f"Chart {i}", f"Figure {i}", f"Visualization {i}"]
+                # Multiple patterns to catch different ways the AI might reference charts
+                chart_patterns = [
+                    f"Chart {i}", f"Figure {i}", f"Visualization {i}", f"Image {i}",
+                    f"chart {i}", f"figure {i}", f"visualization {i}", f"image {i}",
+                    f"Graph {i}", f"Plot {i}", f"graph {i}", f"plot {i}"
+                ]
+                
+                # Replace specific chart references
                 for pattern in chart_patterns:
                     if pattern in processed_content and f'src="{url}"' not in processed_content:
                         chart_html = f'''<div class="chart-container">
@@ -737,6 +1097,24 @@ Generate the HTML section content now:
     <p class="chart-description">{pattern}: Generated from data analysis</p>
 </div>'''
                         processed_content = processed_content.replace(pattern, chart_html)
+                
+                # Also handle generic references that should be replaced with actual images
+                generic_patterns = [
+                    "refer to that image with bar/histogram graph",
+                    "refer to the chart", "see the visualization", "as shown in the chart",
+                    "the chart shows", "the graph displays", "visualization reveals"
+                ]
+                
+                # Replace generic references with the first available image (for the first URL)
+                if i == 1:  # Only do this once for the first image
+                    for generic in generic_patterns:
+                        if generic in processed_content.lower() and f'src="{url}"' not in processed_content:
+                            chart_html = f'''<div class="chart-container">
+    <img src="{url}" alt="Analysis Chart" class="chart-image">
+    <p class="chart-description">Chart showing key insights from the analysis</p>
+</div>'''
+                            # Replace the generic text with actual image
+                            processed_content = processed_content.replace(generic, chart_html)
             
             # Remove excessive whitespace for PDF optimization
             processed_content = re.sub(r'\n\s*\n\s*\n', '\n\n', processed_content)
@@ -930,7 +1308,7 @@ SECTION REQUIREMENTS:
     
     def _combine_sections_into_html_report(self, report_structure: Dict[str, Any], 
                                          section_results: Dict[str, Dict[str, Any]], 
-                                         user_query: str, image_sas_urls: List[str]) -> Dict[str, Any]:
+                                         user_query: str, image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """
         ENHANCED: Combine all generated sections into final HTML report with better formatting
         """
@@ -941,7 +1319,9 @@ SECTION REQUIREMENTS:
             report_title = structure.get("report_title", "Comprehensive Business Analysis Report")
             report_subtitle = structure.get("report_subtitle", "Data Analysis and Strategic Insights")
             
-            # Enhanced HTML template with PDF optimization
+            # Enhanced HTML template with theme-aware CSS
+            theme_css = self._get_theme_aware_css(theme)
+            
             html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -949,243 +1329,7 @@ SECTION REQUIREMENTS:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{report_title}</title>
     <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1.5rem;
-            background: #f8f9fa;
-        }}
-        .report-container {{
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 3px solid #2c3e50;
-            padding-bottom: 1.5rem;
-            margin-bottom: 2rem;
-        }}
-        .header h1 {{
-            color: #1a472a;
-            font-size: 2.2rem;
-            margin: 0;
-            font-weight: 700;
-        }}
-        .header h2 {{
-            color: #666;
-            font-size: 1.2rem;
-            margin: 0.5rem 0 0 0;
-            font-weight: 400;
-        }}
-        .metadata {{
-            background: #f8f9fa;
-            padding: 1.2rem;
-            border-radius: 6px;
-            margin: 1.5rem 0;
-            border-left: 4px solid #3498db;
-        }}
-        .metadata strong {{
-            color: #2c3e50;
-        }}
-        .toc {{
-            background: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 6px;
-            margin: 1.5rem 0;
-        }}
-        .toc h3 {{
-            color: #2c3e50;
-            margin-top: 0;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 0.5rem;
-        }}
-        .toc-list {{
-            list-style: none;
-            padding: 0;
-        }}
-        .toc-item {{
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            border-bottom: 1px dotted #ccc;
-        }}
-        .toc-item:last-child {{
-            border-bottom: none;
-        }}
-        .section-container {{
-            margin: 2rem 0;
-            page-break-inside: avoid;
-        }}
-        .section-title {{
-            color: #2c3e50;
-            font-size: 1.6rem;
-            margin: 1.5rem 0 1rem 0;
-            border-left: 5px solid #3498db;
-            padding-left: 1rem;
-            page-break-after: avoid;
-        }}
-        .section-content {{
-            margin-left: 1rem;
-        }}
-        .insight-box {{
-            background: #e8f4fd;
-            border-left: 5px solid #3498db;
-            padding: 1.2rem;
-            margin: 1.2rem 0;
-            border-radius: 0 6px 6px 0;
-        }}
-        .insight-box h3 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .metric-highlight {{
-            background: #3498db;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-weight: bold;
-        }}
-        .recommendation-item {{
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 1.2rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .recommendation-item h4 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .findings-list {{
-            list-style: none;
-            padding: 0;
-        }}
-        .finding-item {{
-            background: #f8f9fa;
-            padding: 1rem;
-            margin: 0.5rem 0;
-            border-left: 4px solid #27ae60;
-            border-radius: 0 4px 4px 0;
-        }}
-        .chart-container {{
-            margin: 1.5rem 0;
-            text-align: center;
-            background: #f8f9fa;
-            padding: 1.2rem;
-            border-radius: 6px;
-        }}
-        .chart-image {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        .chart-description {{
-            margin-top: 1rem;
-            font-style: italic;
-            color: #666;
-        }}
-        .kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 1rem;
-            margin: 1.5rem 0;
-        }}
-        .kpi-card {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 1.2rem;
-            border-radius: 6px;
-            text-align: center;
-        }}
-        .kpi-value {{
-            font-size: 1.8rem;
-            font-weight: bold;
-            display: block;
-        }}
-        .kpi-label {{
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }}
-        /* Data Table Styles */
-        .data-table-container {{
-            margin: 1.5rem 0;
-            page-break-inside: avoid;
-        }}
-        .table-title {{
-            color: #2c3e50;
-            font-size: 1.1rem;
-            margin: 0 0 0.8rem 0;
-            font-weight: 600;
-        }}
-        .table-responsive {{
-            overflow-x: auto;
-        }}
-        .data-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0.5rem 0;
-            background: white;
-        }}
-        .data-table th {{
-            background: #34495e;
-            color: white;
-            padding: 0.8rem;
-            text-align: left;
-        }}
-        .data-table td {{
-            padding: 0.6rem;
-            border-bottom: 1px solid #eee;
-        }}
-        .data-table tr:nth-child(even) {{
-            background: #f8f9fa;
-        }}
-        .table-note {{
-            font-style: italic;
-            color: #666;
-            margin: 0.5rem 0;
-        }}
-        .footer {{
-            margin-top: 3rem;
-            padding-top: 1.5rem;
-            border-top: 2px solid #ecf0f1;
-            text-align: center;
-            color: #7f8c8d;
-            font-size: 0.9rem;
-        }}
-        @media print {{
-            body {{ 
-                background: white; 
-                font-size: 11pt;
-                line-height: 1.4;
-            }}
-            .report-container {{ 
-                box-shadow: none; 
-                padding: 0;
-            }}
-            .section-container {{ 
-                page-break-inside: avoid; 
-                margin: 1rem 0;
-            }}
-            .chart-container {{ 
-                page-break-inside: avoid; 
-            }}
-            .insight-box {{
-                page-break-inside: avoid;
-            }}
-            .recommendation-item {{
-                page-break-inside: avoid;
-            }}
-            .data-table-container {{
-                page-break-inside: avoid;
-            }}
-        }}
+        {theme_css}
     </style>
 </head>
 <body>
@@ -1200,6 +1344,7 @@ SECTION REQUIREMENTS:
             <p><strong>Analysis Query:</strong> {user_query}</p>
             <p><strong>Report Sections:</strong> {len(section_results)}</p>
             <p><strong>Visualizations:</strong> {len(image_sas_urls)}</p>
+            <p><strong>Session Charts:</strong> {len(self.session_memory.get_all_chart_urls())}</p>
             <p><strong>Dynamic Tables:</strong> {len(self.data_tables)}</p>
         </div>"""
             
@@ -1324,6 +1469,9 @@ SECTION REQUIREMENTS:
             # Apply additional HTML enhancements
             formatted_content = self._apply_html_enhancements(formatted_content)
             
+            # Final aggressive image embedding check
+            formatted_content = self._final_image_embedding_check(formatted_content, image_sas_urls)
+            
             # Validate HTML report structure
             validation_result = self._validate_html_report_structure(formatted_content)
             
@@ -1359,31 +1507,45 @@ SECTION REQUIREMENTS:
                 else:
                     # Look for placeholder chart containers and add missing images
                     chart_patterns = [
-                        f"Chart {i}",
-                        f"Figure {i}",
-                        f"Visualization {i}",
-                        f"Image {i}"
+                        f"Chart {i}", f"Figure {i}", f"Visualization {i}", f"Image {i}",
+                        f"chart {i}", f"figure {i}", f"visualization {i}", f"image {i}",
+                        f"Graph {i}", f"Plot {i}", f"graph {i}", f"plot {i}"
                     ]
                     
+                    # Also look for generic text references that indicate charts should be embedded
+                    generic_references = [
+                        "refer to that image with bar/histogram graph",
+                        "refer to the chart", "see the visualization", "as shown in the chart",
+                        "the chart shows", "the graph displays", "visualization reveals",
+                        "histogram graph", "bar chart", "visualization shows"
+                    ]
+                    
+                    # Replace specific patterns
                     for pattern in chart_patterns:
                         if pattern in formatted_content and url not in formatted_content:
-                            # Find location to insert chart
-                            pattern_location = formatted_content.find(pattern)
-                            if pattern_location != -1:
-                                # Insert chart HTML after the pattern
-                                chart_html = f'''
+                            chart_html = f'''
             <div class="chart-container">
                 <img src="{url}" alt="Analysis Chart {i}" class="chart-image">
                 <p class="chart-description">Chart {i}: Generated from data analysis</p>
             </div>'''
-                                # Insert after the current paragraph
-                                insertion_point = formatted_content.find('</p>', pattern_location)
-                                if insertion_point != -1:
-                                    formatted_content = (formatted_content[:insertion_point + 4] + 
-                                                       chart_html + 
-                                                       formatted_content[insertion_point + 4:])
-                                    embedded_urls.add(url)
-                                    break
+                            formatted_content = formatted_content.replace(pattern, chart_html)
+                            embedded_urls.add(url)
+                            break
+                    
+                    # Replace generic references (only for first image to avoid duplicates)
+                    if i == 1:
+                        for generic in generic_references:
+                            if generic in formatted_content.lower() and url not in formatted_content:
+                                chart_html = f'''
+            <div class="chart-container">
+                <img src="{url}" alt="Analysis Chart" class="chart-image">
+                <p class="chart-description">Visualization from data analysis</p>
+            </div>'''
+                                # Case-insensitive replace
+                                import re
+                                formatted_content = re.sub(re.escape(generic), chart_html, formatted_content, flags=re.IGNORECASE)
+                                embedded_urls.add(url)
+                                break
             
             # If some URLs weren't embedded, add them in a dedicated visualizations section
             missing_urls = [url for url in image_sas_urls if url not in embedded_urls]
@@ -1450,6 +1612,109 @@ SECTION REQUIREMENTS:
             
         except Exception as e:
             print(f"⚠️ Error applying HTML enhancements: {e}")
+            return content
+    
+    def _final_image_embedding_check(self, content: str, image_sas_urls: List[str]) -> str:
+        """
+        Final aggressive check to ensure ALL images are embedded somewhere in the report.
+        This runs after all other processing to catch any missed embeddings.
+        """
+        try:
+            if not image_sas_urls:
+                return content
+            
+            # Check which images are already embedded
+            embedded_count = 0
+            print(f"[DEBUG] Checking embedding status for {len(image_sas_urls)} images...")
+            for i, url in enumerate(image_sas_urls, 1):
+                if url in content:
+                    embedded_count += 1
+                    print(f"[DEBUG] Image {i} already embedded: {url[:80]}...")
+                else:
+                    print(f"[DEBUG] Image {i} NOT embedded: {url[:80]}...")
+            
+            # If all images are embedded, we're good
+            if embedded_count == len(image_sas_urls):
+                print(f"[SUCCESS] All {len(image_sas_urls)} images already embedded in report")
+                return content
+            
+            print(f"[WARNING] Only {embedded_count}/{len(image_sas_urls)} images embedded. Adding missing images...")
+            
+            enhanced_content = content
+            
+            # Find a good location to insert missing images (before footer or at end of content)
+            insertion_points = [
+                '<div class="footer">',
+                '</div>\n</div>\n</body>',
+                '</body>',
+                '</html>'
+            ]
+            
+            insertion_point = -1
+            chosen_marker = None
+            
+            for marker in insertion_points:
+                point = enhanced_content.find(marker)
+                if point != -1:
+                    insertion_point = point
+                    chosen_marker = marker
+                    break
+            
+            if insertion_point == -1:
+                # Just append at the end
+                insertion_point = len(enhanced_content)
+                chosen_marker = ""
+            
+            # Create a comprehensive visualizations section with ALL images
+            viz_section = '''
+    <div class="section-container">
+        <h2 class="section-title">Data Visualizations</h2>
+        <div class="section-content">
+            <p>The following charts and visualizations were generated from your data analysis:</p>
+'''
+            
+            added_images = 0
+            for i, url in enumerate(image_sas_urls, 1):
+                if url not in enhanced_content:  # Only add if not already embedded
+                    # Get context from session memory if available
+                    chart_context = ""
+                    session_charts = self.session_memory.get_charts_for_report()
+                    for chart in session_charts:
+                        if chart['url'] == url:
+                            chart_context = f"Generated from query: {chart['query'][:80]}..."
+                            break
+                    
+                    if not chart_context:
+                        chart_context = f"Visualization {i} generated from your data analysis"
+                    
+                    viz_section += f'''
+            <div class="chart-container">
+                <h3>Chart {i}</h3>
+                <img src="{url}" alt="Analysis Chart {i}" class="chart-image" style="max-width: 100%; height: auto; margin: 10px 0;">
+                <p class="chart-description">{chart_context}</p>
+            </div>
+'''
+                    added_images += 1
+                    print(f"[DEBUG] Added missing image {i}: {url}")
+            
+            print(f"[INFO] Added {added_images} missing images to visualization section")
+            
+            viz_section += '''
+        </div>
+    </div>
+'''
+            
+            # Insert the visualizations section
+            if chosen_marker:
+                enhanced_content = enhanced_content[:insertion_point] + viz_section + enhanced_content[insertion_point:]
+            else:
+                enhanced_content += viz_section
+            
+            print(f"[SUCCESS] Added missing images in dedicated visualization section")
+            return enhanced_content
+            
+        except Exception as e:
+            print(f"[ERROR] Error in final image embedding check: {e}")
             return content
     
     def _validate_html_report_structure(self, content: str) -> Dict[str, Any]:
@@ -1765,13 +2030,16 @@ SECTION REQUIREMENTS:
         }
     
     def _fallback_html_report_generation(self, user_query: str, analysis_result: Dict[str, Any], 
-                                       image_sas_urls: List[str]) -> Dict[str, Any]:
+                                       image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         """ENHANCED: Complete fallback HTML report generation with dynamic tables"""
         
         print("🔄 Using enhanced fallback HTML report generation...")
         
         dataframes_count = len(analysis_result.get('dataframes', {}))
         analysis_snippet = str(analysis_result.get('response', ''))[:500]
+        
+        # Generate theme-aware CSS
+        theme_css = self._get_theme_aware_css(theme)
         
         fallback_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1780,133 +2048,7 @@ SECTION REQUIREMENTS:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comprehensive Business Analysis Report</title>
     <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-            background: #f8f9fa;
-        }}
-        .report-container {{
-            background: white;
-            padding: 3rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 3px solid #2c3e50;
-            padding-bottom: 2rem;
-            margin-bottom: 3rem;
-        }}
-        .header h1 {{
-            color: #1a472a;
-            font-size: 2.5rem;
-            margin: 0;
-            font-weight: 700;
-        }}
-        .section-title {{
-            color: #2c3e50;
-            font-size: 1.8rem;
-            margin: 2rem 0 1rem 0;
-            border-left: 5px solid #3498db;
-            padding-left: 1rem;
-        }}
-        .insight-box {{
-            background: #e8f4fd;
-            border-left: 5px solid #3498db;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            border-radius: 0 8px 8px 0;
-        }}
-        .metric-highlight {{
-            background: #3498db;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-weight: bold;
-        }}
-        .chart-container {{
-            margin: 2rem 0;
-            text-align: center;
-            background: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 8px;
-        }}
-        .chart-image {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }}
-        .kpi-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin: 2rem 0;
-        }}
-        .kpi-card {{
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            text-align: center;
-        }}
-        .kpi-value {{
-            font-size: 2rem;
-            font-weight: bold;
-            display: block;
-        }}
-        .kpi-label {{
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }}
-        .recommendation-item {{
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .recommendation-item h4 {{
-            color: #2c3e50;
-            margin-top: 0;
-        }}
-        .data-table-container {{
-            margin: 1.5rem 0;
-        }}
-        .table-title {{
-            color: #2c3e50;
-            font-size: 1.1rem;
-            margin: 0 0 0.8rem 0;
-            font-weight: 600;
-        }}
-        .data-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0.5rem 0;
-            background: white;
-        }}
-        .data-table th {{
-            background: #34495e;
-            color: white;
-            padding: 0.8rem;
-            text-align: left;
-        }}
-        .data-table td {{
-            padding: 0.6rem;
-            border-bottom: 1px solid #eee;
-        }}
-        .data-table tr:nth-child(even) {{
-            background: #f8f9fa;
-        }}
-        @media print {{
-            body {{ background: white !important; }}
-            .report-container {{ box-shadow: none !important; }}
-        }}
+        {theme_css}
     </style>
 </head>
 <body>
@@ -2010,7 +2152,7 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
     """Integration function - NO CHANGES to maintain compatibility"""
     
     def _generate_structured_html_report_with_sections(self, user_query: str, analysis_result: Dict[str, Any], 
-                                                     image_sas_urls: List[str]) -> Dict[str, Any]:
+                                                     image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         try:
             self.emit_stream('status', '🏗️ Initializing fixed structured HTML report generation...')
             
@@ -2025,7 +2167,8 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
             report_result = structured_generator.generate_comprehensive_report(
                 user_query,
                 analysis_result,
-                image_sas_urls
+                image_sas_urls,
+                theme
             )
             
             if report_result.get("success"):

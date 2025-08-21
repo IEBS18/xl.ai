@@ -24,7 +24,7 @@ class StreamingAdapter:
         try:
             self.should_stop = False
             start_time = time.time()
-            max_wait_time = 600
+            max_wait_time = 6000
             
             self._emit_stream('status', '🤖 Starting assistant analysis...', session_id)
             
@@ -262,12 +262,12 @@ class StreamingAdapter:
                                         generated_files.append(output.image.file_id)
             
             # Stream final completion
-            self._emit_stream('completion', {
-                'message': 'Analysis completed successfully!',
-                'response_length': len(response_content),
-                'files_generated': len(generated_files),
-                'code_executed': bool(generated_code.strip())
-            }, session_id)
+            # self._emit_stream('completion', {
+            #     'message': 'Analysis completed successfully!',
+            #     'response_length': len(response_content),
+            #     'files_generated': len(generated_files),
+            #     'code_executed': bool(generated_code.strip())
+            # }, session_id)
             
             return {
                 "success": True,

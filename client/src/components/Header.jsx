@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home, Zap } from "lucide-react"
+import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home, Zap, LayoutDashboard } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
 import ConnectionStatus from "./ConnectionStatus"
 import AuthModal from "./AuthModal.jsx"
+import DashboardList from "./DashboardList"
 import logo from '../../public/logo.svg'
 
 const Header = ({ isConnected, currentQueryCategory }) => {
@@ -15,16 +16,17 @@ const Header = ({ isConnected, currentQueryCategory }) => {
   const { user, isAuthenticated, logout, isLoading } = useAuth()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
-  const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
+  const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login", resetToken: null })
+  const [showDashboard, setShowDashboard] = useState(false)
 
   const navigate = useNavigate()
   const location = useLocation()
-  
+
   // Extract sessionId from URL if we're in a chat session
-  const sessionId = location.pathname.startsWith('/chat/') 
-    ? location.pathname.split('/chat/')[1] 
+  const sessionId = location.pathname.startsWith('/chat/')
+    ? location.pathname.split('/chat/')[1]
     : null
-  
+
   // Check if we're on a session page
   const isInSession = Boolean(sessionId)
 
@@ -32,6 +34,22 @@ const Header = ({ isConnected, currentQueryCategory }) => {
   if (isInSession) {
     return null
   }
+
+  const openAuthModal = useCallback((mode, resetToken = null) => {
+    setAuthModal({ isOpen: true, mode, resetToken })
+    setIsMenuOpen(false)
+  }, [])
+
+  const closeAuthModal = useCallback(() => {
+    setAuthModal({ isOpen: false, mode: "login", resetToken: null })
+    
+    // Clean up URL parameters when modal closes (only if it was a reset flow)
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('reset_token') || urlParams.get('action')) {
+      const newUrl = window.location.origin + window.location.pathname
+      window.history.replaceState({}, document.title, newUrl)
+    }
+  }, [])
 
   const navigationItems = [
     {
@@ -81,6 +99,19 @@ const Header = ({ isConnected, currentQueryCategory }) => {
     },
   ]
 
+  useEffect(() => {
+    const handleAuthModalEvent = (event) => {
+      const { mode, resetToken } = event.detail
+      openAuthModal(mode, resetToken)
+    }
+
+    window.addEventListener('openAuthModal', handleAuthModalEvent)
+
+    return () => {
+      window.removeEventListener('openAuthModal', handleAuthModalEvent)
+    }
+  }, [openAuthModal])
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
@@ -93,15 +124,6 @@ const Header = ({ isConnected, currentQueryCategory }) => {
     }
   }, [activeDropdown])
 
-  const openAuthModal = useCallback((mode) => {
-    setAuthModal({ isOpen: true, mode })
-    setIsMenuOpen(false)
-  }, [])
-
-  const closeAuthModal = useCallback(() => {
-    setAuthModal({ isOpen: false, mode: "login" })
-  }, [])
-
   const handleLogout = useCallback(async () => {
     await logout()
     setActiveDropdown(null)
@@ -112,17 +134,17 @@ const Header = ({ isConnected, currentQueryCategory }) => {
     navigate('/')
   }
 
-  // Show loading state if still checking authentication
-  if (isLoading) {
+  // Only show loading spinner during authentication check, not when modal operations are happening
+  const showLoadingState = isLoading && !isAuthenticated && !authModal.isOpen
+
+  if (showLoadingState) {
     return (
-      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${
-        isDark ? "bg-black/80" : "bg-white/80"
-      }`}>
+      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${isDark ? "bg-black/80" : "bg-white/80"
+        }`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-center">
-            <div className={`animate-spin rounded-full h-6 w-6 border-b-2 ${
-              isDark ? "border-white" : "border-gray-900"
-            }`}></div>
+            <div className={`animate-spin rounded-full h-6 w-6 border-b-2 ${isDark ? "border-white" : "border-gray-900"
+              }`}></div>
           </div>
         </div>
       </header>
@@ -132,9 +154,8 @@ const Header = ({ isConnected, currentQueryCategory }) => {
   return (
     <>
       {/* Header - Only show on landing page */}
-      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${
-        isDark ? "bg-black/80" : "bg-white/80"
-      }`}>
+      <header className={`fixed top-0 left-0 right-0 z-[9998] backdrop-blur-md ${isDark ? "bg-black/80" : "bg-white/80"
+        }`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             {/* Logo */}
@@ -147,11 +168,11 @@ const Header = ({ isConnected, currentQueryCategory }) => {
               <div className="flex items-center space-x-2">
                 <div className="flex flex-row gap-[3px]">
                   <span className={`text-2xl font-bold ${isDark ? "text-white" : "text-[#04165D]"}`}>
-                    Insi 
+                    Insi
                   </span>
-                  <img src={logo} className="w-8 h-8" alt="Logo"/>
+                  <img src={logo} className="w-8 h-8" alt="Logo" />
                   <span className={`text-2xl font-bold ${isDark ? "text-white" : "text-[#04165D]"}`}>
-                   redict
+                    redict
                   </span>
                 </div>
               </div>
@@ -160,11 +181,10 @@ const Header = ({ isConnected, currentQueryCategory }) => {
             {/* Desktop Navigation */}
             <nav className="hidden lg:block">
               <div
-                className={`flex items-center rounded-full px-1 py-1 ${
-                  isDark
+                className={`flex items-center rounded-full px-1 py-1 ${isDark
                     ? "bg-gray-900/80 border border-gray-800/50 shadow-xl"
                     : "bg-white/80 border border-gray-200/50 shadow-lg"
-                } backdrop-blur-md`}
+                  } backdrop-blur-md`}
               >
                 {navigationItems.map((item, index) => (
                   <div
@@ -175,17 +195,15 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                   >
                     {item.hasDropdown ? (
                       <button
-                        className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
-                          isDark
+                        className={`flex items-center space-x-1 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
                             ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                             : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                        } ${
-                          activeDropdown === index
+                          } ${activeDropdown === index
                             ? isDark
                               ? "text-white bg-gray-800/50"
                               : "text-gray-900 bg-gray-100/50"
                             : ""
-                        }`}
+                          }`}
                       >
                         <span>{item.label}</span>
                         <motion.div
@@ -198,11 +216,10 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                     ) : (
                       <a
                         href={item.href}
-                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
-                          isDark
+                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${isDark
                             ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                             : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                        }`}
+                          }`}
                       >
                         {item.label}
                       </a>
@@ -216,22 +233,20 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 8, scale: 0.96 }}
                           transition={{ duration: 0.15, ease: "easeOut" }}
-                          className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${
-                            isDark
+                          className={`absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border shadow-xl ${isDark
                               ? "bg-gray-900/95 border-gray-800/50"
                               : "bg-white/95 border-gray-200/50"
-                          } backdrop-blur-md`}
+                            } backdrop-blur-md`}
                         >
                           <div className="p-1">
                             {item.items.map((subItem, subIndex) => (
                               <a
                                 key={subItem.label}
                                 href={subItem.href}
-                                className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
-                                  isDark
+                                className={`block rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
                                     ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                                     : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                                }`}
+                                  }`}
                                 onClick={() => setActiveDropdown(null)}
                               >
                                 {subItem.label}
@@ -251,11 +266,10 @@ const Header = ({ isConnected, currentQueryCategory }) => {
               {/* Theme Toggle */}
               <motion.button
                 onClick={toggleTheme}
-                className={`rounded-lg border p-2 transition-all duration-200 hover:scale-105 ${
-                  isDark
+                className={`rounded-lg border p-2 transition-all duration-200 hover:scale-105 ${isDark
                     ? "border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800/50"
                     : "border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                }`}
+                  }`}
                 whileHover={{ rotate: 180 }}
                 whileTap={{ scale: 0.95 }}
               >
@@ -292,11 +306,10 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                   onMouseLeave={() => setActiveDropdown(null)}
                 >
                   <button
-                    className={`flex items-center space-x-2 rounded-lg border px-3 py-2 transition-all duration-200 ${
-                      isDark
+                    className={`flex items-center space-x-2 rounded-lg border px-3 py-2 transition-all duration-200 ${isDark
                         ? "border-gray-700 hover:bg-gray-800/50"
                         : "border-gray-300 hover:bg-gray-100/50"
-                    }`}
+                      }`}
                   >
                     <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-r from-purple-500 to-blue-500">
                       <User className="h-3 w-3 text-white" />
@@ -314,9 +327,8 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.96 }}
                         transition={{ duration: 0.15, ease: "easeOut" }}
-                        className={`absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border shadow-xl ${
-                          isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
-                        } backdrop-blur-md`}
+                        className={`absolute right-0 top-full z-50 mt-2 w-48 rounded-xl border shadow-xl ${isDark ? "bg-gray-900/95 border-gray-800/50" : "bg-white/95 border-gray-200/50"
+                          } backdrop-blur-md`}
                       >
                         <div className="p-1">
                           <div className={`border-b px-3 py-2 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
@@ -327,24 +339,35 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                               <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>{user.email}</p>
                             )}
                           </div>
-                          <a
-                            href="#profile"
-                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
-                              isDark
+                          <button
+                            onClick={() => {
+                              setShowDashboard(true)
+                              setActiveDropdown(null)
+                            }}
+                            className={`flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
                                 ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                                 : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                            }`}
+                              }`}
+                          >
+                            <LayoutDashboard className="h-4 w-4" />
+                            <span>My Dashboards</span>
+                          </button>
+                          <a
+                            href="#profile"
+                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
+                                ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                                : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                              }`}
                           >
                             <User className="h-4 w-4" />
                             <span>Profile</span>
                           </a>
                           <a
                             href="#settings"
-                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${
-                              isDark
+                            className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
                                 ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
                                 : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                            }`}
+                              }`}
                           >
                             <Settings className="h-4 w-4" />
                             <span>Settings</span>
@@ -365,21 +388,19 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                 <div className="hidden items-center space-x-3 md:flex">
                   <button
                     onClick={() => openAuthModal("login")}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
-                      isDark
+                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${isDark
                         ? "border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800/50"
                         : "border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
-                    }`}
+                      }`}
                   >
                     Get a demo
                   </button>
                   <motion.button
                     onClick={() => openAuthModal("login")}
-                    className={` ${themeClasses.button} rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${
-                      isDark
+                    className={` ${themeClasses.button} rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 hover:scale-105 ${isDark
                         ? "text-gray-900 hover:bg-gray-100 shadow-lg"
                         : "text-white hover:bg-gray-800 shadow-lg"
-                    }`}
+                      }`}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -419,9 +440,8 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                                 activeDropdown === `mobile-${item.label}` ? null : `mobile-${item.label}`,
                               )
                             }
-                            className={`flex w-full items-center justify-between font-medium transition-colors ${
-                              isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                            }`}
+                            className={`flex w-full items-center justify-between font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                              }`}
                           >
                             <span>{item.label}</span>
                             <motion.div
@@ -446,9 +466,8 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                                   <a
                                     key={subItem.label}
                                     href={subItem.href}
-                                    className={`block text-sm transition-colors ${
-                                      isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
-                                    }`}
+                                    className={`block text-sm transition-colors ${isDark ? "text-gray-400 hover:text-gray-300" : "text-gray-500 hover:text-gray-600"
+                                      }`}
                                   >
                                     {subItem.label}
                                   </a>
@@ -460,9 +479,8 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                       ) : (
                         <a
                           href={item.href}
-                          className={`font-medium transition-colors ${
-                            isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                          }`}
+                          className={`font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                            }`}
                         >
                           {item.label}
                         </a>
@@ -474,19 +492,15 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                     <div className={`space-y-3 border-t pt-4 ${isDark ? "border-gray-800" : "border-gray-200"}`}>
                       <button
                         onClick={() => openAuthModal("login")}
-                        className={`w-full text-left font-medium transition-colors ${
-                          isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
-                        }`}
+                        className={`w-full text-left font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                          }`}
                       >
                         Get a demo
                       </button>
                       <button
                         onClick={() => openAuthModal("login")}
-                        // className={`w-full rounded-lg px-4 py-2 text-left font-medium transition-all duration-200 ${
-                        //   isDark
-                        //     ? "bg-white text-gray-900 hover:bg-gray-100"
-                        //     : "bg-gray-900 text-white hover:bg-gray-800"
-                        // }`}
+                        className={`w-full text-left font-medium transition-colors ${isDark ? "text-gray-300 hover:text-white" : "text-gray-600 hover:text-gray-900"
+                          }`}
                       >
                         Log In
                       </button>
@@ -503,9 +517,15 @@ const Header = ({ isConnected, currentQueryCategory }) => {
       <AuthModal
         isOpen={authModal.isOpen}
         mode={authModal.mode}
+        resetToken={authModal.resetToken}
         onClose={closeAuthModal}
         onSwitchMode={(mode) => setAuthModal({ ...authModal, mode })}
       />
+
+      {/* Dashboard List */}
+      {showDashboard && (
+        <DashboardList onClose={() => setShowDashboard(false)} />
+      )}
     </>
   )
 }

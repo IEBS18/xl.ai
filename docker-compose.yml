@@ -6,12 +6,14 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: csv-analyzer-backend
-    # environment:
+    environment:
     #   - FLASK_ENV=production
     #   - AZUREAPI=${AZURE_API}
     #   - AZUREVERSION=${AZURE_API_VERSION}
     #   - AZUREENDPOINT=${AZURE_BASE_URL}
     #   - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/outputs:/app/outputs
