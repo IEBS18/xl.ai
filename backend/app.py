@@ -1962,7 +1962,7 @@ def handle_join_session(data):
 
 @socketio.on('send_message_with_session')
 def handle_message_with_session(data):
-    """ENHANCED Handle chat messages with new report type support"""
+    """ENHANCED Handle chat messages with sequential execution support"""
     session_id = data.get('sessionId')
     query = data.get('message', '').strip()
     
@@ -2010,18 +2010,18 @@ def handle_message_with_session(data):
             # Emit starting analysis
             socketio.emit('stream_data', {
                 'type': 'analysis_started',
-                'data': f'🤖 Processing your message with Assistants API: {query}',
+                'data': f'🤖 Processing your message with OpenAI Classification: {query}',
                 'timestamp': datetime.now().isoformat(),
                 'sessionId': session_id
             }, room=session_id)
             
-            # Start the ENHANCED analysis
+            # Start the ENHANCED analysis with sequential support
             result = analyzer.analyze_query_streaming(user_query=query)
 
             if result is None:
                 result = {}
             
-            # ENHANCED: Handle different result types including new "report" type
+            # Handle different result types including NEW sequential type
             if result.get("type") == "conversational":
                 # Conversational response - simple completion
                 completion_data = {
@@ -2043,6 +2043,7 @@ def handle_message_with_session(data):
                 # Simple analysis - text response with potential DataFrames and code
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
+                analysis_summary = result.get('analysis_summary', '')
                 
                 completion_data = {
                     'type': 'completion',
@@ -2057,7 +2058,9 @@ def handle_message_with_session(data):
                         'analysis_type': result.get('analysis_type', 'general'),
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
-                        'code_lines': _count_code_lines(generated_code)
+                        'code_lines': _count_code_lines(generated_code),
+                        'has_summary': bool(analysis_summary),
+                        'summary_generated': result.get('summary_generated', False)
                     }
                 }
                 
@@ -2066,15 +2069,76 @@ def handle_message_with_session(data):
                 _emit_code_to_frontend(generated_code, session_id, socketio)
                 _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
 
+            elif result.get("type") == "sequential_analysis_and_report":
+                # 🎯 NEW: Sequential execution result (data analysis + report)
+                dataframes = result.get('dataframes', {})
+                generated_code = result.get('generated_code', '')
+                comprehensive_report = result.get('comprehensive_report', '')
+                embedded_images = result.get('embedded_images', [])
+                analysis_summary = result.get('analysis_summary', '')
+                
+                completion_data = {
+                    'type': 'completion',
+                    'data': 'Sequential analysis and report completed successfully!',
+                    'timestamp': datetime.now().isoformat(),
+                    'sessionId': session_id,
+                    'result': {
+                        'success': result.get('success', False),
+                        'type': 'sequential_analysis_and_report',
+                        'response': result.get('response', ''),
+                        'report_content': comprehensive_report,
+                        'report_type': result.get('report_type', 'sequential_html_report'),
+                        'embedded_images_count': len(embedded_images),
+                        'embedded_images': embedded_images,
+                        'report_generated': result.get('report_generated', True),
+                        'sequential_execution': True,
+                        'execution_sequence': result.get('execution_sequence', []),
+                        'phases_completed': result.get('phases_completed', []),
+                        'phases_successful': result.get('phases_successful', 0),
+                        'images_count': len(result.get('generated_images', [])),
+                        'files_generated': result.get('generated_files', {}),
+                        'dataframes_count': len(dataframes),
+                        'has_dataframes': len(dataframes) > 0,
+                        'has_code': bool(_extract_code_string(generated_code)),
+                        'code_lines': _count_code_lines(generated_code),
+                        'session_based_report': result.get('session_based_report', False),
+                        'has_summary': bool(analysis_summary),
+                        'summary_generated': result.get('summary_generated', False),
+                        'analysis_phase_result': result.get('analysis_phase_result', {}),
+                        'report_phase_result': result.get('report_phase_result', {})
+                    }
+                }
+                
+                # Emit the comprehensive report
+                socketio.emit('stream_data', {
+                    'type': 'sequential_report',
+                    'data': {
+                        'content': comprehensive_report,
+                        'embedded_images': embedded_images,
+                        'report_type': result.get('report_type', 'sequential_html_report'),
+                        'generated_by': 'sequential_execution',
+                        'execution_sequence': result.get('execution_sequence', []),
+                        'phases_completed': result.get('phases_completed', [])
+                    },
+                    'timestamp': datetime.now().isoformat(),
+                    'sessionId': session_id
+                }, room=session_id)
+                
+                # Emit DataFrames and code from analysis phase
+                _emit_dataframes_to_frontend(dataframes, session_id, socketio)
+                _emit_code_to_frontend(generated_code, session_id, socketio)
+                _emit_summary_to_frontend(analysis_summary, session_id, socketio, result)
+
             elif result.get("type") == "report":
-                # NEW: Enhanced report type with plain text report and embedded images
+                # Regular report type with plain text report and embedded images
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
                 plain_text_report = result.get('comprehensive_report', '')
                 embedded_images = result.get('embedded_images', [])
                 analysis_summary = result.get('analysis_summary', '')
+                
                 completion_data = {
-                    'type': 'completion',  # Special completion type for reports
+                    'type': 'completion',
                     'data': 'Comprehensive business report generated successfully!',
                     'timestamp': datetime.now().isoformat(),
                     'sessionId': session_id,
@@ -2094,14 +2158,12 @@ def handle_message_with_session(data):
                         'has_code': bool(_extract_code_string(generated_code)),
                         'code_lines': _count_code_lines(generated_code),
                         'assistant_generated': result.get('report_assistant_used', False),
-                        'same_thread_analysis': result.get('same_thread_analysis', False),
-                        'has_summary': bool(analysis_summary),  # NEW
-                        'summary_generated': result.get('summary_generated', False),  # NEW
-                        'summary_type': result.get('summary_type', 'executive')  # NEW
+                        'has_summary': bool(analysis_summary),
+                        'summary_generated': result.get('summary_generated', False)
                     }
                 }
                 
-                # NEW: Emit the plain text report with embedded image URLs
+                # Emit the plain text report with embedded image URLs
                 socketio.emit('stream_data', {
                     'type': 'plain_text_report',
                     'data': {
@@ -2142,9 +2204,8 @@ def handle_message_with_session(data):
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
                         'code_lines': _count_code_lines(generated_code),
-                        'has_summary': bool(analysis_summary),  # NEW
-                        'summary_generated': result.get('summary_generated', False),  # NEW
-                        'summary_type': result.get('summary_type', 'executive')  # NEW
+                        'has_summary': bool(analysis_summary),
+                        'summary_generated': result.get('summary_generated', False)
                     }
                 }
                 
@@ -2182,6 +2243,7 @@ def handle_message_with_session(data):
                 # Default/fallback completion
                 dataframes = result.get('dataframes', {})
                 generated_code = result.get('generated_code', '')
+                analysis_summary = result.get('analysis_summary', '')
                 
                 completion_data = {
                     'type': 'completion',
@@ -2197,9 +2259,8 @@ def handle_message_with_session(data):
                         'has_dataframes': len(dataframes) > 0,
                         'has_code': bool(_extract_code_string(generated_code)),
                         'code_lines': _count_code_lines(generated_code),
-                        'has_summary': bool(analysis_summary),  # NEW
-                        'summary_generated': result.get('summary_generated', False),  # NEW
-                        'summary_type': result.get('summary_type', 'executive')  # NEW
+                        'has_summary': bool(analysis_summary),
+                        'summary_generated': result.get('summary_generated', False)
                     }
                 }
                 
@@ -2229,18 +2290,18 @@ def handle_message_with_session(data):
     thread.daemon = True
     thread.start()
 
-# NEW: Helper functions to properly handle DataFrames and code emission
+
     def _emit_summary_to_frontend(analysis_summary: str, session_id: str, socketio_instance, result: dict):
             """
             NEW: Emit analysis summary to frontend as simple 'response' type for frontend compatibility.
-            
+           
             This function emits the executive summary in the same format as regular responses
             to ensure frontend compatibility without breaking existing response handling.
             """
             try:
                 if not analysis_summary or not analysis_summary.strip():
                     return
-                
+               
                 # Emit in simple format matching existing response pattern
                 socketio_instance.emit('stream_data', {
                     'type': 'response',
@@ -2248,13 +2309,14 @@ def handle_message_with_session(data):
                     'timestamp': datetime.now().isoformat(),
                     'sessionId': session_id
                 }, room=session_id)
-                
+               
                 print(f"📝 Emitted analysis summary to frontend: {len(analysis_summary)} characters")
-                
+               
             except Exception as e:
                 logging.error(f"Error emitting summary to frontend: {e}")
                 print(f"❌ Failed to emit summary: {e}")
-
+ 
+ 
 def _emit_dataframes_to_frontend(dataframes: dict, session_id: str, socketio_instance):
     """
     NEW: Emit DataFrames to frontend with proper structure and type identification.
