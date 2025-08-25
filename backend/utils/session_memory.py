@@ -43,7 +43,8 @@ class SessionMemoryManager:
             "last_updated": datetime.now().isoformat(),
             "queries": [],
             "total_charts": 0,
-            "total_queries": 0
+            "total_queries": 0,
+            "assistant_upload_status": "pending"  # Track OpenAI assistant upload status
         }
     
     def _save_memory(self):
@@ -181,6 +182,25 @@ class SessionMemoryManager:
         }
         self._save_memory()
         logging.info(f"Cleared session memory for {self.session_id}")
+    
+    def set_assistant_upload_status(self, status: str):
+        """
+        Set the OpenAI assistant upload status
+        
+        Args:
+            status: "pending", "uploading", "completed", "failed"
+        """
+        self.memory["assistant_upload_status"] = status
+        self._save_memory()
+        logging.info(f"Assistant upload status set to: {status} for session {self.session_id}")
+    
+    def get_assistant_upload_status(self) -> str:
+        """Get the current OpenAI assistant upload status"""
+        return self.memory.get("assistant_upload_status", "pending")
+    
+    def is_assistant_upload_complete(self) -> bool:
+        """Check if assistant upload is complete"""
+        return self.get_assistant_upload_status() == "completed"
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get memory usage statistics"""

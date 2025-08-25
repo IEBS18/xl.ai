@@ -346,46 +346,35 @@ def upload_file_with_session():
 
 def convert_external_images_to_base64(html_content):
     """
-    Convert external image URLs in HTML to base64 data URLs - FIXED VERSION
-    Handles duplicate images by downloading once and reusing base64 data
+    Convert external image URLs in HTML to base64 data URLs - OPTIMIZED VERSION
+    Find unique URLs first, download once, then replace all occurrences
     """
     
-    # More comprehensive regex to catch different img tag formats
-    img_pattern = r'<img[^>]+src\s*=\s*["\']([^"\']+)["\'][^>]*>'
+    # Step 1: Find ALL unique external image URLs in the HTML
+    img_pattern = r'<img[^>]*?src\s*=\s*["\']([^"\']+)["\']'
+    all_img_urls = re.findall(img_pattern, html_content, re.IGNORECASE)
     
-    # Cache for downloaded images: URL -> base64 data URL
-    image_cache = {}
-    processed_count = 0
+    # Filter to get unique external URLs only
+    unique_external_urls = list(set([
+        url.strip('\'"') for url in all_img_urls 
+        if url.strip('\'"').startswith(('http://', 'https://')) and not url.strip('\'"').startswith('data:')
+    ]))
     
-    logging.info(f"Starting image conversion process...")
+    logging.info(f"📊 Found {len(all_img_urls)} total img src attributes")
+    logging.info(f"📊 Found {len(unique_external_urls)} unique external image URLs")
     
-    def replace_img_src(match):
-        nonlocal processed_count
-        full_img_tag = match.group(0)
-        img_url = match.group(1).strip('\'"')  # Remove any quotes
-        
-        # Skip if already base64 or relative URL
-        if (img_url.startswith('data:') or 
-            not img_url.startswith(('http://', 'https://'))):
-            return full_img_tag
-        
-        # Check if we already have this image cached
-        if img_url in image_cache:
-            logging.info(f"🔄 Using cached base64 for: {img_url[:80]}...")
-            # Create new img tag with cached base64 src
-            new_img_tag = re.sub(
-                r'src\s*=\s*["\']?[^"\'>\s]+["\']?', 
-                f'src="{image_cache[img_url]}"', 
-                full_img_tag, 
-                flags=re.IGNORECASE
-            )
-            processed_count += 1
-            return new_img_tag
+    if not unique_external_urls:
+        logging.info("ℹ️ No external images to convert")
+        return html_content
+    
+    # Step 2: Download each unique URL and convert to base64
+    url_to_base64 = {}  # URL -> base64 data URL mapping
+    
+    for i, img_url in enumerate(unique_external_urls):
+        logging.info(f"🔄 Converting image {i+1}/{len(unique_external_urls)}: {img_url[:80]}...")
         
         try:
-            logging.info(f"🔄 Converting: {img_url[:80]}...")
-            
-            # Download with retry logic and proper headers
+            # Download with retry logic
             success = False
             content = None
             content_type = None
@@ -417,6 +406,11 @@ def convert_external_images_to_base64(html_content):
                     if len(content) == 0:
                         raise ValueError("Empty image content")
                     
+                    # Check for very large images (> 10MB) and warn
+                    if len(content) > 10 * 1024 * 1024:
+                        logging.warning(f"⚠️ Very large image detected: {len(content)} bytes for {img_url[:50]}...")
+                        # Could optionally resize here, but for now just warn
+                    
                     # Get content type
                     content_type = response.headers.get('content-type', '').lower()
                     
@@ -430,7 +424,7 @@ def convert_external_images_to_base64(html_content):
             
             if not success or not content:
                 logging.error(f"❌ Failed to download {img_url}")
-                return full_img_tag
+                continue
             
             # Determine content type if not provided or invalid
             if not content_type or not content_type.startswith('image/'):
@@ -462,39 +456,71 @@ def convert_external_images_to_base64(html_content):
                 if len(img_base64) < 10:
                     raise ValueError("Base64 encoding too short")
                 
-                # Cache the base64 data URL for reuse
-                image_cache[img_url] = data_url
+                # Check for very large base64 strings that might cause browser issues
+                if len(img_base64) > 5000000:  # ~5MB base64 limit
+                    logging.warning(f"⚠️ Very large base64 image: {len(img_base64)} chars for {img_url[:50]}...")
+                    # Could implement image resizing here if needed
                 
-                # Create new img tag with base64 src
-                new_img_tag = re.sub(
-                    r'src\s*=\s*["\']?[^"\'>\s]+["\']?', 
-                    f'src="{data_url}"', 
-                    full_img_tag, 
-                    flags=re.IGNORECASE
-                )
+                # Validate the base64 image by attempting to decode it back
+                try:
+                    # Test decode to verify the base64 is valid
+                    test_decode = base64.b64decode(img_base64)
+                    if len(test_decode) != len(content):
+                        raise ValueError("Base64 decode validation failed")
+                    
+                    # Additional validation: check if it looks like valid image data
+                    image_signatures = [
+                        b'\x89PNG',  # PNG
+                        b'\xFF\xD8\xFF',  # JPEG
+                        b'GIF87a', b'GIF89a',  # GIF
+                        b'RIFF',  # WebP (starts with RIFF)
+                        b'BM',  # BMP
+                    ]
+                    
+                    is_valid_image = any(content.startswith(sig) for sig in image_signatures)
+                    if not is_valid_image:
+                        logging.warning(f"⚠️ Image may not have valid format signature for {img_url[:50]}...")
+                        # But continue anyway - might still work
+                        
+                except Exception as validation_error:
+                    logging.error(f"❌ Base64 validation failed for {img_url}: {validation_error}")
+                    raise ValueError(f"Invalid base64 data: {validation_error}")
                 
-                processed_count += 1
-                logging.info(f"✅ Converted successfully ({len(content)} bytes) -> {len(img_base64)} base64 chars")
+                # Store the mapping
+                url_to_base64[img_url] = data_url
                 
-                return new_img_tag
+                logging.info(f"✅ Converted and validated ({len(content)} bytes) -> {len(img_base64)} base64 chars")
                 
             except Exception as encode_error:
                 logging.error(f"❌ Base64 encoding failed for {img_url}: {str(encode_error)}")
-                return full_img_tag
+                continue
                 
         except Exception as e:
             logging.error(f"❌ Failed to convert {img_url}: {str(e)}")
-            return full_img_tag
+            continue
     
-    # Process all img tags
-    try:
-        updated_html = re.sub(img_pattern, replace_img_src, html_content, flags=re.IGNORECASE)
-        logging.info(f"🎯 Total unique images downloaded: {len(image_cache)}")
-        logging.info(f"🎯 Total image tags processed: {processed_count}")
-        return updated_html
-    except Exception as e:
-        logging.error(f"❌ Error processing HTML: {str(e)}")
-        return html_content
+    # Step 3: Replace ALL occurrences of each URL with its base64 equivalent
+    modified_html = html_content
+    total_replacements = 0
+    
+    for original_url, base64_data_url in url_to_base64.items():
+        # Count occurrences before replacement
+        count_before = modified_html.count(original_url)
+        
+        # Replace all occurrences of this URL
+        modified_html = modified_html.replace(original_url, base64_data_url)
+        
+        # Count occurrences after replacement (should be 0)
+        count_after = modified_html.count(original_url)
+        replacements_made = count_before - count_after
+        total_replacements += replacements_made
+        
+        logging.info(f"🔄 Replaced {replacements_made} occurrences of: {original_url[:50]}...")
+    
+    logging.info(f"🎯 Conversion complete: {len(url_to_base64)} unique images downloaded")
+    logging.info(f"🎯 Total URL replacements made: {total_replacements}")
+    
+    return modified_html
 
 
 async def generate_pdf_with_playwright(html_content):
@@ -532,24 +558,315 @@ async def generate_pdf_with_playwright(html_content):
             # Set content and wait for everything to load
             await page.set_content(html_content, wait_until='networkidle')
             
-            # Wait for all images to load (this handles external images automatically)
+            # Inject CSS to ensure images are visible and properly sized
+            await page.add_style_tag(content="""
+                img {
+                    max-width: 100% !important;
+                    height: auto !important;
+                    display: block !important;
+                    page-break-inside: avoid !important;
+                }
+                .chart-container, .image-container {
+                    page-break-inside: avoid !important;
+                    margin: 10px 0 !important;
+                }
+            """)
+            
+            # Wait for all images to load (base64 images should load instantly)
             await page.wait_for_load_state('networkidle')
             
-            # Additional wait for any lazy-loaded content
-            await page.wait_for_timeout(5000)  # 5 seconds
+            # Force rendering of base64 images by triggering layout recalculation
+            await page.evaluate("""
+                () => {
+                    // Force a reflow to ensure base64 images are rendered
+                    document.body.offsetHeight;
+                    
+                    // Set explicit dimensions for any images without them
+                    const images = document.querySelectorAll('img');
+                    images.forEach((img, index) => {
+                        if (img.src.startsWith('data:')) {
+                            console.log(`Processing base64 image ${index}:`, {
+                                complete: img.complete,
+                                naturalWidth: img.naturalWidth,
+                                naturalHeight: img.naturalHeight,
+                                srcLength: img.src.length
+                            });
+                            
+                            // Force decode base64 images
+                            if (img.decode) {
+                                img.decode().catch((error) => {
+                                    console.warn(`Image ${index} decode failed:`, error);
+                                });
+                            }
+                            
+                            // For problematic images, try to trigger loading
+                            if (!img.complete || img.naturalWidth === 0) {
+                                console.warn(`Image ${index} not loaded properly, trying to fix...`);
+                                
+                                // Try setting the src again to trigger reload
+                                const originalSrc = img.src;
+                                img.src = '';
+                                setTimeout(() => {
+                                    img.src = originalSrc;
+                                }, 10);
+                                
+                                // Set minimum dimensions if needed
+                                if (!img.style.width && !img.style.height) {
+                                    img.style.maxWidth = '100%';
+                                    img.style.height = 'auto';
+                                }
+                            }
+                        }
+                        
+                        // Ensure images have layout
+                        if (!img.style.display || img.style.display === 'none') {
+                            img.style.display = 'block';
+                        }
+                    });
+                    
+                    // Force another reflow
+                    document.body.offsetHeight;
+                }
+            """)
             
-            # Wait for all images specifically
-            try:
-                await page.wait_for_function("""
+            # Wait for image processing and potential re-loads
+            await page.wait_for_timeout(10000)  # 3 seconds to allow decode operations
+            
+            # Give problematic images a second chance
+            await page.evaluate("""
+                () => {
+                    const problemImages = Array.from(document.images).filter(img => 
+                        img.src.startsWith('data:') && (!img.complete || img.naturalWidth === 0)
+                    );
+                    
+                    if (problemImages.length > 0) {
+                        console.log(`Found ${problemImages.length} problematic images, giving them another chance...`);
+                        
+                        // Force reflow again for problematic images
+                        problemImages.forEach((img, index) => {
+                            console.log(`Retrying problematic image ${index}...`);
+                            const rect = img.getBoundingClientRect();
+                            console.log(`Image rect:`, rect);
+                            
+                            // Force visibility
+                            img.style.visibility = 'visible';
+                            img.style.opacity = '1';
+                        });
+                        
+                        document.body.offsetHeight; // Force reflow
+                    }
+                }
+            """)
+            
+            # Additional short wait for the retry
+            await page.wait_for_timeout(5000)
+            
+            # Simple check to verify base64 images are in the DOM, then proceed
+            image_status = await page.evaluate("""
+                () => {
+                    const images = Array.from(document.images);
+                    const base64Count = images.filter(img => img.src.startsWith('data:')).length;
+                    return {
+                        total: images.length,
+                        base64Count: base64Count
+                    };
+                }
+            """)
+            
+            logging.info(f"📊 DOM verification: {image_status['total']} total images, {image_status['base64Count']} are base64")
+            
+            # Comprehensive debugging of why images might not appear in PDF
+            debug_info = await page.evaluate("""
+                () => {
+                    const images = Array.from(document.images);
+                    const imageDetails = images.map((img, index) => ({
+                        index: index,
+                        isBase64: img.src.startsWith('data:'),
+                        srcLength: img.src.length,
+                        complete: img.complete,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        width: img.width,
+                        height: img.height,
+                        displayed: img.offsetWidth > 0 && img.offsetHeight > 0,
+                        visible: img.style.display !== 'none' && img.style.visibility !== 'hidden',
+                        hasParent: img.parentElement !== null,
+                        computedDisplay: getComputedStyle(img).display,
+                        computedVisibility: getComputedStyle(img).visibility,
+                        rect: img.getBoundingClientRect()
+                    }));
+                    
+                    return {
+                        total: images.length,
+                        base64Count: images.filter(img => img.src.startsWith('data:')).length,
+                        completeCount: images.filter(img => img.complete).length,
+                        displayedCount: images.filter(img => img.offsetWidth > 0 && img.offsetHeight > 0).length,
+                        visibleCount: images.filter(img => {
+                            const rect = img.getBoundingClientRect();
+                            return rect.width > 0 && rect.height > 0;
+                        }).length,
+                        details: imageDetails
+                    };
+                }
+            """)
+            
+            logging.info(f"🔍 Detailed PDF-ready analysis:")
+            logging.info(f"   📊 Total: {debug_info['total']}, Base64: {debug_info['base64Count']}")
+            logging.info(f"   📊 Complete: {debug_info['completeCount']}, Displayed: {debug_info['displayedCount']}, Visible: {debug_info['visibleCount']}")
+            
+            # Log problematic images that might not render in PDF
+            problematic_images = [img for img in debug_info['details'] 
+                                if img['isBase64'] and (not img['displayed'] or img['rect']['width'] == 0)]
+            
+            if problematic_images:
+                logging.warning(f"⚠️ Found {len(problematic_images)} images that might not render in PDF:")
+                for img in problematic_images[:5]:  # Log first 5
+                    logging.warning(f"   Image {img['index']}: complete={img['complete']}, displayed={img['displayed']}, rect=({img['rect']['width']}x{img['rect']['height']})")
+                
+                # Force fix problematic images for PDF rendering
+                fixed_count = await page.evaluate("""
                     () => {
                         const images = Array.from(document.images);
-                        return images.every(img => img.complete);
+                        let fixedCount = 0;
+                        
+                        images.forEach((img, index) => {
+                            if (img.src.startsWith('data:')) {
+                                const rect = img.getBoundingClientRect();
+                                
+                                // Force visibility and dimensions for PDF rendering
+                                if (rect.width === 0 || rect.height === 0 || !img.offsetParent) {
+                                    console.log(`Forcing visibility for image ${index}...`);
+                                    
+                                    // Apply aggressive styling to ensure PDF visibility
+                                    img.style.cssText = `
+                                        display: block !important;
+                                        visibility: visible !important;
+                                        opacity: 1 !important;
+                                        width: auto !important;
+                                        max-width: 100% !important;
+                                        height: auto !important;
+                                        position: static !important;
+                                        margin: 10px 0 !important;
+                                        page-break-inside: avoid !important;
+                                    `;
+                                    
+                                    // Ensure parent containers are visible
+                                    let parent = img.parentElement;
+                                    while (parent && parent !== document.body) {
+                                        if (getComputedStyle(parent).display === 'none') {
+                                            parent.style.display = 'block !important';
+                                        }
+                                        parent = parent.parentElement;
+                                    }
+                                    
+                                    fixedCount++;
+                                }
+                            }
+                        });
+                        
+                        // Force complete DOM reflow
+                        document.body.style.display = 'none';
+                        document.body.offsetHeight; // Trigger reflow
+                        document.body.style.display = '';
+                        document.body.offsetHeight; // Trigger reflow again
+                        
+                        return fixedCount;
                     }
-                """, timeout=10000)
-            except:
-                logging.warning("Some images may not have loaded completely")
+                """)
+                
+                logging.info(f"🔧 Applied aggressive fixes to {fixed_count} images for PDF rendering")
+                
+                # For problematic images, try a nuclear approach - replace with a placeholder or re-decode
+                if fixed_count > 0:
+                    nuclear_fixes = await page.evaluate("""
+                        () => {
+                            const images = Array.from(document.images);
+                            let nuclearCount = 0;
+                            
+                            images.forEach((img, index) => {
+                                if (img.src.startsWith('data:') && (!img.complete || img.getBoundingClientRect().width === 0)) {
+                                    console.log(`Nuclear fix for image ${index}...`);
+                                    
+                                    // Try to create a new image element with the same src
+                                    const newImg = document.createElement('img');
+                                    newImg.src = img.src;
+                                    newImg.style.cssText = `
+                                        display: block !important;
+                                        width: auto !important;
+                                        max-width: 600px !important;
+                                        height: auto !important;
+                                        margin: 10px auto !important;
+                                        border: 1px solid #ccc !important;
+                                        page-break-inside: avoid !important;
+                                    `;
+                                    
+                                    // Replace the problematic image
+                                    if (img.parentNode) {
+                                        img.parentNode.replaceChild(newImg, img);
+                                        nuclearCount++;
+                                    }
+                                }
+                            });
+                            
+                            return nuclearCount;
+                        }
+                    """)
+                    
+                    if nuclear_fixes > 0:
+                        logging.info(f"💥 Applied nuclear fixes (element replacement) to {nuclear_fixes} images")
+                        await page.wait_for_timeout(3000)  # Extra wait for new elements
+                    
+                # Wait for DOM to stabilize after all fixes
+                await page.wait_for_timeout(2000)
+            else:
+                logging.info("✅ All base64 images appear to be properly positioned for PDF rendering")
             
-            # Generate PDF with high quality settings
+            # Final verification after all fixes
+            final_verification = await page.evaluate("""
+                () => {
+                    const images = Array.from(document.images);
+                    const base64Images = images.filter(img => img.src.startsWith('data:'));
+                    
+                    const finalStats = {
+                        total: images.length,
+                        base64Count: base64Images.length,
+                        completeCount: base64Images.filter(img => img.complete).length,
+                        visibleCount: base64Images.filter(img => {
+                            const rect = img.getBoundingClientRect();
+                            return rect.width > 0 && rect.height > 0;
+                        }).length,
+                        stillProblematic: []
+                    };
+                    
+                    base64Images.forEach((img, index) => {
+                        const rect = img.getBoundingClientRect();
+                        if (!img.complete || rect.width === 0) {
+                            finalStats.stillProblematic.push({
+                                index: index,
+                                complete: img.complete,
+                                rect: rect,
+                                srcLength: img.src.length
+                            });
+                        }
+                    });
+                    
+                    return finalStats;
+                }
+            """)
+            
+            logging.info(f"🔍 Final verification: {final_verification['completeCount']}/{final_verification['base64Count']} complete, {final_verification['visibleCount']} visible")
+            
+            if final_verification['stillProblematic']:
+                logging.warning(f"⚠️ {len(final_verification['stillProblematic'])} images still problematic after all fixes")
+                for prob in final_verification['stillProblematic'][:3]:
+                    logging.warning(f"   Still problematic: index={prob['index']}, complete={prob['complete']}, srcLength={prob['srcLength']}")
+            else:
+                logging.info("🎉 All images are now properly loaded and visible!")
+            
+            # Since all images are converted to base64, they should be embedded in the PDF
+            logging.info("✅ Proceeding to PDF generation - all images are base64 embedded")
+            
+            # Generate PDF with high quality settings optimized for images
             pdf_bytes = await page.pdf(
                 format='A4',
                 margin={
@@ -558,14 +875,28 @@ async def generate_pdf_with_playwright(html_content):
                     'left': '0.4in',
                     'right': '0.4in'
                 },
-                print_background=True,
+                print_background=True,  # Essential for background images and charts
                 prefer_css_page_size=True,
                 display_header_footer=False,
-                scale=1.0
+                scale=1.0,
+                # Additional options for better image quality
+                page_ranges='',  # All pages
+                tagged=False,    # Disable tagging for smaller file size
+                outline=False    # Disable outline for smaller file size
             )
             
             await browser.close()
+            
+            # Final validation
+            if len(pdf_bytes) < 1000:  # PDF should be at least 1KB
+                raise ValueError(f"Generated PDF seems too small: {len(pdf_bytes)} bytes")
+            
             logging.info(f"✅ PDF generated successfully with Playwright ({len(pdf_bytes)} bytes)")
+            
+            # Log success metrics
+            base64_images_in_original = html_content.count('data:image/')
+            logging.info(f"📊 Final stats: {base64_images_in_original} base64 images in HTML, PDF size: {len(pdf_bytes)} bytes")
+            
             return pdf_bytes
             
     except Exception as e:
@@ -616,7 +947,37 @@ def generate_pdf():
         
         logging.info(f"🔍 Found {len(images)} total images, {len(external_images)} external")
         
-        # Generate PDF with Playwright (handles images automatically)
+        # Convert external images to base64 before PDF generation to ensure they're embedded
+        if external_images:
+            logging.info(f"🖼️ Starting optimized image conversion for {len(external_images)} external image references...")
+            try:
+                html_content = convert_external_images_to_base64(html_content)
+                logging.info("✅ Optimized image conversion completed")
+                
+                # Verify conversion worked by checking for base64 images
+                base64_count = html_content.count('data:image/')
+                logging.info(f"📈 Final result: {base64_count} base64 images embedded in HTML")
+                
+                # Optionally save processed HTML for debugging (only in development)
+                if os.getenv('DEBUG_PDF_HTML', '').lower() == 'true':
+                    import time
+                    debug_path = f"/tmp/debug_pdf_{int(time.time())}.html"
+                    with open(debug_path, 'w', encoding='utf-8') as f:
+                        f.write(html_content)
+                    logging.info(f"🔍 Debug: Processed HTML saved to {debug_path}")
+                    
+                    # Also save a sample of the base64 data for verification
+                    import re
+                    base64_samples = re.findall(r'data:image/[^;]+;base64,([A-Za-z0-9+/]{50})', html_content)
+                    if base64_samples:
+                        logging.info(f"🔍 Debug: Found {len(base64_samples)} base64 image samples, first 50 chars: {base64_samples[0][:50]}...")
+            except Exception as e:
+                logging.error(f"❌ Image conversion failed: {e}")
+                logging.warning("⚠️ Proceeding with original HTML - some images may not embed properly")
+        else:
+            logging.info("ℹ️ No external images found - proceeding directly to PDF generation")
+        
+        # Generate PDF with Playwright (images now embedded as base64)
         pdf_bytes = generate_pdf_with_playwright_sync(html_content)
         
         if not pdf_bytes:
@@ -683,6 +1044,9 @@ def get_session_info(session_id):
         # Add enhanced analyzer capabilities info
         enhanced_info = {}
         if isinstance(analyzer, EnhancedStreamingAnalyzer):
+            # Get assistant upload status from session memory
+            assistant_upload_status = analyzer.session_memory.get_assistant_upload_status()
+            
             enhanced_info ={
                 'enhanced_analyzer': True,
                 'ai_routing_enabled': True,  # NEW
@@ -690,6 +1054,8 @@ def get_session_info(session_id):
                 'assistants_enabled': True,
                 'thread_id': getattr(analyzer, 'thread_id', None),
                 'uploaded_files_count': len(getattr(analyzer, 'current_file_ids', [])),
+                'assistant_upload_status': assistant_upload_status,  # NEW - Track upload status
+                'is_assistant_upload_complete': assistant_upload_status == "completed",  # NEW - Boolean helper
                 'capabilities': analyzer.get_analysis_capabilities(),
                 'conversation_context': analyzer.get_conversation_context(),
                 'routing_features': {  # NEW

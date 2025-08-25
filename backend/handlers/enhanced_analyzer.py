@@ -606,6 +606,9 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 print("🚀 Starting parallel upload to Assistants API...")
                 logging.info(f"⏰ Upload worker started at {datetime.now().isoformat()}")
                 
+                # Update session memory status to uploading
+                self.session_memory.set_assistant_upload_status("uploading")
+                
                 # Emit progress to frontend
                 if self.socketio:
                     self.socketio.emit('stream_data', {
@@ -705,6 +708,9 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         self.socketio.emit('stream_data', test_event)
                         logging.info(f"🏥 Test event broadcasted to all clients")
                 
+                # Update session memory status to completed
+                self.session_memory.set_assistant_upload_status("completed")
+                
                 # Notify frontend of completion
                 if self.socketio:
                     event_data = {
@@ -722,6 +728,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     
             except Exception as e:
                 logging.error(f"❌ Parallel assistants upload failed: {e}")
+                
+                # Update session memory status to failed
+                self.session_memory.set_assistant_upload_status("failed")
+                
                 # Don't fail the entire process - just emit warning
                 if self.socketio:
                     self.socketio.emit('stream_data', {
