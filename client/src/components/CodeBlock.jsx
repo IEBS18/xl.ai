@@ -1,8 +1,10 @@
 import React, { useState } from "react"
 import { Copy, Check } from "lucide-react"
+import { useTheme } from "../context/ThemeProvider"
 
 const CodeBlock = ({ code, language = "python" }) => {
   const [copied, setCopied] = useState(false)
+  const { themeClasses, isDark } = useTheme()
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(code).then(() => {

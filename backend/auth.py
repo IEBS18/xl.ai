@@ -31,7 +31,7 @@ MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'True').lower() == 'true'
 MAIL_USERNAME = os.getenv('MAIL_USERNAME')
 MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
 MAIL_FROM = os.getenv('MAIL_FROM', MAIL_USERNAME)
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost')
+FRONTEND_URL = os.getenv('FRONTEND_URL')
 
 # JWT Secret (for future use if needed)
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -134,6 +134,37 @@ def init_db():
             user_agent TEXT,
             session_id VARCHAR(50) NOT NULL,
             remember_me BOOLEAN DEFAULT FALSE
+        )
+        ''')
+        
+        # Create dashboards table
+        logging.info("Creating dashboards table if it doesn't exist...")
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dashboards (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name VARCHAR(255) NOT NULL,
+            description TEXT,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        # Create dashboard_visualizations table
+        logging.info("Creating dashboard_visualizations table if it doesn't exist...")
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dashboard_visualizations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            dashboard_id UUID REFERENCES dashboards(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            chart_data TEXT NOT NULL,
+            filename VARCHAR(255),
+            chart_type VARCHAR(100) DEFAULT 'unknown',
+            position_x INTEGER DEFAULT 0,
+            position_y INTEGER DEFAULT 0,
+            width INTEGER DEFAULT 400,
+            height INTEGER DEFAULT 300,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
         

@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home, Zap } from "lucide-react"
+import { ChevronDown, Menu, X, Moon, Sun, User, Settings, LogOut, Home, Zap, LayoutDashboard } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
 import ConnectionStatus from "./ConnectionStatus"
 import AuthModal from "./AuthModal.jsx"
+import DashboardList from "./DashboardList"
 import logo from '../../public/logo.svg'
 
 const Header = ({ isConnected, currentQueryCategory }) => {
@@ -16,6 +17,7 @@ const Header = ({ isConnected, currentQueryCategory }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login", resetToken: null })
+  const [showDashboard, setShowDashboard] = useState(false)
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -337,6 +339,19 @@ const Header = ({ isConnected, currentQueryCategory }) => {
                               <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>{user.email}</p>
                             )}
                           </div>
+                          <button
+                            onClick={() => {
+                              setShowDashboard(true)
+                              setActiveDropdown(null)
+                            }}
+                            className={`flex w-full items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
+                                ? "text-gray-300 hover:text-white hover:bg-gray-800/50"
+                                : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/50"
+                              }`}
+                          >
+                            <LayoutDashboard className="h-4 w-4" />
+                            <span>My Dashboards</span>
+                          </button>
                           <a
                             href="#profile"
                             className={`flex items-center space-x-2 rounded-lg px-3 py-2 text-sm transition-colors duration-150 ${isDark
@@ -506,6 +521,11 @@ const Header = ({ isConnected, currentQueryCategory }) => {
         onClose={closeAuthModal}
         onSwitchMode={(mode) => setAuthModal({ ...authModal, mode })}
       />
+
+      {/* Dashboard List */}
+      {showDashboard && (
+        <DashboardList onClose={() => setShowDashboard(false)} />
+      )}
     </>
   )
 }

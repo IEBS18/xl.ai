@@ -98,7 +98,8 @@ const ChatSession = () => {
     sessionId,
     (type, content) => {
       addMessage(type, content)
-    }
+    },
+    setFileProcessingState  // Pass the setFileProcessingState function
   )
 
   // Enhanced file upload handler with processing state
@@ -233,8 +234,9 @@ const ChatSession = () => {
   // Set initial file processing state when file is uploaded (only once to prevent loops)
   useEffect(() => {
     if (fileUploaded && !hasSetInitialProcessingState) {
-      console.log('🔄 Session file detected, setting initial processing state')
-      setFileProcessingState(true)
+      console.log('🔄 Session file detected on page load - processing state set by validateSession based on assistant upload status')
+      // Processing state is now automatically set by validateSession based on assistant upload status
+      // No need to manually set it here anymore
       setHasSetInitialProcessingState(true)
     }
   }, [fileUploaded, hasSetInitialProcessingState, setFileProcessingState])

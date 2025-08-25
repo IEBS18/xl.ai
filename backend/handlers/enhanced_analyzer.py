@@ -1,9 +1,11 @@
 
 import os
 import re
+import json
 import tempfile
 import traceback
 import logging
+import shutil
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from pathlib import Path
@@ -28,15 +30,18 @@ from azure.storage.blob import BlobServiceClient, ContentSettings, generate_blob
 from assistants.assistant_manager import AssistantManager
 from assistants.thread_manager import ThreadManager
 from assistants.file_manager import FileManager
-from utils.streaming_adapter import StreamingAdapter
+from assistants.query_router import EnhancedQueryClassifier
+from assistants.query_check import OpenAIQueryCategorizer, QueryCategory 
 from assistants.structured_report_generator import StructuredReportGenerator, integrate_structured_html_report_generator
 
 # Import all handlers and utilities
-from query_classifier import SmartQueryClassifier
+# from query_classifier import SmartQueryClassifier
 from .modified_handler import ConversationHandler
 from .modified_handler import TextualAnalyticalHandler
 from .modified_handler import AnalyticalHandler
+from utils.streaming_adapter import StreamingAdapter
 from utils.utils import StreamingAnalyzer, StopAnalysisException
+from utils.session_memory import SessionMemoryManager
 
 class EnhancedStreamingAnalyzer(StreamingAnalyzer):
     """
@@ -58,8 +63,15 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         self.thread_manager = ThreadManager()
         self.file_manager = FileManager()
         
+        # Initialize session memory manager
+        self.session_memory = SessionMemoryManager(session_id)
+        
         # Initialize query classification and handlers
-        self.query_classifier = SmartQueryClassifier()
+        # self.query_classifier = SmartQueryClassifier()
+        self.query_classifier = EnhancedQueryClassifier(
+            assistant_manager=self.assistant_manager,
+            thread_manager=self.thread_manager
+        )
         self.conversation_handler = None
         self.textual_analytical_handler = None
         self.analytical_handler = None
@@ -86,7 +98,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         self.current_file_ids = []  # Track uploaded file IDs
         self.streaming_adapter = None
         
-        # Track all generated files (not just images)
+        # Track all generated files (not just images) with session persistence
         self.generated_files = {
             'images': [],
             'reports': [],
@@ -94,7 +106,90 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             'other': []
         }
         
+        # Initialize session-based generated files storage (class-level persistence)
+        if not hasattr(EnhancedStreamingAnalyzer, '_session_generated_files'):
+            EnhancedStreamingAnalyzer._session_generated_files = {}
+        
+        # Load existing session files if they exist
+        if session_id in EnhancedStreamingAnalyzer._session_generated_files:
+            self.generated_files = EnhancedStreamingAnalyzer._session_generated_files[session_id].copy()
+            print(f"📂 Loaded {len(self.generated_files.get('images', []))} existing session images")
+        else:
+            EnhancedStreamingAnalyzer._session_generated_files[session_id] = self.generated_files
+        
         print(f"✅ Enhanced analyzer with Assistants API initialized for session: {session_id}")
+        
+        # Load session metadata from blob storage (Docker-compatible)
+        self._load_session_metadata_from_blob()
+    
+    def _load_session_metadata_from_blob(self):
+        """Load session metadata from blob storage for Docker compatibility"""
+        try:
+            if not self.blob_service_client:
+                return
+            
+            # Try to download session metadata file
+            metadata_blob_name = f"{self.session_id}/session_metadata.json"
+            container_name = self.container_name
+            
+            try:
+                blob_client = self.blob_service_client.get_blob_client(
+                    container=container_name, 
+                    blob=metadata_blob_name
+                )
+                
+                if blob_client.exists():
+                    download_data = blob_client.download_blob().readall()
+                    session_metadata = json.loads(download_data.decode('utf-8'))
+                    
+                    # Load images from metadata
+                    if 'images' in session_metadata:
+                        self.generated_files['images'] = session_metadata['images']
+                        self.emit_stream('status', f"📂 Loaded {len(session_metadata['images'])} images from previous session")
+                        
+                        # Also update class storage for compatibility
+                        if hasattr(EnhancedStreamingAnalyzer, '_session_generated_files'):
+                            EnhancedStreamingAnalyzer._session_generated_files[self.session_id] = self.generated_files.copy()
+                else:
+                    self.emit_stream('status', f"🆕 Starting new session - no previous images found")
+                    
+            except Exception as e:
+                self.emit_stream('status', f"⚠️ Could not load session metadata: {str(e)}")
+                
+        except Exception as e:
+            logging.error(f"Error loading session metadata: {e}")
+    
+    def _save_session_metadata_to_blob(self):
+        """Save session metadata to blob storage for Docker compatibility"""
+        try:
+            if not self.blob_service_client or not self.generated_files.get('images'):
+                return
+            
+            # Create session metadata
+            session_metadata = {
+                'session_id': self.session_id,
+                'images': self.generated_files.get('images', []),
+                'last_updated': datetime.now().isoformat(),
+                'total_images': len(self.generated_files.get('images', []))
+            }
+            
+            # Upload to blob storage
+            metadata_blob_name = f"{self.session_id}/session_metadata.json"
+            container_name = self.container_name
+            
+            blob_client = self.blob_service_client.get_blob_client(
+                container=container_name, 
+                blob=metadata_blob_name
+            )
+            
+            metadata_json = json.dumps(session_metadata, indent=2)
+            blob_client.upload_blob(metadata_json, overwrite=True)
+            
+            self.emit_stream('status', f"💾 Saved session metadata with {len(session_metadata['images'])} images")
+            
+        except Exception as e:
+            logging.error(f"Error saving session metadata: {e}")
+            self.emit_stream('status', f"⚠️ Could not save session metadata: {str(e)}")
     
     def _initialize_blob_client(self):
         """Initialize Azure Blob Storage client (preserved from original)"""
@@ -173,15 +268,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         dtype=str                      # Read everything as string (no type inference)
                     )
                 elif file_ext in [".xlsx", ".xlsm", ".xltx", ".xltm"]:
-                    # Optimize Excel reading too
-                    self.df = pd.read_excel(
-                        temp_path, 
-                        engine="openpyxl",
-                        na_filter=False,               # Skip NA parsing for speed
-                        keep_default_na=False
-                    )
+                    # Handle multiple sheets for Excel files
+                    self._load_excel_sheets(temp_path, "openpyxl")
                 elif file_ext == ".xls":
-                    self.df = pd.read_excel(temp_path, engine="xlrd", na_filter=False)
+                    # Handle multiple sheets for .xls files
+                    self._load_excel_sheets(temp_path, "xlrd")
                 elif file_ext == ".ods":
                     self.df = pd.read_excel(temp_path, engine="odf", na_filter=False)
                 elif file_ext == ".xlsb":
@@ -210,6 +301,15 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 # OPTIMIZATION 5: Parallel assistant upload (new)
                 self._upload_to_assistants_parallel(temp_path, file_ext)
                 
+                # Test WebSocket connection immediately
+                if self.socketio:
+                    self.socketio.emit('stream_data', {
+                        'type': 'test_connection',
+                        'data': 'Testing WebSocket connection after file load',
+                        'timestamp': datetime.now().isoformat()
+                    }, room=self.session_id)
+                    logging.info(f"🧪 Test event emitted to room {self.session_id}")
+                
             finally:
                 # Clean up temp file (unchanged)
                 try:
@@ -233,6 +333,254 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             print(f"❌ Error loading file from SAS URL: {str(e)}")
             logging.exception("Detailed error loading file from SAS URL")
             return False
+
+    def _load_excel_sheets(self, file_path: str, engine: str):
+        """
+        Load all sheets from Excel file and handle unstructured data.
+        Supports multiple sheets and detects data starting at arbitrary rows/columns.
+        """
+        try:
+            # Read all sheets
+            if engine == "xlrd":
+                sheet_dict = pd.read_excel(file_path, sheet_name=None, engine=engine, na_filter=False)
+            else:
+                sheet_dict = pd.read_excel(file_path, sheet_name=None, engine=engine, na_filter=False, keep_default_na=False)
+            
+            print(f"📊 Found {len(sheet_dict)} sheets: {list(sheet_dict.keys())}")
+            
+            # Store all sheets info for preview
+            self.sheets_info = {}
+            self.all_sheets = {}
+            
+            # Process each sheet
+            for sheet_name, df in sheet_dict.items():
+                print(f"🔍 Processing sheet '{sheet_name}' with shape {df.shape}")
+                
+                # Handle unstructured data by finding the actual data start
+                processed_df = self._detect_and_process_unstructured_data(df, sheet_name)
+                
+                if processed_df is not None and not processed_df.empty:
+                    print(f"✅ Successfully processed sheet '{sheet_name}' - final shape: {processed_df.shape}")
+                    self.all_sheets[sheet_name] = processed_df
+                    
+                    # Generate preview
+                    print(f"🎨 Generating preview for sheet '{sheet_name}'...")
+                    preview_html = self._generate_sheet_preview(processed_df)
+                    print(f"📝 Preview length for '{sheet_name}': {len(preview_html)} chars")
+                    
+                    # Convert data to records safely
+                    try:
+                        data_records = processed_df.head(100).to_dict('records')
+                        print(f"📊 Converted {len(data_records)} data records for sheet '{sheet_name}'")
+                    except Exception as e:
+                        print(f"❌ Error converting data to records for sheet '{sheet_name}': {e}")
+                        data_records = []
+                    
+                    self.sheets_info[sheet_name] = {
+                        'name': sheet_name,
+                        'shape': processed_df.shape,
+                        'columns': list(processed_df.columns),
+                        'preview': preview_html,
+                        'data': data_records
+                    }
+                    print(f"💾 Sheet info created for '{sheet_name}' with {len(data_records)} data records")
+                else:
+                    print(f"⚠️ Sheet '{sheet_name}' is empty or could not be processed")
+            
+            # Set the main df to the first non-empty sheet
+            if self.all_sheets:
+                first_sheet = next(iter(self.all_sheets.values()))
+                self.df = first_sheet
+                print(f"✅ Set main dataframe to first sheet with shape: {self.df.shape}")
+            else:
+                raise ValueError("No valid data found in any sheet")
+                
+        except Exception as e:
+            print(f"❌ Error loading Excel sheets: {e}")
+            raise e
+
+    def _detect_and_process_unstructured_data(self, df, sheet_name):
+        """
+        Detect where actual data starts in unstructured sheets and clean it up.
+        Returns processed dataframe or None if no data found.
+        """
+        if df.empty:
+            return None
+            
+        try:
+            # Convert everything to string first
+            df = df.astype(str)
+            
+            # Method 1: Find first row with substantial non-empty data
+            data_start_row = None
+            min_columns_threshold = max(2, len(df.columns) * 0.3)  # At least 30% of columns should have data
+            
+            for idx in range(len(df)):
+                row = df.iloc[idx]
+                non_empty_count = sum(1 for val in row if val and str(val).strip() and str(val) != 'nan')
+                
+                if non_empty_count >= min_columns_threshold:
+                    data_start_row = idx
+                    break
+            
+            if data_start_row is None:
+                print(f"⚠️ No substantial data found in sheet '{sheet_name}'")
+                return None
+            
+            # Skip to data start
+            df_trimmed = df.iloc[data_start_row:].copy()
+            
+            # Method 2: Find first column with substantial data
+            data_start_col = None
+            min_rows_threshold = max(2, len(df_trimmed) * 0.1)  # At least 10% of rows should have data
+            
+            for col_idx in range(len(df_trimmed.columns)):
+                col = df_trimmed.iloc[:, col_idx]
+                non_empty_count = sum(1 for val in col if val and str(val).strip() and str(val) != 'nan')
+                
+                if non_empty_count >= min_rows_threshold:
+                    data_start_col = col_idx
+                    break
+            
+            if data_start_col is None:
+                data_start_col = 0
+            
+            # Trim columns from the start
+            df_final = df_trimmed.iloc[:, data_start_col:].copy()
+            
+            # Clean up: remove completely empty rows and columns
+            # Remove rows where all values are empty/NaN
+            df_final = df_final.loc[~(df_final.astype(str).apply(lambda x: x.str.strip()).eq('') | 
+                                    df_final.astype(str).eq('nan')).all(axis=1)]
+            
+            # Remove columns where all values are empty/NaN
+            df_final = df_final.loc[:, ~(df_final.astype(str).apply(lambda x: x.str.strip()).eq('') | 
+                                       df_final.astype(str).eq('nan')).all(axis=0)]
+            
+            if df_final.empty:
+                return None
+                
+            # Reset index and set proper column names
+            df_final = df_final.reset_index(drop=True)
+            
+            # Use first row as headers if they look like headers
+            first_row = df_final.iloc[0]
+            if self._looks_like_headers(first_row):
+                df_final.columns = [str(col).strip() for col in first_row]
+                df_final = df_final.iloc[1:].reset_index(drop=True)
+            else:
+                df_final.columns = [f"Column_{i+1}" for i in range(len(df_final.columns))]
+            
+            # Final cleanup: ensure column names are strings
+            df_final.columns = df_final.columns.astype(str)
+            
+            print(f"✅ Processed sheet '{sheet_name}': {df_final.shape} (started at row {data_start_row}, col {data_start_col})")
+            return df_final
+            
+        except Exception as e:
+            print(f"❌ Error processing sheet '{sheet_name}': {e}")
+            return None
+
+    def _looks_like_headers(self, row):
+        """Check if a row looks like column headers"""
+        row_str = [str(val).strip() for val in row if val and str(val) != 'nan']
+        if len(row_str) < 2:
+            return False
+            
+        # Headers usually have:
+        # 1. More text than numbers
+        # 2. No duplicate values
+        # 3. Reasonable length strings
+        
+        numeric_count = sum(1 for val in row_str if val.replace('.', '').replace('-', '').isdigit())
+        text_count = len(row_str) - numeric_count
+        
+        has_duplicates = len(set(row_str)) != len(row_str)
+        avg_length = sum(len(val) for val in row_str) / len(row_str) if row_str else 0
+        
+        return (text_count > numeric_count and 
+                not has_duplicates and 
+                2 < avg_length < 50)
+
+    def _generate_sheet_preview(self, df):
+        """Generate image-based HTML preview for a sheet"""
+        try:
+            # Import the new image-based function
+            from utils.utils import generate_sheet_images_with_highlighting
+            import tempfile
+            import os
+            
+            # Create temporary CSV file from DataFrame
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, f"sheet_preview_{id(df)}.csv")
+            
+            # Generate preview with more rows for better visibility  
+            preview_df = df.head(100) if len(df) > 100 else df
+            preview_df.to_csv(temp_file_path, index=False)
+            
+            # Generate image-based preview
+            preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=1)
+            
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+            
+            print(f"✅ Generated image-based preview for sheet with {len(preview_df)} rows")
+            return preview_html
+        except Exception as e:
+            print(f"❌ Error generating image-based sheet preview: {e}")
+            print(f"❌ Falling back to simple message...")
+            return f'''
+            <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 text-center">
+                        <div class="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
+                            <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">Sheet Available</h3>
+                            <p class="text-blue-800 dark:text-blue-200">
+                                {df.shape[0]} rows × {df.shape[1]} columns ready for analysis
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            '''
+
+    def _generate_simple_html_table(self, df):
+        """Generate a simple HTML table as fallback"""
+        try:
+            if df.empty:
+                return "<p class='text-gray-500 text-center p-4'>No data available</p>"
+            
+            html = ["<div class='overflow-auto'>"]
+            html.append("<table class='min-w-full text-xs border-collapse'>")
+            
+            # Headers
+            html.append("<thead class='bg-gray-50 dark:bg-gray-800'>")
+            html.append("<tr>")
+            for col in df.columns:
+                html.append(f"<th class='px-2 py-1 text-left font-medium border border-gray-300 dark:border-gray-600'>{str(col)}</th>")
+            html.append("</tr>")
+            html.append("</thead>")
+            
+            # Body
+            html.append("<tbody>")
+            for _, row in df.iterrows():
+                html.append("<tr class='hover:bg-gray-50 dark:hover:bg-gray-700'>")
+                for value in row:
+                    cell_value = str(value) if value is not None else ""
+                    # Truncate long values
+                    if len(cell_value) > 100:
+                        cell_value = cell_value[:100] + "..."
+                    html.append(f"<td class='px-2 py-1 border border-gray-300 dark:border-gray-600' title='{str(value) if value is not None else ''}'>{cell_value}</td>")
+                html.append("</tr>")
+            html.append("</tbody>")
+            html.append("</table>")
+            html.append("</div>")
+            
+            return "".join(html)
+        except Exception as e:
+            print(f"❌ Error generating simple HTML table: {e}")
+            return f"<p class='text-red-500 text-center p-4'>Preview generation failed: {str(e)}</p>"
+
     def _upload_to_assistants_parallel(self, temp_path: str, file_ext: str):
         """
         NEW METHOD: Upload file to OpenAI Assistants in parallel (non-blocking)
@@ -243,10 +591,23 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         import threading
         import time
         
+        # Create a copy of the temp file for background upload
+        import uuid
+        background_temp_path = f"/tmp/upload_{uuid.uuid4().hex}_{file_ext}"
+        shutil.copy2(temp_path, background_temp_path)
+        
+        # Log file info for debugging
+        file_size = os.path.getsize(background_temp_path) if os.path.exists(background_temp_path) else 0
+        logging.info(f"📁 Starting upload for file: size={file_size} bytes, path={background_temp_path}")
+        
         def upload_worker():
             upload_start = time.time()
             try:
                 print("🚀 Starting parallel upload to Assistants API...")
+                logging.info(f"⏰ Upload worker started at {datetime.now().isoformat()}")
+                
+                # Update session memory status to uploading
+                self.session_memory.set_assistant_upload_status("uploading")
                 
                 # Emit progress to frontend
                 if self.socketio:
@@ -255,26 +616,122 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         'data': 'Uploading file to Assistants API...',
                         'timestamp': datetime.now().isoformat()
                     }, room=self.session_id)
+                    logging.info(f"📡 Emitted assistant_upload_started to room {self.session_id}")
                 
-                # Upload to assistants (existing logic)
-                file_id = self.file_manager.upload_csv_file(temp_path, self.session_id)
+                # Add periodic progress updates for large files
+                def progress_callback():
+                    elapsed = time.time() - upload_start
+                    if elapsed > 10 and self.socketio:  # After 10 seconds, send progress
+                        self.socketio.emit('stream_data', {
+                            'type': 'assistant_upload_progress',
+                            'data': f'Still uploading... {elapsed:.0f}s elapsed',
+                            'timestamp': datetime.now().isoformat()
+                        }, room=self.session_id)
+                        logging.info(f"⏳ Progress update sent: {elapsed:.0f}s elapsed")
+                
+                # Start progress updates in a separate thread for large files
+                if file_size > 5000000:  # 5MB threshold
+                    progress_timer = threading.Timer(10.0, progress_callback)
+                    progress_timer.daemon = True
+                    progress_timer.start()
+                
+                # Upload to assistants using the copied file with timeout handling
+                logging.info(f"🔄 Starting OpenAI Assistants API upload...")
+                
+                # Set a reasonable timeout for large files (5 minutes)
+                import signal
+                
+                class TimeoutError(Exception):
+                    pass
+                
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("Upload timeout")
+                
+                # Set timeout for very large files
+                timeout_seconds = 300 if file_size > 5000000 else 120  # 5 min for large files, 2 min for smaller
+                
+                try:
+                    if hasattr(signal, 'SIGALRM'):  # Unix systems only
+                        signal.signal(signal.SIGALRM, timeout_handler)
+                        signal.alarm(timeout_seconds)
+                    
+                    file_id = self.file_manager.upload_csv_file(background_temp_path, self.session_id)
+                    
+                    if hasattr(signal, 'SIGALRM'):
+                        signal.alarm(0)  # Cancel alarm
+                    
+                    logging.info(f"✅ OpenAI API upload completed: {file_id}")
+                    
+                except TimeoutError:
+                    logging.error(f"❌ Upload timeout after {timeout_seconds}s for file size {file_size} bytes")
+                    if self.socketio:
+                        self.socketio.emit('stream_data', {
+                            'type': 'assistant_upload_timeout',
+                            'data': f'Upload timed out after {timeout_seconds}s. File too large for Assistants API.',
+                            'timestamp': datetime.now().isoformat()
+                        }, room=self.session_id)
+                    return  # Exit early on timeout
                 self.current_file_ids.append(file_id)
                 
                 upload_time = time.time() - upload_start
                 logging.info(f"✅ Parallel upload to assistants completed in {upload_time:.1f}s: {file_id}")
                 
+                # Extra debugging for healthcare dataset file
+                if "healthcare_dataset" in background_temp_path.lower():
+                    logging.info(f"🏥 HEALTHCARE FILE DEBUG: Session={self.session_id}, FileID={file_id}, UploadTime={upload_time:.1f}s")
+                    logging.info(f"🏥 SocketIO available: {self.socketio is not None}")
+                    if self.socketio:
+                        # Check active rooms
+                        try:
+                            from flask import current_app
+                            with current_app.app_context():
+                                logging.info(f"🏥 Current app context available")
+                        except Exception as ctx_error:
+                            logging.error(f"🏥 App context error: {ctx_error}")
+                        
+                        # Try multiple emission methods
+                        test_event = {
+                            'type': 'healthcare_test',
+                            'data': f'Healthcare file upload test - {upload_time:.1f}s',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        
+                        # Method 1: room
+                        self.socketio.emit('stream_data', test_event, room=self.session_id)
+                        logging.info(f"🏥 Test event emitted to room: {self.session_id}")
+                        
+                        # Method 2: to specific session
+                        self.socketio.emit('stream_data', test_event, to=self.session_id)
+                        logging.info(f"🏥 Test event emitted to session: {self.session_id}")
+                        
+                        # Method 3: broadcast to all
+                        self.socketio.emit('stream_data', test_event)
+                        logging.info(f"🏥 Test event broadcasted to all clients")
+                
+                # Update session memory status to completed
+                self.session_memory.set_assistant_upload_status("completed")
+                
                 # Notify frontend of completion
                 if self.socketio:
-                    self.socketio.emit('stream_data', {
+                    event_data = {
                         'type': 'assistant_upload_complete',
                         'data': f'Assistants API ready! Upload completed in {upload_time:.1f}s',
                         'file_id': file_id,
                         'upload_time': upload_time,
                         'timestamp': datetime.now().isoformat()
-                    }, room=self.session_id)
+                    }
+                    logging.info(f"🔔 Emitting assistant_upload_complete to room {self.session_id}: {event_data}")
+                    self.socketio.emit('stream_data', event_data, room=self.session_id)
+                    
+                    # Also emit to the session directly as backup
+                    self.socketio.emit('stream_data', event_data, to=self.session_id)
                     
             except Exception as e:
                 logging.error(f"❌ Parallel assistants upload failed: {e}")
+                
+                # Update session memory status to failed
+                self.session_memory.set_assistant_upload_status("failed")
+                
                 # Don't fail the entire process - just emit warning
                 if self.socketio:
                     self.socketio.emit('stream_data', {
@@ -282,10 +739,22 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         'data': f'Assistants upload failed but basic analysis still available: {str(e)}',
                         'timestamp': datetime.now().isoformat()
                     }, room=self.session_id)
+            finally:
+                # Clean up the background temp file
+                try:
+                    if os.path.exists(background_temp_path):
+                        os.unlink(background_temp_path)
+                        logging.info(f"🧹 Cleaned up background temp file: {background_temp_path}")
+                except Exception as cleanup_error:
+                    logging.warning(f"⚠️ Could not delete background temp file {background_temp_path}: {cleanup_error}")
         
         # Start upload in background thread (non-blocking)
-        upload_thread = threading.Thread(target=upload_worker, daemon=True)
-        upload_thread.start()
+        # Use Flask-SocketIO's background task if available, otherwise use threading
+        if hasattr(self.socketio, 'start_background_task'):
+            self.socketio.start_background_task(upload_worker)
+        else:
+            upload_thread = threading.Thread(target=upload_worker, daemon=True)
+            upload_thread.start()
         print("🔄 Assistant upload started in background...")
     
     def _upload_to_assistants(self, sas_url: str, file_ext: str):
@@ -392,7 +861,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # Continue anyway - fallback to original behavior
     
     def _generate_structured_html_report_with_sections(self, user_query: str, analysis_result: Dict[str, Any], 
-                                                     image_sas_urls: List[str]) -> Dict[str, Any]:
+                                                     image_sas_urls: List[str], enhanced_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         NEW METHOD: Generate structured HTML report using iterative section generation
         
@@ -401,6 +870,9 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         """
         try:
             self.emit_stream('status', '🏗️ Initializing structured HTML report generation...')
+            
+            # Log what image URLs we're passing to the report generator
+            self.emit_stream('status', f"📊 Generating report with {len(image_sas_urls)} images")
             
             # Initialize structured report generator
             structured_generator = StructuredReportGenerator(
@@ -472,85 +944,117 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 user_query, analysis_result, image_sas_urls
             )
 
-
-
+# UPDATED: Main analysis method with enhanced routing
+   
     def analyze_query_streaming(self, user_query: str) -> Dict[str, Any]:
         """
-        FIXED analyze_query_streaming with proper DataFrame and code return handling.
+        ENHANCED analyze_query_streaming with sequential execution support.
         
         Key Changes:
-        1. DataFrames are returned with proper type identification
-        2. Generated code is preserved and returned with type="code" 
-        3. Frontend compatibility maintained
-        4. All handler results properly formatted
+        1. Uses rule-based classification instead of AI routing
+        2. Handles sequential execution for DATA_ANALYSIS_AND_REPORT
+        3. Better handling of analytical queries
         """
         
         try:
             # Set analyzing flag
             self.is_analyzing = True
             
-            # STEP 1: Smart Query Classification (FIXED)
+            # STEP 1: Rule-Based Query Classification using OpenAI
             has_data = self.df is not None
+            
+            # Prepare enhanced context for routing
+            context = {
+                'has_data': has_data,
+                'filename': self.conversation_context.get('filename'),
+                'shape': self.conversation_context.get('shape'),
+                'columns': self.conversation_context.get('columns', [])
+            }
+            
+            # Use enhanced classifier with rule-based routing
             query_category, classification_metadata = self.query_classifier.classify_query(
                 user_query, 
-                has_data=has_data
+                has_data=has_data,
+                session_id=self.session_id,
+                context=context
             )
             
-            self.emit_stream('status', f"🧠 Query classified as: {query_category}")
+            # Enhanced logging with OpenAI reasoning
+            openai_reasoning = classification_metadata.get('ai_reasoning', 'No reasoning provided')
+            assistant_type = classification_metadata.get('assistant_type', 'unknown')
+            confidence = classification_metadata.get('confidence', 'unknown')
+            execution_mode = classification_metadata.get('execution_mode', 'single')
             
-            print(f"📋 Query classified as: {query_category}")
-            print(f"🔍 Metadata: {classification_metadata}")
+            self.emit_stream('status', f"🎯 OpenAI Classification: {assistant_type} (confidence: {confidence})")
             
-            # STEP 2: Handle based on classification (FIXED)
+            print(f"🎯 OpenAI Query Classification:")
+            print(f"   Query: '{user_query}'")
+            print(f"   Category: {query_category}")
+            print(f"   Assistant Type: {assistant_type}")
+            print(f"   Execution Mode: {execution_mode}")
+            print(f"   Confidence: {confidence}")
+            print(f"   OpenAI Reasoning: {openai_reasoning}")
+            print(f"   Expected Output: {classification_metadata.get('expected_output', 'unknown')}")
+            
+            # STEP 2: Check for sequential execution
+            if classification_metadata.get('sequential_execution', False):
+                # 🎯 NEW: Handle DATA_ANALYSIS_AND_REPORT with sequential execution
+                return self._handle_sequential_execution(user_query, classification_metadata)
+            
+            # STEP 3: Handle single execution (existing logic)
             if not classification_metadata.get('requires_analysis', False):
-                # Simple response, no analysis needed (FIXED TO USE ASSISTANTS)
-                return self._handle_simple_conversational_query(user_query, query_category)
+                # Simple response, no analysis needed
+                return self._handle_conversational_query_enhanced(user_query, classification_metadata)
             
-            # STEP 3: Route to appropriate handler for analytical queries (FIXED)
-            result = self._route_query_to_handler_with_assistants(user_query, query_category, classification_metadata)
+            # STEP 4: Route to appropriate handler based on classification
+            result = self._route_query_with_classification_decision(user_query, classification_metadata)
             
-            # STEP 4: FIXED - Ensure proper DataFrame and code formatting
+            # STEP 5: Enhanced result formatting and processing
             result = self._format_analysis_result_with_dataframes_and_code(result, user_query)
             
-            # STEP 5: Add explanation to all analytical results (NEW)
+            # STEP 6: Add AI-powered explanation
             if result.get('success') and result.get('type') != 'conversational':
-                result = self._add_explanation_to_result(result, user_query)
+                result = self._add_ai_explanation_to_result(result, user_query, classification_metadata)
             
-            # STEP 6: NEW - Add summary to all analytical results (SUMMARIZER)
+            # STEP 7: Add AI-generated summary
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_summary_to_result(result, user_query)
+            
+            # STEP 8: Save query result to session memory
+            self._save_to_session_memory(user_query, result)
                 
         except StopAnalysisException:
-            # Handle stop signal gracefully (preserving existing behavior)
+            # Handle stop signal gracefully
             self.is_analyzing = False
             stop_result = {
                 "error": "Analysis stopped by user",
                 "type": "stopped",
                 "success": False,
                 "stopped_by_user": True,
-                "dataframes": {},  # Ensure dataframes key exists
-                "generated_code": "",  # Ensure code key exists
+                "dataframes": {},
+                "generated_code": "",
+                "classification": classification_metadata if 'classification_metadata' in locals() else {}
             }
             if hasattr(self, 'conversation_history'):
                 self.conversation_history.add_conversation(user_query, stop_result)
             return stop_result
             
         except Exception as e:
-            # Handle errors gracefully (preserving existing behavior)
+            # Handle errors gracefully
             self.is_analyzing = False
             full_trace = traceback.format_exc()
             error_msg = f"Error analyzing query:\n{full_trace}"
             print(error_msg)
             self.emit_stream('error', error_msg)
             
-            # Record failure in history (preserving existing behavior)
             error_result = {
                 "error": str(e),
                 "traceback": full_trace,
                 "type": "error",
                 "success": False,
-                "dataframes": {},  # Ensure dataframes key exists
-                "generated_code": "",  # Ensure code key exists
+                "dataframes": {},
+                "generated_code": "",
+                "classification": classification_metadata if 'classification_metadata' in locals() else {}
             }
             if hasattr(self, 'conversation_history'):
                 self.conversation_history.add_conversation(user_query, error_result)
@@ -558,7 +1062,1114 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             return error_result
         
         return result
+
+    def _handle_sequential_execution(self, user_query: str, classification_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Handle sequential execution for DATA_ANALYSIS_AND_REPORT queries.
+        
+        Flow:
+        1. Run data_analyst
+        2. Save results to session memory
+        3. Run report_generator using session data
+        4. Return combined results
+        """
+        
+        try:
+            sequence = classification_metadata.get('sequence', ['data_analyst', 'report_generator'])
+            
+            self.emit_stream('status', f"🔄 Sequential execution: {' → '.join(sequence)}")
+            print(f"🔄 Starting sequential execution: {sequence}")
+            
+            # STEP 1: Execute data analysis first
+            self.emit_stream('status', "📊 Phase 1: Running data analysis...")
+            
+            # Temporarily modify metadata to indicate single execution for data_analyst
+            data_analysis_metadata = classification_metadata.copy()
+            data_analysis_metadata.update({
+                'assistant_type': 'data_analyst',
+                'execution_mode': 'single',
+                'sequential_execution': False,  # Prevent recursive calls
+                'phase': 'data_analysis'
+            })
+            
+            # Run data analysis
+            analysis_result = self._handle_complex_analytical_with_classification_context(
+                user_query, data_analysis_metadata
+            )
+            
+            if not analysis_result.get('success'):
+                self.emit_stream('error', "❌ Data analysis phase failed")
+                return analysis_result
+            
+            self.emit_stream('status', "✅ Phase 1 completed: Data analysis finished")
+            
+            # STEP 2: Save analysis results to session memory
+            self.emit_stream('status', "💾 Saving analysis results to session memory...")
+            
+            # Extract image URLs from analysis result
+            image_sas_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
+            generated_code = analysis_result.get('generated_code', '')
+            
+            # Save to session memory for report generation
+            self._save_analysis_to_session_memory(user_query, analysis_result, image_sas_urls, generated_code)
+            
+            self.emit_stream('status', f"✅ Saved {len(image_sas_urls)} charts to session memory")
+            
+            # STEP 3: Execute report generation using session data
+            self.emit_stream('status', "📋 Phase 2: Generating comprehensive report...")
+            
+            # Prepare report metadata
+            report_metadata = classification_metadata.copy()
+            report_metadata.update({
+                'assistant_type': 'report_generator',
+                'execution_mode': 'single',
+                'sequential_execution': False,  # Prevent recursive calls
+                'phase': 'report_generation',
+                'uses_session_data': True,
+                'analysis_phase_completed': True
+            })
+            
+            # Run report generation using session data
+            report_result = self._handle_report_generation_from_session(
+                user_query, report_metadata, analysis_result
+            )
+            
+            if not report_result.get('success'):
+                self.emit_stream('warning', "⚠️ Report generation failed, returning analysis results only")
+                # Return analysis results if report generation fails
+                analysis_result['sequential_execution_partial'] = True
+                analysis_result['report_generation_failed'] = True
+                return analysis_result
+            
+            self.emit_stream('status', "✅ Phase 2 completed: Report generated successfully")
+            
+            # STEP 4: Combine results
+            self.emit_stream('status', "🔗 Combining analysis and report results...")
+            
+            combined_result = self._combine_sequential_results(
+                user_query, analysis_result, report_result, classification_metadata
+            )
+            
+            self.emit_stream('status', "🎉 Sequential execution completed successfully!")
+            
+            return combined_result
+            
+        except Exception as e:
+            logging.error(f"❌ Sequential execution failed: {e}")
+            self.emit_stream('error', f"❌ Sequential execution failed: {str(e)}")
+            
+            # Return partial results if available
+            if 'analysis_result' in locals() and analysis_result.get('success'):
+                analysis_result['sequential_execution_failed'] = True
+                analysis_result['sequential_error'] = str(e)
+                return analysis_result
+            
+            # Return error result
+            return {
+                "query": user_query,
+                "type": "sequential_execution_error",
+                "success": False,
+                "error": str(e),
+                "dataframes": {},
+                "generated_code": "",
+                "classification": classification_metadata,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _save_analysis_to_session_memory(self, user_query: str, analysis_result: Dict[str, Any], 
+                                    image_sas_urls: List[str], generated_code: str):
+        """
+        🎯 NEW: Save analysis results to session memory for report generation.
+        
+        This is specifically for sequential execution where we need to persist
+        analysis results between data_analyst and report_generator phases.
+        """
+        try:
+            # Extract generated code
+            if isinstance(generated_code, dict):
+                code_string = generated_code.get('code', '')
+            else:
+                code_string = str(generated_code) if generated_code else ''
+            
+            # Save comprehensive analysis context
+            self.session_memory.add_query_result(
+                query=user_query,
+                analysis_result=analysis_result,
+                chart_urls=image_sas_urls,
+                generated_code=code_string
+            )
+            
+            # Also store in temporary sequential context
+            if not hasattr(self, '_sequential_context'):
+                self._sequential_context = {}
+            
+            self._sequential_context[user_query] = {
+                'analysis_result': analysis_result,
+                'image_urls': image_sas_urls,
+                'generated_code': code_string,
+                'dataframes': analysis_result.get('dataframes', {}),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            print(f"💾 Saved analysis context: {len(image_sas_urls)} images, {len(code_string)} chars code")
+            
+        except Exception as e:
+            logging.error(f"❌ Error saving analysis to session memory: {e}")
+            raise
+
+    def _handle_report_generation_from_session(self, user_query: str, metadata: Dict[str, Any], 
+                                            analysis_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Generate report using session data from previous analysis.
+        
+        This method specifically handles report generation that uses data from
+        the previous data_analyst phase in sequential execution.
+        """
+        try:
+            print("📋 Generating report from session data and analysis results")
+            
+            # Collect all image URLs from session
+            session_image_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
+            
+            # Also get any images from session memory
+            session_summary = self.session_memory.get_session_summary()
+            all_chart_urls = session_summary.get('chart_urls', [])
+            
+            # Combine current and session images (remove duplicates)
+            combined_image_urls = list(dict.fromkeys(session_image_urls + all_chart_urls))
+            
+            self.emit_stream('status', f"📊 Using {len(combined_image_urls)} charts for report generation")
+            
+            # Enhanced context for report generation
+            enhanced_context = {
+                'sequential_execution': True,
+                'uses_session_data': True,
+                'analysis_phase_completed': True,
+                'classification': metadata,
+                'session_data_available': True,
+                'query_complexity': metadata.get('query_complexity', 'complex'),
+                'original_query': user_query,
+                'analysis_summary': analysis_result.get('response', '')
+            }
+            
+            # Generate structured HTML report with all session data
+            report_result = self._generate_structured_html_report_with_sections(
+                user_query=user_query,
+                analysis_result=analysis_result,
+                image_sas_urls=combined_image_urls,
+                enhanced_context=enhanced_context
+            )
+            
+            if report_result.get("success"):
+                # Update result type and metadata
+                report_result.update({
+                    'type': 'report',
+                    'sequential_phase': 'report_generation',
+                    'uses_session_data': True,
+                    'analysis_phase_completed': True,
+                    'combined_images_count': len(combined_image_urls),
+                    'session_images_used': len(all_chart_urls),
+                    'current_images_used': len(session_image_urls)
+                })
+                
+                return report_result
+            else:
+                return {
+                    "success": False,
+                    "error": "Report generation from session data failed",
+                    "type": "report_generation_error"
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ Error generating report from session: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "type": "report_generation_error"
+            }
+
+    def _combine_sequential_results(self, user_query: str, analysis_result: Dict[str, Any], 
+                                report_result: Dict[str, Any], classification_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Combine results from sequential execution (data_analyst + report_generator).
+        
+        Creates a unified result that contains both analysis and report data.
+        """
+        try:
+            # Combine DataFrames from both phases
+            combined_dataframes = {}
+            combined_dataframes.update(analysis_result.get('dataframes', {}))
+            combined_dataframes.update(report_result.get('dataframes', {}))
+            
+            # Combine generated files
+            combined_files = analysis_result.get('generated_files', {})
+            report_files = report_result.get('generated_files', {})
+            for file_type, files in report_files.items():
+                if file_type in combined_files:
+                    combined_files[file_type].extend(files)
+                else:
+                    combined_files[file_type] = files
+            
+            # Get the comprehensive report
+            comprehensive_report = report_result.get('html_report', report_result.get('plain_text_report', ''))
+            
+            # Create combined result
+            combined_result = {
+                "query": user_query,
+                "type": "sequential_analysis_and_report",  # 🎯 NEW result type
+                "success": True,
+                "response": analysis_result.get('response', ''),
+                "comprehensive_report": comprehensive_report,
+                "report_generated": True,
+                "report_type": "sequential_html_report",
+                "embedded_images": report_result.get('embedded_images', []),
+                "generated_code": analysis_result.get('generated_code', ''),
+                "execution_result": analysis_result.get('execution_result', {}),
+                "generated_images": analysis_result.get('generated_images', []),
+                "generated_files": combined_files,
+                "dataframes": combined_dataframes,
+                "analysis_summary": analysis_result.get('analysis_summary', ''),
+                
+                # Sequential execution metadata
+                "sequential_execution": True,
+                "execution_sequence": classification_metadata.get('sequence', ['data_analyst', 'report_generator']),
+                "phases_completed": ['data_analysis', 'report_generation'],
+                "analysis_phase_result": analysis_result,
+                "report_phase_result": report_result,
+                "classification": classification_metadata,
+                
+                # Timing and performance
+                "timestamp": datetime.now().isoformat(),
+                "assistant_id": analysis_result.get('assistant_id'),
+                "thread_id": self.thread_id,
+                "session_based_report": True,
+                "total_images": len(report_result.get('embedded_images', [])),
+                "total_dataframes": len(combined_dataframes),
+                "phases_successful": 2
+            }
+            
+            print(f"🔗 Combined sequential results:")
+            print(f"   - Analysis DataFrames: {len(analysis_result.get('dataframes', {}))}")
+            print(f"   - Report DataFrames: {len(report_result.get('dataframes', {}))}")
+            print(f"   - Total Combined DataFrames: {len(combined_dataframes)}")
+            print(f"   - Total Images: {len(report_result.get('embedded_images', []))}")
+            print(f"   - Report Length: {len(comprehensive_report)} characters")
+            
+            return combined_result
+            
+        except Exception as e:
+            logging.error(f"❌ Error combining sequential results: {e}")
+            
+            # Return analysis results as fallback
+            analysis_result.update({
+                "sequential_execution": True,
+                "combination_failed": True,
+                "combination_error": str(e),
+                "partial_results": True
+            })
+            
+            return analysis_result
+
+    def _route_query_with_classification_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        UPDATED: Route queries based on OpenAI classification instead of AI routing.
+        """
+        
+        assistant_type = metadata.get('assistant_type', 'conversational')
+        analysis_type = metadata.get('analysis_type', 'general')
+        confidence = metadata.get('confidence', 'medium')
+        
+        # Check for stop signal before routing
+        self.check_stop_signal()
+        
+        print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
+        
+        # Route based on OpenAI classification
+        if assistant_type == "textual_analytical":
+            # Simple textual analysis
+            return self._handle_textual_analytical_with_classification_context(user_query, metadata)
+            
+        elif assistant_type == "data_analyst":
+            # Complex analysis with visualizations
+            return self._handle_complex_analytical_with_classification_context(user_query, metadata)
+            
+        elif assistant_type == "report_generator":
+            # Report generation
+            return self._handle_report_generation_with_classification_context(user_query, metadata)
+            
+        else:
+            # Fallback or unknown assistant type
+            print(f"⚠️ Unknown assistant type '{assistant_type}', falling back to original analysis")
+            return self._fallback_to_original_analysis(user_query)
+
+    # Add these helper methods that mirror the existing methods but use classification context
+    def _handle_textual_analytical_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle textual analytical queries with OpenAI classification context"""
+        return self._handle_textual_analytical_with_ai_context(user_query, metadata)
+
+    def _handle_complex_analytical_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle complex analytical queries with OpenAI classification context"""
+        return self._handle_complex_analytical_with_ai_context(user_query, metadata)
+
+    def _handle_report_generation_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle report generation with OpenAI classification context"""
+        return self._handle_report_generation_with_ai_context(user_query, metadata)
+    def _handle_conversational_query_enhanced(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ENHANCED: Handle conversational queries with AI-powered responses
+        """
+        try:
+            assistant_type = metadata.get('assistant_type', 'conversational')
+            
+            self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
+            
+            # Use the specific assistant type determined by AI
+            if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
+                assistant_id = self.assistant_manager.create_or_get_assistant("conversational")
+                
+                # Add enhanced context about the data if available
+                context_message = ""
+                if self.df is not None:
+                    context_message = f"\n\nContext: I have access to a dataset with {self.df.shape[0]} rows and {self.df.shape[1]} columns containing: {', '.join(list(self.df.columns)[:5])}"
+                
+                enhanced_query = user_query + context_message
+                
+                result = self.assistant_manager.run_assistant_analysis(
+                    self.thread_id,
+                    enhanced_query
+                )
+                
+                if result.get("success"):
+                    ai_response = result.get("response_content", "I'm here to help with your data analysis!")
+                else:
+                    ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+            else:
+                ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+            
+            # Stream the response
+            self.emit_stream('response', ai_response)
+            self.emit_stream('completion', 'Response complete!')
+            
+            return {
+                "query": user_query,
+                "type": "conversational",
+                "success": True,
+                "response": ai_response,
+                "generated_images": [],
+                "dataframes": {},
+                "generated_code": "",
+                "requires_analysis": False,
+                "ai_classification": metadata,
+                "assistant_type": assistant_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            fallback_response = "I'm here to help you analyze your data! What would you like to explore?"
+            self.emit_stream('response', fallback_response)
+            
+            return {
+                "query": user_query,
+                "type": "conversational", 
+                "success": True,
+                "response": fallback_response,
+                "generated_images": [],
+                "dataframes": {},
+                "generated_code": "",
+                "error": f"AI response failed, used fallback: {str(e)}",
+                "ai_classification": metadata,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+    # def _route_query_with_ai_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    #     """
+    #     ENHANCED: Route queries based on AI decision instead of hardcoded rules
+    #     """
+        
+    #     assistant_type = metadata.get('assistant_type', 'conversational')
+    #     analysis_type = metadata.get('analysis_type', 'general')
+    #     confidence = metadata.get('confidence', 'medium')
+        
+    #     # Check for stop signal before routing
+    #     self.check_stop_signal()
+        
+    #     print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
+        
+    #     # Enhanced routing based on AI decision
+    #     if assistant_type == "textual_analytical":
+    #         # AI determined this should be handled as simple textual analysis
+    #         return self._handle_textual_analytical_with_ai_context(user_query, metadata)
+            
+    #     elif assistant_type == "data_analyst":
+    #         # AI determined this needs complex analysis with visualizations
+    #         return self._handle_complex_analytical_with_ai_context(user_query, metadata)
+            
+    #     elif assistant_type == "report_generator":
+    #         # AI determined this should generate a report
+    #         return self._handle_report_generation_with_ai_context(user_query, metadata)
+            
+    #     else:
+    #         # Fallback or unknown assistant type
+    #         print(f"⚠️ Unknown assistant type '{assistant_type}', falling back to original analysis")
+    #         return self._fallback_to_original_analysis(user_query)
+
+    def _handle_textual_analytical_with_ai_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+            """
+            ENHANCED: Handle textual analytical queries with AI context and reasoning
+            """
+            
+            print("📊 Handling textual analytical query with AI-enhanced context")
+            
+            try:
+                # Check if we have data
+                if self.df is None:
+                    self.emit_stream('error', "No CSV file loaded. Please upload a CSV file first.")
+                    return {
+                        "error": "No CSV file loaded",
+                        "type": "textual_analytical",
+                        "success": False,
+                        "dataframes": {},
+                        "generated_code": "",
+                        "ai_classification": metadata
+                    }
+                
+                # Create textual analytical assistant
+                assistant_id = self.assistant_manager.create_or_get_assistant("textual_analytical")
+                
+                # Enhanced query with AI context and reasoning
+                ai_reasoning = metadata.get('ai_reasoning', 'Direct analytical query')
+                expected_output = metadata.get('expected_output', 'text')
+                
+                enhanced_query = f"""
+                Answer this question about the dataset: {user_query}
+                
+                AI Classification Context:
+                - Query Type: {metadata.get('assistant_type', 'textual_analytical')}
+                - Expected Output: {expected_output}
+                - AI Reasoning: {ai_reasoning}
+                - Confidence: {metadata.get('confidence', 'medium')}
+                
+                Dataset Info:
+                - Shape: {self.df.shape}
+                - Columns: {list(self.df.columns)}
+                
+                Instructions:
+                - Provide a clear, concise answer with specific numbers and insights
+                - Focus on giving the exact information requested
+                - If calculation is needed, show the result clearly
+                - Keep response focused and direct
+                """
+                
+                # Run assistant analysis with file attachments
+                result = self.assistant_manager.run_assistant_analysis(
+                    self.thread_id,
+                    enhanced_query,
+                    file_ids=self.current_file_ids
+                )
+                
+                if result.get("success"):
+                    # Extract result value
+                    response_text = result.get("response_content", "Analysis completed")
+                    generated_code = result.get("generated_code", "")
+                    
+                    # Stream the response
+                    self.emit_stream('output', response_text)
+                    self.emit_stream('completion', 'Textual analysis complete!')
+                    
+                    # Return enhanced result
+                    return {
+                        "query": user_query,
+                        "type": "textual_analytical",
+                        "success": True,
+                        "response": response_text,
+                        "generated_code": generated_code,
+                        "execution_result": {"success": True, "result": response_text},
+                        "generated_images": [],
+                        "dataframes": {},  # Will be populated by format function if any DataFrames exist
+                        "analysis_type": "textual_with_ai_context",
+                        "ai_classification": metadata,
+                        "assistant_id": assistant_id,
+                        "thread_id": self.thread_id,
+                        "ai_enhanced": True,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    # Fallback to original handler
+                    return self._fallback_textual_analytical_handler(user_query, metadata)
+                    
+            except Exception as e:
+                print(f"❌ AI-enhanced textual analytical handler failed: {e}")
+                return self._fallback_textual_analytical_handler(user_query, metadata)
+
+    def _handle_complex_analytical_with_ai_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ENHANCED: Handle complex analytical queries with AI context for better results
+        """
+        assistant_type = metadata.get('assistant_type', 'conversational')
+        
+        print("🔬 Handling complex analytical query with AI-enhanced context")
+        
+        try:
+            if self.df is None:
+                self.emit_stream('error', "No CSV file loaded. Please upload a CSV file first.")
+                return {
+                    "error": "No CSV file loaded",
+                    "type": "fully_analytical",
+                    "success": False,
+                    "dataframes": {},
+                    "generated_code": "",
+                    "ai_classification": metadata
+                }
+            
+            # STEP 1: Run data analysis with AI context
+            self.emit_stream('status', "🔬 Running AI-enhanced comprehensive data analysis...")
+            
+            # Create data analyst assistant
+            assistant_id = self.assistant_manager.create_or_get_assistant("data_analyst")
+            
+            # Enhanced query for data analysis with AI context
+            ai_reasoning = metadata.get('ai_reasoning', 'Complex analytical query')
+            expected_output = metadata.get('expected_output', 'visualization')
+            query_complexity = metadata.get('query_complexity', 'complex')
+            
+            enhanced_query = f"""
+            Analyze the dataset and answer: {user_query}
+            
+            AI Classification Context:
+            - Query Type: {metadata.get('assistant_type', 'data_analyst')}
+            - Expected Output: {expected_output}
+            - Query Complexity: {query_complexity}
+            - AI Reasoning: {ai_reasoning}
+            - Confidence: {metadata.get('confidence', 'medium')}
+            
+            ENHANCED REQUIREMENTS based on AI classification:
+            1. Perform comprehensive Python data analysis with matplotlib visualizations
+            2. Create meaningful DataFrames with business insights
+            3. Generate charts/visualizations as determined appropriate by AI routing
+            4. Include real data analysis based on the AI's understanding of the query
+            5. Focus on the specific type of analysis the AI router determined was needed
+            
+            Dataset shape: {self.df.shape}
+            Columns: {list(self.df.columns)}
+            
+            EXECUTION APPROACH:
+            - Since AI classified this as {expected_output} focused, prioritize that output type
+            - Provide comprehensive analysis that matches the AI's complexity assessment: {query_complexity}
+            - Generate appropriate visualizations for {assistant_type} level analysis
+            """
+            
+            # Run enhanced data analysis
+            result = self._run_enhanced_analysis_with_streaming(assistant_id, enhanced_query)
+            
+            if not result.get("success"):
+                return self._fallback_fully_analytical_handler(user_query, metadata)
+            
+            # STEP 2: Enhanced processing based on AI decision
+            return self._process_complex_analysis_result_with_ai_context(result, user_query, metadata)
+                
+        except Exception as e:
+            print(f"❌ AI-enhanced complex analytical handler failed: {e}")
+            return self._fallback_fully_analytical_handler(user_query, metadata)
+
+    def _handle_report_generation_with_ai_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ENHANCED: Handle report generation with AI context for more targeted reports
+        """
+        
+        print("📋 Handling report generation with AI-enhanced context")
+        
+        try:
+            # Check if we have session data already available for report-only requests
+            session_has_data = (
+                len(self.generated_files.get('images', [])) > 0 or 
+                hasattr(self, 'df') and self.df is not None
+            )
+            
+            # If user just wants a report and we have session data, use it directly
+            report_only_indicators = ['give', 'generate', 'create', 'provide', 'show me']
+            report_keywords = ['report', 'summary', 'comprehensive', 'detailed']
+            
+            is_report_only = (
+                any(action in user_query.lower() for action in report_only_indicators) and
+                any(keyword in user_query.lower() for keyword in report_keywords) and
+                len(user_query.split()) <= 10 and  # Short query
+                session_has_data
+            )
+            
+            if is_report_only:
+                print("📊 Generating report from existing session data")
+                return self._generate_report_from_session_data(user_query, metadata)
+            
+            # Otherwise, first run the analysis to get data
+            analysis_result = self._handle_complex_analytical_with_ai_context(user_query, metadata)
+            
+            if not analysis_result.get("success"):
+                return analysis_result
+            
+            # Enhanced report generation with AI context
+            ai_reasoning = metadata.get('ai_reasoning', 'Report generation request')
+            
+            # Add AI context to analysis result for report generation
+            analysis_result['ai_classification'] = metadata
+            analysis_result['ai_reasoning'] = ai_reasoning
+            analysis_result['report_focus'] = metadata.get('expected_output', 'comprehensive')
+            
+            # Generate enhanced report
+            report_result = self._generate_ai_enhanced_report(user_query, analysis_result, metadata)
+            
+            if report_result.get("success"):
+                # Update analysis result with report information
+                analysis_result.update({
+                    "type": "report",
+                    "comprehensive_report": report_result.get("html_report", ""),
+                    "report_generated": True,
+                    "report_type": "ai_enhanced_report",
+                    "embedded_images": report_result.get("embedded_images", []),
+                    "ai_enhanced_report": True
+                })
+                
+                return analysis_result
+            else:
+                # Report generation failed, return analysis results only
+                analysis_result["report_generated"] = False
+                analysis_result["report_error"] = "AI-enhanced report generation failed"
+                return analysis_result
+                
+        except Exception as e:
+            print(f"❌ AI-enhanced report generation failed: {e}")
+            return {
+                "query": user_query,
+                "type": "report",
+                "success": False,
+                "error": str(e),
+                "dataframes": {},
+                "generated_code": "",
+                "ai_classification": metadata,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _add_ai_explanation_to_result(self, result: Dict[str, Any], user_query: str, 
+                                    classification_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ENHANCED: Add AI-powered explanation that includes classification reasoning
+        """
+        
+        if not result.get('success'):
+            return result
+        
+        try:
+            # Generate enhanced explanation with AI context
+            explanation = self._generate_ai_enhanced_explanation(result, user_query, classification_metadata)
+            
+            # Add explanation to response
+            current_response = result.get('response', '')
+            if explanation:
+                if current_response:
+                    result['response'] = f"{current_response}\n\n### AI Analysis Summary:\n{explanation}"
+                else:
+                    result['response'] = explanation
+            
+            # Add AI classification info to result
+            result['ai_classification'] = classification_metadata
+            result['ai_enhanced'] = True
+            
+            # Stream the explanation
+            if explanation:
+                self.emit_stream('explanation', explanation)
+            
+        except Exception as e:
+            print(f"⚠️ Failed to generate AI explanation: {e}")
+        
+        return result
+
+    def _generate_ai_enhanced_explanation(self, result: Dict[str, Any], user_query: str, 
+                                        classification_metadata: Dict[str, Any]) -> str:
+        """
+        Generate enhanced explanation that includes AI reasoning and classification context
+        """
+        
+        try:
+            explanation_parts = []
+            
+            # AI Classification Summary
+            assistant_type = classification_metadata.get('assistant_type', 'unknown')
+            confidence = classification_metadata.get('confidence', 'unknown')
+            ai_reasoning = classification_metadata.get('ai_reasoning', 'No reasoning provided')
+            
+            explanation_parts.append(f"🧭 **AI Analysis Route:** {assistant_type.replace('_', ' ').title()}")
+            explanation_parts.append(f"🎯 **Classification Confidence:** {confidence.title()}")
+            explanation_parts.append(f"🤖 **AI Reasoning:** {ai_reasoning}")
+            
+            # Query analysis
+            explanation_parts.append(f"📝 **Your Query:** '{user_query}'")
+            
+            # What was done
+            analysis_type = result.get('analysis_type', result.get('type', 'general'))
+            expected_output = classification_metadata.get('expected_output', 'text')
+            
+            if expected_output == 'visualization':
+                explanation_parts.append("📊 **Analysis Performed:** Created visualizations and comprehensive data analysis")
+            elif expected_output == 'text':
+                explanation_parts.append("💬 **Analysis Performed:** Provided direct textual answer with calculations")
+            elif expected_output == 'report':
+                explanation_parts.append("📋 **Analysis Performed:** Generated comprehensive business report")
+            else:
+                explanation_parts.append("🔍 **Analysis Performed:** Completed data analysis as requested")
+            
+            # Technical details
+            generated_code = result.get('generated_code', '')
+            if isinstance(generated_code, dict):
+                code_content = generated_code.get('code', '')
+            else:
+                code_content = generated_code
+                
+            if code_content:
+                code_lines = len(code_content.split('\n'))
+                explanation_parts.append(f"💻 **Code Generated:** {code_lines} lines of Python executed")
+            
+            # DataFrames generated
+            dataframes = result.get('dataframes', {})
+            if dataframes:
+                df_count = len(dataframes)
+                total_rows = sum(
+                    df_info.get('shape', (0, 0))[0] if isinstance(df_info, dict) and df_info.get('type') == 'dataframe'
+                    else len(df_info) if isinstance(df_info, pd.DataFrame) else 0
+                    for df_info in dataframes.values()
+                )
+                explanation_parts.append(f"📊 **Data Generated:** {df_count} result tables with {total_rows:,} total rows")
+            
+            # Files generated
+            generated_files = result.get('generated_files', {})
+            if generated_files:
+                file_counts = []
+                for category, files in generated_files.items():
+                    if files:
+                        file_counts.append(f"{len(files)} {category}")
+                if file_counts:
+                    explanation_parts.append(f"📁 **Files Created:** {', '.join(file_counts)}")
+            
+            # Success indicator with AI context
+            if result.get('success'):
+                query_complexity = classification_metadata.get('query_complexity', 'moderate')
+                explanation_parts.append(f"✅ **Result:** {query_complexity.title()} analysis completed successfully using AI routing!")
+            
+            return "\n".join(explanation_parts)
+            
+        except Exception as e:
+            return f"Analysis completed using AI-powered routing. Classification: {classification_metadata.get('assistant_type', 'unknown')} (Explanation generation failed: {str(e)})"
+
+    def _initialize_handlers(self):
+        """Initialize all query handlers with current data context"""
+        
+        try:
+            # Initialize conversation handler (using assistants)
+            self.conversation_handler = ConversationHandler(
+                self.session_id, 
+                self.socketio,
+                assistant_manager=self.assistant_manager,
+                thread_manager=self.thread_manager
+            )
+            
+            # Initialize textual analytical handler (using assistants)
+            if self.df is not None:
+                self.textual_analytical_handler = TextualAnalyticalHandler(
+                    self.session_id,
+                    self.df,
+                    self.socketio,
+                    self.csv_info,
+                    assistant_manager=self.assistant_manager,
+                    thread_manager=self.thread_manager,
+                    file_manager=self.file_manager
+                )
+            
+            # Initialize analytical handler (using assistants)
+            self.analytical_handler = AnalyticalHandler(
+                self.session_id,
+                self,
+                self.socketio,
+                assistant_manager=self.assistant_manager,
+                thread_manager=self.thread_manager,
+                file_manager=self.file_manager
+            )
+            
+            print("✅ All query handlers initialized with Assistants API")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to initialize some handlers: {e}")
+            # Continue anyway - fallback to original behavior
     
+    def _run_enhanced_analysis_with_streaming(self, assistant_id: str, enhanced_query: str) -> Dict[str, Any]:
+        """Run analysis with enhanced streaming and context"""
+        try:
+            # Add message to thread
+            self.thread_manager.add_message_to_thread(
+                self.thread_id,
+                "user",
+                enhanced_query,
+                file_ids=self.current_file_ids
+            )
+            
+            # Create and run analysis
+            run = self.assistant_manager.client.beta.threads.runs.create(
+                thread_id=self.thread_id,
+                assistant_id=assistant_id
+            )
+            
+            # Use streaming adapter for real-time feedback
+            self.streaming_adapter = StreamingAdapter(
+                self.assistant_manager.client,
+                self._emit_streaming_callback_with_dataframe_streaming
+            )
+            
+            # Stream the analysis
+            result = self.streaming_adapter.stream_assistant_run(
+                self.thread_id,
+                run.id,
+                self.session_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ Error in enhanced analysis with streaming: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "type": "enhanced_analysis_error"
+            }
+    
+    def _process_complex_analysis_result_with_ai_context(self, result: Dict[str, Any], 
+                                                       user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Process complex analysis results with AI context"""
+        try:
+            # Download and categorize generated files
+            self.emit_stream('status', "📁 Processing generated files with AI context...")
+            generated_files = self._download_and_categorize_generated_files(result.get("generated_files", []))
+            
+            # Extract ACTUAL DataFrames with AI context
+            extracted_dataframes = self._extract_and_stream_actual_dataframes_from_assistant_result(result)
+            
+            # Enhanced result formatting
+            final_result = {
+                "query": user_query,
+                "type": "fully_analytical", 
+                "success": True,
+                "response": result.get("response_content", ""),
+                "generated_code": result.get("generated_code", ""),
+                "execution_result": {
+                    "success": True,
+                    "output": "\n".join(result.get("execution_outputs", []))
+                },
+                "generated_images": generated_files.get('images', []),
+                "generated_files": generated_files,
+                "dataframes": extracted_dataframes,
+                "analysis_type": "ai_enhanced_complex",
+                "ai_classification": metadata,
+                "ai_enhanced": True,
+                "assistant_id": result.get("assistant_id"),
+                "thread_id": self.thread_id,
+                "run_id": result.get("run_id"),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Check if we should auto-generate a report for data_analyst with low confidence or report-related queries
+            should_generate_report = self._should_auto_generate_report(user_query, metadata, final_result)
+            
+            if should_generate_report:
+                self.emit_stream('status', "🤖 Auto-generating structured report based on query context...")
+                report_result = self._auto_generate_report_for_data_analyst(user_query, final_result, metadata)
+                
+                if report_result.get("success"):
+                    final_result.update({
+                        "type": "report_with_analysis",
+                        "comprehensive_report": report_result.get("html_report", ""),
+                        "report_generated": True,
+                        "auto_report_triggered": True,
+                        "embedded_images": report_result.get("embedded_images", [])
+                    })
+                    self.emit_stream('status', "✅ Auto-report generation completed")
+                else:
+                    final_result["auto_report_failed"] = True
+                    final_result["auto_report_error"] = report_result.get("error", "Unknown error")
+            
+            return final_result
+            
+        except Exception as e:
+            logging.error(f"❌ Error processing complex analysis result: {e}")
+            return result  # Return original result if processing fails
+    
+    def _should_auto_generate_report(self, user_query: str, metadata: Dict[str, Any], analysis_result: Dict[str, Any]) -> bool:
+        """
+        Determine if we should automatically generate a report for data_analyst queries
+        """
+        try:
+            query_lower = user_query.lower().strip()
+            
+            # Check for explicit report keywords
+            report_keywords = ['report', 'detailed', 'comprehensive', 'summary', 'insights', 'overview']
+            has_report_keywords = any(keyword in query_lower for keyword in report_keywords)
+            
+            # Check for report actions
+            report_actions = ['give me', 'provide', 'show me', 'generate', 'create']
+            has_report_actions = any(action in query_lower for action in report_actions)
+            
+            # Check metadata conditions
+            confidence = metadata.get('confidence', 'medium')
+            assistant_type = metadata.get('assistant_type', '')
+            corrected = metadata.get('corrected', False)
+            
+            # Auto-generate report if:
+            # 1. Routed to data_analyst with low confidence (likely misrouted report request)
+            # 2. Query contains report keywords + actions
+            # 3. Query was corrected but still might need reporting
+            # 4. Query length suggests comprehensive request (>15 words)
+            
+            conditions = [
+                # Low confidence data_analyst routing
+                (assistant_type == 'data_analyst' and confidence == 'low'),
+                
+                # Explicit report language
+                (has_report_keywords and has_report_actions),
+                
+                # Corrected routing that might still need reports
+                (corrected and has_report_keywords),
+                
+                # Long complex queries that likely want comprehensive output
+                (len(user_query.split()) > 15 and any(word in query_lower for word in ['detailed', 'comprehensive', 'analysis', 'insights']))
+            ]
+            
+            should_generate = any(conditions)
+            
+            if should_generate:
+                logging.info(f"🤖 Auto-report triggered for: {user_query[:50]}... | Conditions met: {[i for i, c in enumerate(conditions) if c]}")
+            
+            return should_generate
+            
+        except Exception as e:
+            logging.error(f"❌ Error in _should_auto_generate_report: {e}")
+            return False
+    
+    def _auto_generate_report_for_data_analyst(self, user_query: str, analysis_result: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-generate a structured report when data_analyst is used but report is likely needed
+        """
+        try:
+            # Collect image URLs from both current analysis and session history
+            image_sas_urls = self._collect_generated_image_sas_urls(analysis_result.get("generated_files", {}))
+            
+            # Call the structured report generator with enhanced context
+            enhanced_context = {
+                'auto_generated': True,
+                'trigger_reason': 'data_analyst_low_confidence_or_report_keywords',
+                'original_routing': metadata.get('assistant_type'),
+                'confidence': metadata.get('confidence'),
+                'query_complexity': metadata.get('query_complexity', 'complex'),
+                'original_query': user_query
+            }
+            
+            # Generate report with AI context
+            return self._generate_structured_html_report_with_sections(
+                user_query, analysis_result, image_sas_urls, enhanced_context
+            )
+            
+        except Exception as e:
+            logging.error(f"❌ Error in auto-report generation: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _generate_report_from_session_data(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate a report using only session-persisted data (no new analysis)
+        """
+        try:
+            self.emit_stream('status', "📋 Generating report from session data without new analysis")
+            
+            # Collect all session images
+            image_sas_urls = self._collect_generated_image_sas_urls()  # No current files, only session
+            self.emit_stream('status', f"📊 Found {len(image_sas_urls)} images from previous analysis")
+            
+            # Create a mock analysis result from session data
+            session_analysis_result = {
+                "query": user_query,
+                "type": "session_report",
+                "success": True,
+                "response": "Report generated from previous analysis session",
+                "generated_files": self.generated_files,
+                "dataframes": {},  # TODO: Could add session dataframe persistence
+                "session_based": True,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Generate report with session context
+            enhanced_context = {
+                'session_based': True,
+                'ai_classification': metadata,
+                'trigger_reason': 'report_from_session_data',
+                'query_complexity': metadata.get('query_complexity', 'moderate'),
+                'original_query': user_query
+            }
+            
+            # Call structured report generator
+            report_result = self._generate_structured_html_report_with_sections(
+                user_query, session_analysis_result, image_sas_urls, enhanced_context
+            )
+            
+            if report_result.get("success"):
+                return {
+                    "query": user_query,
+                    "type": "report",
+                    "success": True,
+                    "comprehensive_report": report_result.get("html_report", ""),
+                    "report_generated": True,
+                    "session_based_report": True,
+                    "embedded_images": image_sas_urls,
+                    "report_type": "session_based_structured_report",
+                    "ai_classification": metadata,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "query": user_query,
+                    "type": "report", 
+                    "success": False,
+                    "error": "Failed to generate report from session data",
+                    "session_based": True
+                }
+                
+        except Exception as e:
+            print(f"❌ Error generating report from session data: {e}")
+            return {
+                "query": user_query,
+                "type": "report",
+                "success": False,
+                "error": str(e),
+                "session_based": True
+            }
+    
+    def _generate_ai_enhanced_report(self, user_query: str, analysis_result: Dict[str, Any], 
+                                   metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate report with AI context and classification reasoning"""
+        try:
+            # Collect image SAS URLs from both current and session history  
+            image_sas_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
+            
+            # Create enhanced context with AI reasoning
+            enhanced_context = {
+                'ai_classification': metadata,
+                'ai_reasoning': metadata.get('ai_reasoning', ''),
+                'report_focus': metadata.get('expected_output', 'comprehensive'),
+                'query_complexity': metadata.get('query_complexity', 'complex'),
+                'original_query': user_query
+            }
+            
+            # Generate report with AI context
+            return self._generate_structured_html_report_with_sections(
+                user_query, analysis_result, image_sas_urls, enhanced_context
+            )
+            
+        except Exception as e:
+            logging.error(f"❌ Error generating AI-enhanced report: {e}")
+            return {"success": False, "error": str(e)}
+        
     def _add_summary_to_result(self, result: Dict[str, Any], user_query: str) -> Dict[str, Any]:
         """
         NEW: Add AI-generated summary to analytical results using summarizer assistant.
@@ -1039,6 +2650,7 @@ Please provide a concise summary following your format guidelines that highlight
             # Fallback to original behavior
             print(f"⚠️ Unknown category '{category}', falling back to original analysis")
             return self._fallback_to_original_analysis(user_query)
+    
     def _handle_textual_analytical_query_with_assistants(self, user_query: str, intent_data: Dict[str, Any]) -> Dict[str, Any]:
         """FIXED: Handle simple analytical queries using Assistants API"""
         
@@ -1666,6 +3278,7 @@ Please provide a concise summary following your format guidelines that highlight
             logging.error(f"Error in DataFrame extraction: {e}")
         
         return actual_dataframes
+    
     def _extract_dataframes_from_assistant_result(self, result: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
         """
         NEW: Extract DataFrames from assistant execution results.
@@ -2011,9 +3624,20 @@ Please provide a concise summary following your format guidelines that highlight
                 
                 categorized_files[category].append(file_entry)
                 
-                # For images, also emit to frontend immediately
+                # Persist files in session-level tracking for cross-query reuse
+                self.generated_files[category].append(file_entry)
+                
+                # Also persist to class-level session storage
+                if self.session_id in EnhancedStreamingAnalyzer._session_generated_files:
+                    EnhancedStreamingAnalyzer._session_generated_files[self.session_id][category].append(file_entry)
+                
+                # For images, also emit to frontend immediately and save session metadata
                 if category == 'images':
                     self._emit_image_to_frontend(local_path, blob_url)
+                    self.emit_stream('status', f"💾 Saved image to session: {filename}")
+                    
+                    # Save session metadata to blob storage after adding each image
+                    self._save_session_metadata_to_blob()
                 
             except Exception as e:
                 logging.error(f"Error downloading file {file_id}: {e}")
@@ -2159,6 +3783,76 @@ Please provide a concise summary following your format guidelines that highlight
         query_lower = query.lower()
         return any(keyword in query_lower for keyword in report_keywords)
     
+    def _save_to_session_memory(self, user_query: str, result: Dict[str, Any]):
+        """Save query result to session memory for future report generation"""
+        try:
+            if not result.get('success'):
+                return
+            
+            # Extract chart URLs from various possible sources with debugging
+            chart_urls = []
+            debug_sources = {}
+            
+            # From generated_images (legacy format)
+            if 'generated_images' in result:
+                urls = result['generated_images']
+                if urls:
+                    chart_urls.extend(urls)
+                    debug_sources['generated_images'] = len(urls)
+                    print(f"[DEBUG] Found {len(urls)} URLs in generated_images: {urls}")
+            
+            # From generated_files.images (new format)
+            if 'generated_files' in result and 'images' in result['generated_files']:
+                urls = result['generated_files']['images']
+                if urls:
+                    chart_urls.extend(urls)
+                    debug_sources['generated_files.images'] = len(urls)
+                    print(f"[DEBUG] Found {len(urls)} URLs in generated_files.images: {urls}")
+            
+            # From embedded_images (report format)
+            if 'embedded_images' in result:
+                urls = result['embedded_images']
+                if urls:
+                    chart_urls.extend(urls)
+                    debug_sources['embedded_images'] = len(urls)
+                    print(f"[DEBUG] Found {len(urls)} URLs in embedded_images: {urls}")
+            
+            print(f"[DEBUG] Total URLs from all sources: {len(chart_urls)}")
+            print(f"[DEBUG] All URLs before dedup: {chart_urls}")
+            
+            # Remove duplicates while preserving order
+            unique_urls = list(dict.fromkeys(chart_urls))
+            print(f"[DEBUG] Unique URLs after dedup: {len(unique_urls)} -> {unique_urls}")
+            
+            if len(chart_urls) != len(unique_urls):
+                print(f"[WARNING] Removed {len(chart_urls) - len(unique_urls)} duplicate URLs")
+            
+            # Extract generated code
+            generated_code = ""
+            if 'generated_code' in result:
+                code_data = result['generated_code']
+                if isinstance(code_data, dict):
+                    generated_code = code_data.get('code', '')
+                elif isinstance(code_data, str):
+                    generated_code = code_data
+            
+            # Only save if we have meaningful data
+            if unique_urls or generated_code or result.get('dataframes'):
+                self.session_memory.add_query_result(
+                    query=user_query,
+                    analysis_result=result,
+                    chart_urls=unique_urls,
+                    generated_code=generated_code
+                )
+                
+                if unique_urls:
+                    self.emit_stream('status', f'Saved {len(unique_urls)} charts to session memory')
+                    print(f"[INFO] Session memory: Added {len(unique_urls)} chart URLs for future reports")
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to save to session memory: {e}")
+            logging.error(f"Session memory save failed: {e}")
+    
     # Fallback methods to original handlers (PRESERVED)
     def _fallback_conversational_handler(self, user_query: str, intent_data: Dict[str, Any]) -> Dict[str, Any]:
         """Fallback to original conversational handler"""
@@ -2289,8 +3983,17 @@ Please provide a concise summary following your format guidelines that highlight
     def cleanup_assistants_resources(self):
         """Clean up all assistants resources"""
         try:
+            # Clean up query classifier/router
+            if hasattr(self.query_classifier, 'cleanup_session'):
+                self.query_classifier.cleanup_session(self.session_id)
+            
             # Clean up files
             self.file_manager.cleanup_session_files(self.session_id)
+            
+            # Clean up session-level generated files storage
+            if hasattr(EnhancedStreamingAnalyzer, '_session_generated_files') and self.session_id in EnhancedStreamingAnalyzer._session_generated_files:
+                del EnhancedStreamingAnalyzer._session_generated_files[self.session_id]
+                print(f"🧹 Cleaned up session generated files for {self.session_id}")
             
             # Clean up thread
             self.thread_manager.cleanup_session_thread(self.session_id)
@@ -2298,11 +4001,12 @@ Please provide a concise summary following your format guidelines that highlight
             # Clean up assistant
             self.assistant_manager.cleanup_assistant()
             
-            logging.info(f"🧹 Cleaned up assistants resources for session: {self.session_id}")
+            logging.info(f"🧹 Cleaned up all assistants resources including AI router for session: {self.session_id}")
             
         except Exception as e:
-            logging.error(f"⚠️ Error cleaning up assistants resources: {e}")
-    
+            logging.error(f"⚠️ Error cleaning up enhanced assistants resources: {e}")
+
+
     # Preserve all existing methods from parent class
     def get_conversation_context(self) -> Dict[str, Any]:
         """Get current conversation context for handlers"""
@@ -2544,40 +4248,56 @@ Please provide a concise summary following your format guidelines that highlight
     
     # MAJOR UPDATE to enhanced_analyzer.py - Replace the existing methods with SAS URL integration
 
-    def _collect_generated_image_sas_urls(self, generated_files: Dict[str, List]) -> List[str]:
+    def _collect_generated_image_sas_urls(self, generated_files: Dict[str, List] = None) -> List[str]:
         """
-        UPDATED: Collect SAS URLs from generated images in blob storage (like legacy code)
+        ENHANCED: Collect SAS URLs from both current analysis AND session-persisted images
         """
         image_sas_urls = []
         
         try:
-            # Get images from generated files
-            image_files = generated_files.get('images', [])
-            
-            for image_file in image_files:
-                if isinstance(image_file, dict):
-                    # Extract SAS URL from image file info
-                    sas_url = image_file.get('url')
-                    if sas_url and sas_url.startswith('http'):
-                        image_sas_urls.append(sas_url)
-                        print(f"📷 Collected image SAS URL: {sas_url[:80]}...")
-                    else:
-                        # Try to get local path and upload to blob to get SAS URL
-                        local_path = image_file.get('local_path')
-                        if local_path and os.path.exists(local_path):
-                            sas_url = self._upload_image_to_blob_and_get_sas(local_path)
+            # STEP 1: Get images from current analysis (if provided)
+            if generated_files:
+                image_files = generated_files.get('images', [])
+                
+                for image_file in image_files:
+                    if isinstance(image_file, dict):
+                        # Extract SAS URL from image file info
+                        sas_url = image_file.get('url')
+                        if sas_url and sas_url.startswith('http'):
+                            image_sas_urls.append(sas_url)
+                            print(f"📷 Collected current image SAS URL: {sas_url[:80]}...")
+                        else:
+                            # Try to get local path and upload to blob to get SAS URL
+                            local_path = image_file.get('local_path')
+                            if local_path and os.path.exists(local_path):
+                                sas_url = self._upload_image_to_blob_and_get_sas(local_path)
+                                if sas_url:
+                                    image_sas_urls.append(sas_url)
+                    elif isinstance(image_file, str):
+                        if image_file.startswith('http'):
+                            image_sas_urls.append(image_file)
+                        elif os.path.exists(image_file):
+                            # Upload local file to blob and get SAS URL
+                            sas_url = self._upload_image_to_blob_and_get_sas(image_file)
                             if sas_url:
                                 image_sas_urls.append(sas_url)
-                elif isinstance(image_file, str):
-                    if image_file.startswith('http'):
-                        image_sas_urls.append(image_file)
-                    elif os.path.exists(image_file):
-                        # Upload local file to blob and get SAS URL
-                        sas_url = self._upload_image_to_blob_and_get_sas(image_file)
-                        if sas_url:
-                            image_sas_urls.append(sas_url)
             
-            print(f"✅ Collected {len(image_sas_urls)} image SAS URLs for report")
+            # STEP 2: Get images from session-persisted files (from previous analyses in same session)
+            session_images = self.generated_files.get('images', [])
+            
+            for i, image_file in enumerate(session_images):
+                if isinstance(image_file, dict):
+                    sas_url = image_file.get('url')
+                    if sas_url and sas_url.startswith('http') and sas_url not in image_sas_urls:  # Avoid duplicates
+                        image_sas_urls.append(sas_url)
+                elif isinstance(image_file, str) and image_file.startswith('http'):
+                    if image_file not in image_sas_urls:  # Avoid duplicates
+                        image_sas_urls.append(image_file)
+            
+            current_count = len(generated_files.get('images', []) if generated_files else [])
+            session_count = len(session_images)
+            total_count = len(image_sas_urls)
+            
             return image_sas_urls
             
         except Exception as e:
@@ -3055,3 +4775,6 @@ Please provide a concise summary following your format guidelines that highlight
         except Exception as e:
             print(f"⚠️ Error processing report with SAS URLs: {e}")
             return report_content  # Return original if processing fails
+
+
+

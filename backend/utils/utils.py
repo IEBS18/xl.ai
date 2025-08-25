@@ -2348,6 +2348,795 @@ class StopAnalysisException(Exception):
 
 # In utils.py - Replace the generate_tailwind_table function to fix string formatting error
 
+def generate_sheet_images_with_highlighting(file_path, max_sheets=3):
+    """Generate actual images of Excel/CSV sheets with OCR-like text highlighting"""
+    try:
+        import os
+        import pandas as pd
+        from openpyxl import load_workbook
+        from PIL import Image, ImageDraw, ImageFont
+        import base64
+        import io
+        import re
+        
+        file_extension = os.path.splitext(file_path)[-1].lower()
+        
+        # Setup for image generation
+        cell_width = 120
+        cell_height = 30
+        margin = 20
+        header_height = 60
+        
+        # Colors for highlighting (OCR-like)
+        colors = {
+            'background': '#FFFFFF',
+            'grid': '#E5E5E5',
+            'text': '#333333',
+            'header': '#4F46E5',
+            'number': '#059669',
+            'highlight': '#FEF3C7',  # Yellow highlight
+            'highlight_border': '#F59E0B',
+            'important': '#DC2626'
+        }
+        
+        images_data = []
+        
+        if file_extension in ['.xlsx', '.xls']:
+            # Process Excel file
+            wb = load_workbook(file_path, data_only=True)
+            
+            for sheet_idx, sheet_name in enumerate(wb.sheetnames[:max_sheets]):
+                sheet = wb[sheet_name]
+                
+                # Calculate image dimensions
+                max_cols = min(sheet.max_column, 15)  # Limit columns for visibility
+                max_rows = min(sheet.max_row, 50)     # Limit rows per image
+                
+                img_width = margin * 2 + max_cols * cell_width
+                img_height = margin * 2 + header_height + max_rows * cell_height
+                
+                # Create image
+                img = Image.new('RGB', (img_width, img_height), colors['background'])
+                draw = ImageDraw.Draw(img)
+                
+                # Try to load a font
+                try:
+                    font = ImageFont.truetype("arial.ttf", 11)
+                    header_font = ImageFont.truetype("arial.ttf", 14)
+                except:
+                    font = ImageFont.load_default()
+                    header_font = ImageFont.load_default()
+                
+                # Draw clean header without text
+                draw.rectangle([0, 0, img_width, header_height], fill='#F8FAFC', outline=colors['grid'])
+                
+                y_offset = header_height + margin
+                
+                # Process each cell
+                for row in range(1, max_rows + 1):
+                    for col in range(1, max_cols + 1):
+                        cell = sheet.cell(row, col)
+                        cell_value = cell.value
+                        
+                        # Calculate cell position
+                        x = margin + (col - 1) * cell_width
+                        y = y_offset + (row - 1) * cell_height
+                        
+                        # Draw cell border
+                        draw.rectangle([x, y, x + cell_width, y + cell_height], 
+                                     outline=colors['grid'], fill=colors['background'])
+                        
+                        if cell_value is not None:
+                            cell_text = str(cell_value).strip()
+                            
+                            if len(cell_text) > 0:
+                                # Determine if this is important content
+                                is_important = any(keyword in cell_text.lower() for keyword in 
+                                                 ['market', 'revenue', 'total', 'profit', 'analysis', 'summary'])
+                                
+                                # Check if it's a number
+                                is_number = False
+                                try:
+                                    float(cell_text.replace(',', '').replace('$', '').replace('%', ''))
+                                    is_number = True
+                                except:
+                                    pass
+                                
+                                # Apply highlighting for important content
+                                if is_important:
+                                    # Draw highlight background (OCR-like)
+                                    highlight_padding = 2
+                                    draw.rectangle([x + highlight_padding, y + highlight_padding, 
+                                                  x + cell_width - highlight_padding, y + cell_height - highlight_padding], 
+                                                 fill=colors['highlight'], outline=colors['highlight_border'])
+                                
+                                # Truncate text if too long
+                                if len(cell_text) > 15:
+                                    cell_text = cell_text[:12] + "..."
+                                
+                                # Choose text color
+                                if is_number:
+                                    text_color = colors['number']
+                                elif is_important:
+                                    text_color = colors['important']
+                                else:
+                                    text_color = colors['text']
+                                
+                                # Draw text with padding
+                                text_x = x + 5
+                                text_y = y + (cell_height - 15) // 2
+                                draw.text((text_x, text_y), cell_text, fill=text_color, font=font)
+                
+                # Convert image to base64 for web display
+                buffer = io.BytesIO()
+                img.save(buffer, format='PNG', quality=95)
+                img_base64 = base64.b64encode(buffer.getvalue()).decode()
+                
+                images_data.append({
+                    'sheet_name': "",
+                    'image_data': img_base64,
+                    'width': img_width,
+                    'height': img_height,
+                    'rows': max_rows,
+                    'cols': max_cols
+                })
+                
+        elif file_extension == '.csv':
+            # Process CSV file
+            df = pd.read_csv(file_path)
+            total_rows = len(df)
+            rows_per_image = 30
+            max_cols = min(len(df.columns), 10)
+            
+            # Generate images for CSV chunks
+            for chunk_idx in range(min(3, (total_rows // rows_per_image) + 1)):
+                start_row = chunk_idx * rows_per_image
+                end_row = min((chunk_idx + 1) * rows_per_image, total_rows)
+                chunk_df = df.iloc[start_row:end_row]
+                
+                if len(chunk_df) == 0:
+                    break
+                
+                # Calculate image dimensions
+                img_width = margin * 2 + max_cols * cell_width
+                img_height = margin * 2 + header_height + (len(chunk_df) + 1) * cell_height  # +1 for column headers
+                
+                # Create image
+                img = Image.new('RGB', (img_width, img_height), colors['background'])
+                draw = ImageDraw.Draw(img)
+                
+                # Try to load font
+                try:
+                    font = ImageFont.truetype("arial.ttf", 11)
+                    header_font = ImageFont.truetype("arial.ttf", 14)
+                except:
+                    font = ImageFont.load_default()
+                    header_font = ImageFont.load_default()
+                
+                # Draw clean header without text
+                draw.rectangle([0, 0, img_width, header_height], fill='#F8FAFC', outline=colors['grid'])
+                
+                y_offset = header_height + margin
+                
+                # Draw column headers
+                for col_idx, col_name in enumerate(df.columns[:max_cols]):
+                    x = margin + col_idx * cell_width
+                    y = y_offset
+                    
+                    # Header cell with different styling
+                    draw.rectangle([x, y, x + cell_width, y + cell_height], 
+                                 fill='#E0E7FF', outline=colors['header'])
+                    
+                    # Truncate column name
+                    col_display = col_name[:12] + "..." if len(col_name) > 12 else col_name
+                    draw.text((x + 5, y + (cell_height - 15) // 2), col_display, fill=colors['header'], font=font)
+                
+                # Draw data rows
+                for row_idx, (_, row) in enumerate(chunk_df.iterrows()):
+                    for col_idx, col_name in enumerate(df.columns[:max_cols]):
+                        value = row[col_name]
+                        
+                        x = margin + col_idx * cell_width
+                        y = y_offset + (row_idx + 1) * cell_height
+                        
+                        # Draw cell border
+                        draw.rectangle([x, y, x + cell_width, y + cell_height], 
+                                     outline=colors['grid'], fill=colors['background'])
+                        
+                        if pd.notna(value):
+                            cell_text = str(value).strip()
+                            
+                            if len(cell_text) > 0:
+                                # Check for important content
+                                is_important = any(keyword in cell_text.lower() for keyword in 
+                                                 ['total', 'revenue', 'profit', 'market', 'growth'])
+                                
+                                # Check if numeric
+                                is_number = isinstance(value, (int, float))
+                                
+                                # Apply highlighting
+                                if is_important:
+                                    highlight_padding = 2
+                                    draw.rectangle([x + highlight_padding, y + highlight_padding, 
+                                                  x + cell_width - highlight_padding, y + cell_height - highlight_padding], 
+                                                 fill=colors['highlight'], outline=colors['highlight_border'])
+                                
+                                # Truncate text
+                                if len(cell_text) > 15:
+                                    cell_text = cell_text[:12] + "..."
+                                
+                                # Choose color
+                                if is_number:
+                                    text_color = colors['number']
+                                elif is_important:
+                                    text_color = colors['important']
+                                else:
+                                    text_color = colors['text']
+                                
+                                # Draw text
+                                draw.text((x + 5, y + (cell_height - 15) // 2), cell_text, fill=text_color, font=font)
+                
+                # Convert to base64
+                buffer = io.BytesIO()
+                img.save(buffer, format='PNG', quality=95)
+                img_base64 = base64.b64encode(buffer.getvalue()).decode()
+                
+                images_data.append({
+                    'sheet_name': "",
+                    'image_data': img_base64,
+                    'width': img_width,
+                    'height': img_height,
+                    'rows': len(chunk_df),
+                    'cols': max_cols
+                })
+        
+        # Generate HTML to display the images
+        html = '''
+        <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+            <div class="max-w-6xl mx-auto">
+        '''
+        
+        for idx, img_data in enumerate(images_data):
+            html += f'''
+            <div class="sheet-image-container mb-6">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                    <div class="p-4 bg-white dark:bg-gray-800">
+                        <div class="flex justify-center">
+                            <img src="data:image/png;base64,{img_data['image_data']}" 
+                                 alt="Sheet preview"
+                                 class="max-w-full h-auto border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm"
+                                 style="max-height: 800px; object-fit: contain;" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            '''
+        
+        html += '''
+            </div>
+        </div>
+        
+        <style>
+        .sheet-images-preview img {
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .sheet-images-preview img:hover {
+            transform: scale(1.02);
+            cursor: zoom-in;
+        }
+        
+        @media print {
+            .sheet-images-preview .sheet-image-container {
+                page-break-inside: avoid;
+                page-break-after: always;
+            }
+        }
+        </style>
+        '''
+        
+        return html
+        
+    except Exception as e:
+        return f'''
+        <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+                    <div class="text-center text-red-600 dark:text-red-400">
+                        <h3 class="text-lg font-semibold mb-2">Image Generation Error</h3>
+                        <p>Could not generate sheet images: {str(e)}</p>
+                        <p class="text-sm mt-2 text-gray-500 dark:text-gray-400">{str(type(e).__name__)}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        '''
+
+
+def generate_file_page_preview(file_path, max_pages=5):
+    """Generate a complete page-based preview of any file type - processes entire sheets/files"""
+    try:
+        import os
+        import pandas as pd
+        from openpyxl import load_workbook
+        import re
+        import math
+        
+        file_extension = os.path.splitext(file_path)[-1].lower()
+        
+        html = '''
+        <div class="document-preview bg-gray-50 dark:bg-gray-900 p-6">
+            <div class="max-w-4xl mx-auto">
+        '''
+        
+        if file_extension in ['.xlsx', '.xls']:
+            # Excel file - process entire sheets
+            wb = load_workbook(file_path, data_only=True)
+            
+            for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+                sheet = wb[sheet_name]
+                
+                # Extract ALL content from the sheet
+                all_content = []
+                
+                for row in range(1, sheet.max_row + 1):
+                    row_data = []
+                    has_content = False
+                    
+                    for col in range(1, sheet.max_column + 1):
+                        cell = sheet.cell(row, col)
+                        cell_value = cell.value
+                        
+                        if cell_value is not None:
+                            cell_str = str(cell_value).strip()
+                            if len(cell_str) > 0:
+                                row_data.append(cell_str)
+                                has_content = True
+                        else:
+                            row_data.append("")
+                    
+                    if has_content:
+                        all_content.append(row_data)
+                
+                # Split content into pages (approximately 40-50 rows per page)
+                rows_per_page = 45
+                total_pages = math.ceil(len(all_content) / rows_per_page) if all_content else 1
+                
+                for page_num in range(min(total_pages, max_pages)):
+                    start_idx = page_num * rows_per_page
+                    end_idx = min((page_num + 1) * rows_per_page, len(all_content))
+                    page_content = all_content[start_idx:end_idx]
+                    
+                    html += f'''
+                    <div class="page bg-white dark:bg-gray-800 shadow-lg rounded-lg mb-6 p-8" style="min-height: 1000px; width: 100%; max-width: 210mm;">
+                        <!-- Page Header -->
+                        <div class="page-header border-b-2 border-gray-200 dark:border-gray-700 pb-4 mb-6">
+                            <div class="flex justify-between items-center">
+                                <h2 class="text-xl font-bold text-gray-900 dark:text-white">
+                                    {sheet_name}
+                                </h2>
+                                <span class="text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full">
+                                    Sheet {sheet_idx + 1}, Page {page_num + 1} of {min(total_pages, max_pages)}
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mt-2">
+                                Rows {start_idx + 1} to {end_idx} (Total: {sheet.max_row} rows × {sheet.max_column} columns)
+                            </p>
+                        </div>
+                        
+                        <!-- Page Content -->
+                        <div class="page-content space-y-3">
+                    '''
+                    
+                    # Process each row in this page
+                    for row_idx, row_data in enumerate(page_content):
+                        # Join non-empty cells with spaces
+                        row_text = " ".join([cell for cell in row_data if cell.strip()])
+                        
+                        if not row_text.strip():
+                            continue
+                            
+                        # Determine if this is a header/title row
+                        is_header = (len(row_text) > 30 and 
+                                   any(keyword in row_text.lower() for keyword in 
+                                       ['market', 'model', 'analysis', 'report', 'summary', 'total', 
+                                        'revenue', 'cost', 'profit', 'year', 'quarter', 'month']))
+                        
+                        if is_header:
+                            # Highlight important text in headers
+                            highlighted_text = row_text
+                            for keyword in ['market', 'model', 'analysis', 'data', 'total', 'revenue', 'growth', 'cost', 'profit']:
+                                highlighted_text = re.sub(
+                                    f'({keyword})', 
+                                    r'<mark class="bg-yellow-200 dark:bg-yellow-700 px-1 rounded font-semibold">\1</mark>',
+                                    highlighted_text, 
+                                    flags=re.IGNORECASE
+                                )
+                            
+                            html += f'''
+                            <div class="header-row bg-blue-50 dark:bg-blue-900 p-4 rounded-lg border-l-4 border-blue-500">
+                                <h3 class="text-base font-semibold text-blue-900 dark:text-blue-100">
+                                    {highlighted_text}
+                                </h3>
+                            </div>
+                            '''
+                        else:
+                            # Regular content row
+                            # Check if it looks like structured data (multiple values separated)
+                            if len(row_data) > 3 and len([cell for cell in row_data if cell.strip()]) > 2:
+                                # Display as structured data
+                                html += '''
+                                <div class="data-row bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                '''
+                                
+                                for cell_idx, cell in enumerate(row_data):
+                                    if cell.strip():
+                                        # Highlight numeric values and important terms
+                                        cell_text = cell.strip()
+                                        
+                                        # Check if it's a number
+                                        is_numeric = False
+                                        try:
+                                            float(cell_text.replace(',', '').replace('$', '').replace('%', ''))
+                                            is_numeric = True
+                                        except:
+                                            pass
+                                        
+                                        if is_numeric:
+                                            cell_class = "text-green-700 dark:text-green-300 font-mono font-semibold"
+                                        else:
+                                            cell_class = "text-gray-700 dark:text-gray-300"
+                                        
+                                        # Highlight keywords
+                                        highlighted_cell = cell_text
+                                        for keyword in ['market', 'revenue', 'cost', 'total', 'growth', 'profit']:
+                                            highlighted_cell = re.sub(
+                                                f'({keyword})', 
+                                                r'<mark class="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">\1</mark>',
+                                                highlighted_cell, 
+                                                flags=re.IGNORECASE
+                                            )
+                                        
+                                        html += f'''
+                                        <div class="text-sm {cell_class}">
+                                            {highlighted_cell}
+                                        </div>
+                                        '''
+                                
+                                html += '''
+                                    </div>
+                                </div>
+                                '''
+                            else:
+                                # Display as paragraph text
+                                highlighted_text = row_text
+                                for keyword in ['market', 'model', 'analysis', 'data', 'total', 'revenue', 'growth']:
+                                    highlighted_text = re.sub(
+                                        f'({keyword})', 
+                                        r'<mark class="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">\1</mark>',
+                                        highlighted_text, 
+                                        flags=re.IGNORECASE
+                                    )
+                                
+                                html += f'''
+                                <div class="content-row p-3">
+                                    <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                        {highlighted_text}
+                                    </p>
+                                </div>
+                                '''
+                    
+                    html += '''
+                        </div>
+                    </div>
+                    '''
+                
+                # Stop after processing one sheet if we've reached max pages
+                if sheet_idx >= max_pages - 1:
+                    break
+                    
+        elif file_extension == '.csv':
+            # CSV file - process entire file in chunks
+            try:
+                # Read entire CSV
+                df = pd.read_csv(file_path)
+                total_rows = len(df)
+                rows_per_page = 50
+                total_pages = math.ceil(total_rows / rows_per_page)
+                
+                for page_num in range(min(total_pages, max_pages)):
+                    start_idx = page_num * rows_per_page
+                    end_idx = min((page_num + 1) * rows_per_page, total_rows)
+                    page_df = df.iloc[start_idx:end_idx]
+                    
+                    html += f'''
+                    <div class="page bg-white dark:bg-gray-800 shadow-lg rounded-lg mb-6 p-8" style="min-height: 1000px; width: 100%; max-width: 210mm;">
+                        <!-- Page Header -->
+                        <div class="page-header border-b-2 border-gray-200 dark:border-gray-700 pb-4 mb-6">
+                            <div class="flex justify-between items-center">
+                                <h2 class="text-xl font-bold text-gray-900 dark:text-white">
+                                    CSV Data
+                                </h2>
+                                <span class="text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full">
+                                    Page {page_num + 1} of {min(total_pages, max_pages)}
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mt-2">
+                                Rows {start_idx + 1} to {end_idx} (Total: {total_rows} rows)
+                            </p>
+                        </div>
+                        
+                        <!-- Page Content -->
+                        <div class="page-content space-y-3">
+                    '''
+                    
+                    # Show column headers
+                    html += '''
+                    <div class="columns-header bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
+                        <h3 class="text-base font-semibold text-blue-900 dark:text-blue-100 mb-3">Data Columns</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    '''
+                    
+                    for col in df.columns:
+                        html += f'''
+                        <span class="px-3 py-1 bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 text-sm rounded-full font-medium">
+                            {col}
+                        </span>
+                        '''
+                    
+                    html += '</div></div>'
+                    
+                    # Show all data in this page
+                    for idx, row in page_df.iterrows():
+                        html += f'''
+                        <div class="data-row bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border-l-4 border-gray-300">
+                            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2 font-mono">Row {idx + 1}</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        '''
+                        
+                        for col in df.columns:
+                            value = row[col]
+                            
+                            if pd.isna(value):
+                                display_value = "N/A"
+                                value_class = "text-gray-400 dark:text-gray-500 italic"
+                            elif isinstance(value, (int, float)):
+                                display_value = str(value)
+                                value_class = "text-green-700 dark:text-green-300 font-mono font-semibold"
+                            else:
+                                display_value = str(value)
+                                if len(display_value) > 100:
+                                    display_value = display_value[:97] + "..."
+                                value_class = "text-gray-700 dark:text-gray-300"
+                            
+                            # Highlight important terms
+                            highlighted_value = display_value
+                            for keyword in ['market', 'revenue', 'cost', 'total', 'growth', 'profit']:
+                                highlighted_value = re.sub(
+                                    f'({keyword})', 
+                                    r'<mark class="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">\1</mark>',
+                                    highlighted_value, 
+                                    flags=re.IGNORECASE
+                                )
+                            
+                            html += f'''
+                            <div class="flex flex-col">
+                                <span class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{col}</span>
+                                <span class="text-sm {value_class}">{highlighted_value}</span>
+                            </div>
+                            '''
+                        
+                        html += '''
+                            </div>
+                        </div>
+                        '''
+                    
+                    html += '''
+                        </div>
+                    </div>
+                    '''
+                        
+            except Exception as e:
+                html += f'''
+                <div class="page bg-white dark:bg-gray-800 shadow-lg rounded-lg mb-6 p-8">
+                    <div class="text-center text-red-600 dark:text-red-400">
+                        <h3 class="text-lg font-semibold mb-2">CSV Processing Error</h3>
+                        <p>Could not process CSV file: {str(e)}</p>
+                    </div>
+                </div>
+                '''
+        
+        html += '''
+            </div>
+        </div>
+        
+        <style>
+        .document-preview .page {
+            box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .document-preview .page:hover {
+            transform: translateY(-2px);
+        }
+        
+        .document-preview mark {
+            padding: 0.15rem 0.3rem;
+            border-radius: 0.25rem;
+            font-weight: 500;
+        }
+        
+        @media print {
+            .document-preview .page {
+                page-break-after: always;
+                box-shadow: none;
+                border: 1px solid #e5e5e5;
+                transform: none;
+            }
+        }
+        </style>
+        '''
+        
+        return html
+        
+    except Exception as e:
+        return f'''
+        <div class="document-preview bg-gray-50 dark:bg-gray-900 p-6">
+            <div class="max-w-4xl mx-auto">
+                <div class="page bg-white dark:bg-gray-800 shadow-lg rounded-lg p-8">
+                    <div class="text-center text-red-600 dark:text-red-400">
+                        <h3 class="text-lg font-semibold mb-2">Preview Error</h3>
+                        <p>Could not generate file preview: {str(e)}</p>
+                        <p class="text-sm mt-2 text-gray-500 dark:text-gray-400">{str(type(e).__name__)}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        '''
+
+
+def generate_excel_sheet_preview(file_path, max_rows=20, max_cols=10):
+    """Generate a visual preview of Excel sheets preserving original layout"""
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, Fill, Alignment
+        import re
+        
+        wb = load_workbook(file_path, data_only=True)
+        
+        html = '''
+        <div class="flex flex-col space-y-4 p-4">
+        '''
+        
+        # Create tabs for each sheet
+        if len(wb.sheetnames) > 1:
+            html += '''
+            <div class="flex space-x-2 border-b border-gray-200 dark:border-gray-700">
+            '''
+            for i, sheet_name in enumerate(wb.sheetnames):
+                active_class = "bg-blue-500 text-white" if i == 0 else "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                html += f'''
+                <button class="px-4 py-2 text-sm font-medium rounded-t-lg {active_class}" data-sheet="{i}">
+                    {sheet_name}
+                </button>
+                '''
+            html += '</div>'
+        
+        # Generate preview for each sheet
+        for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+            sheet = wb[sheet_name]
+            display_style = "" if sheet_idx == 0 else "display: none;"
+            
+            html += f'''
+            <div class="sheet-content" data-sheet-id="{sheet_idx}" style="{display_style}">
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div class="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{sheet_name}</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">
+                            Dimensions: {sheet.max_row} rows × {sheet.max_column} columns
+                        </p>
+                    </div>
+                    <div class="overflow-auto max-h-96">
+                        <table class="w-full border-collapse">
+            '''
+            
+            # Generate table rows
+            for row in range(1, min(max_rows + 1, sheet.max_row + 1)):
+                html += '<tr class="border-b border-gray-100 dark:border-gray-700">'
+                
+                for col in range(1, min(max_cols + 1, sheet.max_column + 1)):
+                    cell = sheet.cell(row, col)
+                    cell_value = cell.value
+                    
+                    # Format cell value
+                    if cell_value is None:
+                        display_value = ""
+                        cell_class = "text-gray-300"
+                    elif isinstance(cell_value, str):
+                        display_value = cell_value.strip()
+                        # Highlight text content
+                        if len(display_value) > 30 or any(keyword in display_value.lower() 
+                                                        for keyword in ['market', 'model', 'analysis', 'data']):
+                            cell_class = "text-blue-700 dark:text-blue-300 font-medium"
+                        else:
+                            cell_class = "text-gray-900 dark:text-white"
+                    elif isinstance(cell_value, (int, float)):
+                        display_value = str(cell_value)
+                        cell_class = "text-green-700 dark:text-green-300 font-mono"
+                    else:
+                        display_value = str(cell_value)
+                        cell_class = "text-gray-700 dark:text-gray-300"
+                    
+                    # Truncate long values
+                    if len(display_value) > 50:
+                        display_value = display_value[:47] + "..."
+                    
+                    html += f'''
+                    <td class="px-3 py-2 text-sm border-r border-gray-100 dark:border-gray-700 max-w-xs {cell_class}">
+                        <div class="truncate" title="{display_value}">
+                            {display_value}
+                        </div>
+                    </td>
+                    '''
+                
+                html += '</tr>'
+            
+            # Add truncation notice if needed
+            if sheet.max_row > max_rows or sheet.max_column > max_cols:
+                html += f'''
+                <tr>
+                    <td colspan="{min(max_cols, sheet.max_column)}" class="px-4 py-3 text-center text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800">
+                        Showing first {min(max_rows, sheet.max_row)} rows × {min(max_cols, sheet.max_column)} columns
+                        (Total: {sheet.max_row} × {sheet.max_column})
+                    </td>
+                </tr>
+                '''
+            
+            html += '''
+                        </table>
+                    </div>
+                </div>
+            </div>
+            '''
+        
+        html += '''
+        </div>
+        
+        <script>
+        // Simple sheet switching functionality
+        document.querySelectorAll('[data-sheet]').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const sheetId = tab.getAttribute('data-sheet');
+                
+                // Update tab styles
+                document.querySelectorAll('[data-sheet]').forEach(t => {
+                    t.className = t.className.replace('bg-blue-500 text-white', 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300');
+                });
+                tab.className = tab.className.replace('bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300', 'bg-blue-500 text-white');
+                
+                // Show/hide sheet content
+                document.querySelectorAll('.sheet-content').forEach(content => {
+                    content.style.display = 'none';
+                });
+                document.querySelector(`[data-sheet-id="${sheetId}"]`).style.display = 'block';
+            });
+        });
+        </script>
+        '''
+        
+        return html
+        
+    except Exception as e:
+        return f'''
+        <div class="p-4 bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg">
+            <p class="text-yellow-800 dark:text-yellow-200">
+                Could not generate Excel preview: {str(e)}
+            </p>
+        </div>
+        '''
+
+
 def generate_tailwind_table(df, max_rows=100):
     """Generate a professional, theme-aware HTML table with enhanced business styling - FIXED"""
     import pandas as pd
@@ -2401,7 +3190,10 @@ def generate_tailwind_table(df, max_rows=100):
     # Enhanced headers with better styling
     for col in df.columns:
         # Smart column type detection for styling
-        col_type = df[col].dtype
+        try:
+            col_type = df[col].dtype
+        except AttributeError:
+            col_type = 'object'
         if 'int' in str(col_type) or 'float' in str(col_type):
             header_class = "text-blue-700 dark:text-blue-300"
         elif 'datetime' in str(col_type):

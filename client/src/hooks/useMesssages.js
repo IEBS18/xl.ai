@@ -155,6 +155,15 @@ export const useMessages = () => {
           uploadTime: additionalInfo.upload_time 
         })
         
+        // Extra debugging for healthcare files
+        // if (content && content.toLowerCase().includes('healthcare')) {
+        //   console.log("🏥 HEALTHCARE FILE - Frontend received assistant_upload_complete:", {
+        //     content,
+        //     additionalInfo,
+        //     timestamp: new Date().toISOString()
+        //   })
+        // }
+        
         // Mark file processing as complete
         setIsFileProcessing(false)
         
@@ -382,6 +391,29 @@ export const useMessages = () => {
           isCompleted: true
         })
         break
+
+      case "assistant_upload_progress":
+        console.log("⏳ Upload progress:", { content, additionalInfo })
+        // Could show progress indicator here
+        break
+
+      case "assistant_upload_timeout":
+        console.warn("⏰ Upload timeout:", { content, additionalInfo })
+        // Mark file processing as complete even on timeout
+        setIsFileProcessing(false)
+        addMessage("warning", content || "File upload timed out - file may be too large", false, null, {
+          isCompleted: true,
+          fileUploadTimeout: true
+        })
+        break
+
+      // case "healthcare_test":
+      //   console.log("🏥 HEALTHCARE TEST EVENT received on frontend:", {
+      //     content,
+      //     additionalInfo,
+      //     timestamp: new Date().toISOString()
+      //   })
+      //   break
 
       default:
         console.warn(`Unknown stream data type: ${type}`, { content, additionalInfo })
