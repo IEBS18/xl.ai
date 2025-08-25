@@ -1361,7 +1361,7 @@ def stop_session_analysis(session_id):
             # Emit session termination signal
             socketio.emit('stream_data', {
                 'type': 'session_terminated',
-                'data': '🛑 Session terminated by user',
+                'data': 'Session terminated by user',
                 'timestamp': datetime.now().isoformat()
             }, room=session_id)
             
@@ -2376,7 +2376,7 @@ def handle_message_with_session(data):
             # Emit starting analysis
             socketio.emit('stream_data', {
                 'type': 'analysis_started',
-                'data': f'🤖 Processing your message with OpenAI Classification: {query}',
+                'data': f'Processing your message: {query}',
                 'timestamp': datetime.now().isoformat(),
                 'sessionId': session_id
             }, room=session_id)
@@ -2680,7 +2680,7 @@ def handle_message_with_session(data):
                
             except Exception as e:
                 logging.error(f"Error emitting summary to frontend: {e}")
-                print(f"❌ Failed to emit summary: {e}")
+                print(f"Failed to emit summary: {e}")
  
  
 def _emit_dataframes_to_frontend(dataframes: dict, session_id: str, socketio_instance):
@@ -2837,7 +2837,7 @@ def handle_stop_analysis(data):
         emit('error', {'message': 'No session ID provided'})
         return
     
-    print(f"🛑 Stop analysis requested for session: {session_id}")
+    print(f"Stop analysis requested for session: {session_id}")
     
     # Set stop signal
     stop_analysis_for_session(session_id)
@@ -2865,7 +2865,7 @@ def handle_terminate_session(data):
         emit('error', {'message': 'No session ID provided'})
         return
     
-    print(f"🛑 Session termination requested: {session_id}")
+    print(f"Session termination requested: {session_id}")
     
     # Stop any running analysis
     stop_analysis_for_session(session_id)
@@ -2889,7 +2889,7 @@ def handle_terminate_session(data):
         print(f"🗑️ Session {session_id} terminated and cleaned up")
         
     except Exception as e:
-        print(f"❌ Error during session termination: {e}")
+        print(f"Error during session termination: {e}")
         emit('error', {'message': f'Error during termination: {str(e)}'})
 
 
@@ -2927,7 +2927,7 @@ def handle_get_session_status(data):
         emit('session_status', status_data)
         
     except Exception as e:
-        print(f"❌ Error getting session status: {e}")
+        print(f"Error getting session status: {e}")
         emit('error', {'message': f'Error getting session status: {str(e)}'})
 # ==================== BACKGROUND TASKS ====================
 

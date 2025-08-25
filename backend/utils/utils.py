@@ -600,7 +600,7 @@ class StreamingAnalyzer(QuadraticCSVAnalyzer):
         Handle conversational queries with OpenAI directly
         """
         try:
-            self.emit_stream('status', "💬 Handling conversational query...")
+            # self.emit_stream('status', "💬 Handling conversational query...")
             
             # Get conversation context for more natural responses  
             context = self.conversation_history.get_context_for_ai(last_n=5)

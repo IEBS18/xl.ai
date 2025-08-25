@@ -113,11 +113,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         # Load existing session files if they exist
         if session_id in EnhancedStreamingAnalyzer._session_generated_files:
             self.generated_files = EnhancedStreamingAnalyzer._session_generated_files[session_id].copy()
-            print(f"📂 Loaded {len(self.generated_files.get('images', []))} existing session images")
+            print(f"Loaded {len(self.generated_files.get('images', []))} existing session images")
         else:
             EnhancedStreamingAnalyzer._session_generated_files[session_id] = self.generated_files
         
-        print(f"✅ Enhanced analyzer with Assistants API initialized for session: {session_id}")
+        print(f"Enhanced analyzer with Assistants API initialized for session: {session_id}")
         
         # Load session metadata from blob storage (Docker-compatible)
         self._load_session_metadata_from_blob()
@@ -145,16 +145,16 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     # Load images from metadata
                     if 'images' in session_metadata:
                         self.generated_files['images'] = session_metadata['images']
-                        self.emit_stream('status', f"📂 Loaded {len(session_metadata['images'])} images from previous session")
+                        # self.emit_stream('status', f"📂 Loaded {len(session_metadata['images'])} images from previous session")
                         
                         # Also update class storage for compatibility
                         if hasattr(EnhancedStreamingAnalyzer, '_session_generated_files'):
                             EnhancedStreamingAnalyzer._session_generated_files[self.session_id] = self.generated_files.copy()
                 else:
-                    self.emit_stream('status', f"🆕 Starting new session - no previous images found")
+                    self.emit_stream('status', f"Starting new session")
                     
             except Exception as e:
-                self.emit_stream('status', f"⚠️ Could not load session metadata: {str(e)}")
+                self.emit_stream('status', f"Could not load session metadata: {str(e)}")
                 
         except Exception as e:
             logging.error(f"Error loading session metadata: {e}")
@@ -185,11 +185,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             metadata_json = json.dumps(session_metadata, indent=2)
             blob_client.upload_blob(metadata_json, overwrite=True)
             
-            self.emit_stream('status', f"💾 Saved session metadata with {len(session_metadata['images'])} images")
+            # self.emit_stream('status', f"💾 Saved session metadata with {len(session_metadata['images'])} images")
             
         except Exception as e:
             logging.error(f"Error saving session metadata: {e}")
-            self.emit_stream('status', f"⚠️ Could not save session metadata: {str(e)}")
+            # self.emit_stream('status', f"⚠️ Could not save session metadata: {str(e)}")
     
     def _initialize_blob_client(self):
         """Initialize Azure Blob Storage client (preserved from original)"""
@@ -206,7 +206,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     account_url=account_url,
                     credential=account_key
                 )
-                logging.info(f"✅ Initialized blob client from URL: {account_url}")
+                logging.info(f"Initialized blob client from URL: {account_url}")
             else:
                 logging.warning("❌ Azure Blob Storage credentials not found.")
                 
@@ -869,10 +869,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         with comprehensive HTML output that matches your frontend expectations.
         """
         try:
-            self.emit_stream('status', '🏗️ Initializing structured HTML report generation...')
+            self.emit_stream('status', 'Initializing report generation...')
             
             # Log what image URLs we're passing to the report generator
-            self.emit_stream('status', f"📊 Generating report with {len(image_sas_urls)} images")
+            # self.emit_stream('status', f"📊 Generating report with {len(image_sas_urls)} images")
             
             # Initialize structured report generator
             structured_generator = StructuredReportGenerator(
@@ -882,7 +882,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             # Generate comprehensive structured HTML report
-            self.emit_stream('status', '📋 Generating HTML report structure and sections...')
+            self.emit_stream('status', 'Generating report structure and sections.')
             
             report_result = structured_generator.generate_comprehensive_report(
                 user_query,
@@ -891,7 +891,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             if report_result.get("success"):
-                self.emit_stream('status', '✅ Structured HTML report generation completed!')
+                self.emit_stream('status', 'Report generation completed!')
                 
                 # Stream the final HTML report (matching your existing frontend structure)
                 self.emit_stream('report', {
@@ -930,7 +930,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 }
             else:
                 # Fallback to original method
-                self.emit_stream('status', '⚠️ Structured HTML generation failed, using fallback...')
+                self.emit_stream('status', 'Structured HTML generation failed, using fallback...')
                 return self._original_generate_plain_text_report_with_images(
                     user_query, analysis_result, image_sas_urls
                 )
@@ -985,7 +985,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             confidence = classification_metadata.get('confidence', 'unknown')
             execution_mode = classification_metadata.get('execution_mode', 'single')
             
-            self.emit_stream('status', f"🎯 OpenAI Classification: {assistant_type} (confidence: {confidence})")
+            # self.emit_stream('status', f"🎯 OpenAI Classification: {assistant_type} (confidence: {confidence})")
             
             print(f"🎯 OpenAI Query Classification:")
             print(f"   Query: '{user_query}'")
@@ -1077,11 +1077,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         try:
             sequence = classification_metadata.get('sequence', ['data_analyst', 'report_generator'])
             
-            self.emit_stream('status', f"🔄 Sequential execution: {' → '.join(sequence)}")
+            # self.emit_stream('status', f"🔄 Sequential execution: {' → '.join(sequence)}")
             print(f"🔄 Starting sequential execution: {sequence}")
             
             # STEP 1: Execute data analysis first
-            self.emit_stream('status', "📊 Phase 1: Running data analysis...")
+            self.emit_stream('status', "Phase 1: Running data analysis...")
             
             # Temporarily modify metadata to indicate single execution for data_analyst
             data_analysis_metadata = classification_metadata.copy()
@@ -1098,13 +1098,13 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             if not analysis_result.get('success'):
-                self.emit_stream('error', "❌ Data analysis phase failed")
+                self.emit_stream('error', "Data analysis phase failed")
                 return analysis_result
             
-            self.emit_stream('status', "✅ Phase 1 completed: Data analysis finished")
+            self.emit_stream('status', "Phase 1 completed: Data analysis finished")
             
             # STEP 2: Save analysis results to session memory
-            self.emit_stream('status', "💾 Saving analysis results to session memory...")
+            # self.emit_stream('status', "💾 Saving analysis results to session memory...")
             
             # Extract image URLs from analysis result
             image_sas_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
@@ -1113,10 +1113,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # Save to session memory for report generation
             self._save_analysis_to_session_memory(user_query, analysis_result, image_sas_urls, generated_code)
             
-            self.emit_stream('status', f"✅ Saved {len(image_sas_urls)} charts to session memory")
+            # self.emit_stream('status', f"✅ Saved {len(image_sas_urls)} charts to session memory")
             
             # STEP 3: Execute report generation using session data
-            self.emit_stream('status', "📋 Phase 2: Generating comprehensive report...")
+            self.emit_stream('status', "Phase 2: Generating comprehensive report...")
             
             # Prepare report metadata
             report_metadata = classification_metadata.copy()
@@ -1135,28 +1135,28 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             if not report_result.get('success'):
-                self.emit_stream('warning', "⚠️ Report generation failed, returning analysis results only")
+                self.emit_stream('warning', "Report generation failed, returning analysis results only")
                 # Return analysis results if report generation fails
                 analysis_result['sequential_execution_partial'] = True
                 analysis_result['report_generation_failed'] = True
                 return analysis_result
             
-            self.emit_stream('status', "✅ Phase 2 completed: Report generated successfully")
+            self.emit_stream('status', "Phase 2 completed: Report generated successfully")
             
             # STEP 4: Combine results
-            self.emit_stream('status', "🔗 Combining analysis and report results...")
+            # self.emit_stream('status', "🔗 Combining analysis and report results...")
             
             combined_result = self._combine_sequential_results(
                 user_query, analysis_result, report_result, classification_metadata
             )
             
-            self.emit_stream('status', "🎉 Sequential execution completed successfully!")
+            # self.emit_stream('status', "🎉 Sequential execution completed successfully!")
             
             return combined_result
             
         except Exception as e:
             logging.error(f"❌ Sequential execution failed: {e}")
-            self.emit_stream('error', f"❌ Sequential execution failed: {str(e)}")
+            # self.emit_stream('error', f"❌ Sequential execution failed: {str(e)}")
             
             # Return partial results if available
             if 'analysis_result' in locals() and analysis_result.get('success'):
@@ -1238,7 +1238,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # Combine current and session images (remove duplicates)
             combined_image_urls = list(dict.fromkeys(session_image_urls + all_chart_urls))
             
-            self.emit_stream('status', f"📊 Using {len(combined_image_urls)} charts for report generation")
+            # self.emit_stream('status', f"📊 Using {len(combined_image_urls)} charts for report generation")
             
             # Enhanced context for report generation
             enhanced_context = {
@@ -1421,7 +1421,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         try:
             assistant_type = metadata.get('assistant_type', 'conversational')
             
-            self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
+            # self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
             
             # Use the specific assistant type determined by AI
             if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
@@ -1622,7 +1622,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 }
             
             # STEP 1: Run data analysis with AI context
-            self.emit_stream('status', "🔬 Running AI-enhanced comprehensive data analysis...")
+            # self.emit_stream('status', "🔬 Running AI-enhanced comprehensive data analysis...")
             
             # Create data analyst assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("data_analyst")
@@ -1943,7 +1943,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         """Process complex analysis results with AI context"""
         try:
             # Download and categorize generated files
-            self.emit_stream('status', "📁 Processing generated files with AI context...")
+            # self.emit_stream('status', "📁 Processing generated files with AI context...")
             generated_files = self._download_and_categorize_generated_files(result.get("generated_files", []))
             
             # Extract ACTUAL DataFrames with AI context
@@ -1976,7 +1976,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             should_generate_report = self._should_auto_generate_report(user_query, metadata, final_result)
             
             if should_generate_report:
-                self.emit_stream('status', "🤖 Auto-generating structured report based on query context...")
+                # self.emit_stream('status', "🤖 Auto-generating structured report based on query context...")
                 report_result = self._auto_generate_report_for_data_analyst(user_query, final_result, metadata)
                 
                 if report_result.get("success"):
@@ -1987,7 +1987,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         "auto_report_triggered": True,
                         "embedded_images": report_result.get("embedded_images", [])
                     })
-                    self.emit_stream('status', "✅ Auto-report generation completed")
+                    self.emit_stream('status', "Report generation completed")
                 else:
                     final_result["auto_report_failed"] = True
                     final_result["auto_report_error"] = report_result.get("error", "Unknown error")
@@ -2081,11 +2081,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         Generate a report using only session-persisted data (no new analysis)
         """
         try:
-            self.emit_stream('status', "📋 Generating report from session data without new analysis")
+            # self.emit_stream('status', "📋 Generating report from session data without new analysis")
             
             # Collect all session images
             image_sas_urls = self._collect_generated_image_sas_urls()  # No current files, only session
-            self.emit_stream('status', f"📊 Found {len(image_sas_urls)} images from previous analysis")
+            # self.emit_stream('status', f"📊 Found {len(image_sas_urls)} images from previous analysis")
             
             # Create a mock analysis result from session data
             session_analysis_result = {
@@ -2182,7 +2182,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             return result
         
         try:
-            self.emit_stream('status', '📝 Generating executive summary of analysis...')
+            # self.emit_stream('status', '📝 Generating executive summary of analysis...')
             
             # Create summarizer assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("summarizer")
@@ -2563,7 +2563,7 @@ Please provide a concise summary following your format guidelines that highlight
         FIXED: Handle simple conversational queries using Assistants API
         """
         try:
-            self.emit_stream('status', '💬 Processing conversational query with AI...')
+            # self.emit_stream('status', '💬 Processing conversational query with AI...')
             
             # Use Assistants API for conversational queries
             if self.assistant_manager and self.thread_manager:
@@ -2990,7 +2990,7 @@ Please provide a concise summary following your format guidelines that highlight
                 }
             
             # STEP 1: Run data analysis (existing logic)
-            self.emit_stream('status', "🔬 Running comprehensive data analysis...")
+            # self.emit_stream('status', "🔬 Running comprehensive data analysis...")
             
             # Create data analyst assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("data_analyst")
@@ -3041,18 +3041,18 @@ Please provide a concise summary following your format guidelines that highlight
                 return self._fallback_fully_analytical_handler(user_query, intent_data)
             
             # STEP 2: Download and categorize generated files
-            self.emit_stream('status', "📁 Processing generated files...")
+            # self.emit_stream('status', "📁 Processing generated files...")
             generated_files = self._download_and_categorize_generated_files(analysis_result.get("generated_files", []))
             
             # Extract ACTUAL DataFrames
             extracted_dataframes = self._extract_and_stream_actual_dataframes_from_assistant_result(analysis_result)
             
             # STEP 3: Collect image SAS URLs from blob storage
-            self.emit_stream('status', "📷 Collecting visualization URLs...")
+            # self.emit_stream('status', "📷 Collecting visualization URLs...")
             image_sas_urls = self._collect_generated_image_sas_urls(generated_files)
             
             # STEP 4: Generate plain text report with embedded images
-            self.emit_stream('status', "📝 Generating comprehensive business report...")
+            # self.emit_stream('status', "📝 Generating comprehensive business report...")
             report_result = self._generate_structured_html_report_with_sections(
                 user_query=user_query,
                 analysis_result=analysis_result,
@@ -3634,7 +3634,7 @@ Please provide a concise summary following your format guidelines that highlight
                 # For images, also emit to frontend immediately and save session metadata
                 if category == 'images':
                     self._emit_image_to_frontend(local_path, blob_url)
-                    self.emit_stream('status', f"💾 Saved image to session: {filename}")
+                    # self.emit_stream('status', f"💾 Saved image to session: {filename}")
                     
                     # Save session metadata to blob storage after adding each image
                     self._save_session_metadata_to_blob()
@@ -4376,7 +4376,7 @@ Please provide a concise summary following your format guidelines that highlight
         UPDATED: Generate plain text report using assistants first, then fallback to chat completions
         """
         try:
-            self.emit_stream('status', '📝 Generating comprehensive business report with assistants...')
+            #=g[-self.emit_stream('status', '📝 Generating comprehensive business report with assistants...')
             
             # STEP 1: Try assistants first
             assistant_result = self._try_assistants_report_generation(user_query, analysis_result, image_sas_urls)

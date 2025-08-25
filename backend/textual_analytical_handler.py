@@ -60,7 +60,7 @@ class TextualAnalyticalHandler:
             if not analysis_code:
                 return self._create_error_result(user_query, "Could not generate analysis code for your question.")
             
-            self.emit_stream('status', '⚙️ Running analysis...')
+            self.emit_stream('status', 'Running analysis...')
             
             # Execute the code
             execution_result = self._execute_analysis_code(analysis_code)

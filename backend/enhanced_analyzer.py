@@ -868,10 +868,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         with comprehensive HTML output that matches your frontend expectations.
         """
         try:
-            self.emit_stream('status', '🏗️ Initializing structured HTML report generation...')
+            self.emit_stream('status', 'Initializing structured HTML report generation...')
             
             # Log what image URLs we're passing to the report generator
-            self.emit_stream('status', f"📊 Generating report with {len(image_sas_urls)} images")
+            self.emit_stream('status', f"Generating report with {len(image_sas_urls)} images")
             
             # Initialize structured report generator
             structured_generator = StructuredReportGenerator(
@@ -881,7 +881,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             # Generate comprehensive structured HTML report
-            self.emit_stream('status', '📋 Generating HTML report structure and sections...')
+            self.emit_stream('status', 'Generating HTML report structure and sections...')
             
             report_result = structured_generator.generate_comprehensive_report(
                 user_query,
@@ -890,7 +890,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
             
             if report_result.get("success"):
-                self.emit_stream('status', '✅ Structured HTML report generation completed!')
+                self.emit_stream('status', 'Structured HTML report generation completed!')
                 
                 # Stream the final HTML report (matching your existing frontend structure)
                 self.emit_stream('report', {
@@ -929,13 +929,13 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 }
             else:
                 # Fallback to original method
-                self.emit_stream('status', '⚠️ Structured HTML generation failed, using fallback...')
+                self.emit_stream('status', 'Structured HTML generation failed, using fallback...')
                 return self._original_generate_plain_text_report_with_images(
                     user_query, analysis_result, image_sas_urls
                 )
                 
         except Exception as e:
-            print(f"❌ Error in structured HTML report generation: {e}")
+            print(f"Error in structured HTML report generation: {e}")
             logging.exception("Structured HTML report generation failed")
             
             # Fallback to original method
@@ -982,7 +982,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             assistant_type = classification_metadata.get('assistant_type', 'unknown')
             confidence = classification_metadata.get('confidence', 'unknown')
             
-            self.emit_stream('status', f"🧭 AI Router: {assistant_type} (confidence: {confidence})")
+            self.emit_stream('status', f"AI Router: {assistant_type} (confidence: {confidence})")
             
             print(f"🎯 AI Query Classification:")
             print(f"   Query: '{user_query}'")
@@ -1061,7 +1061,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         try:
             assistant_type = metadata.get('assistant_type', 'conversational')
             
-            self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
+            self.emit_stream('status', f'Processing {assistant_type} query with AI...')
             
             # Use the specific assistant type determined by AI
             if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
@@ -1261,7 +1261,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 }
             
             # STEP 1: Run data analysis with AI context
-            self.emit_stream('status', "🔬 Running AI-enhanced comprehensive data analysis...")
+            self.emit_stream('status', "Running AI-enhanced comprehensive data analysis...")
             
             # Create data analyst assistant
             assistant_id = self.assistant_manager.create_or_get_assistant("data_analyst")
@@ -1582,7 +1582,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         """Process complex analysis results with AI context"""
         try:
             # Download and categorize generated files
-            self.emit_stream('status', "📁 Processing generated files with AI context...")
+            self.emit_stream('status', "Processing generated files with AI context...")
             generated_files = self._download_and_categorize_generated_files(result.get("generated_files", []))
             
             # Extract ACTUAL DataFrames with AI context
@@ -1615,7 +1615,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             should_generate_report = self._should_auto_generate_report(user_query, metadata, final_result)
             
             if should_generate_report:
-                self.emit_stream('status', "🤖 Auto-generating structured report based on query context...")
+                self.emit_stream('status', "Auto-generating structured report based on query context...")
                 report_result = self._auto_generate_report_for_data_analyst(user_query, final_result, metadata)
                 
                 if report_result.get("success"):
@@ -1626,7 +1626,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         "auto_report_triggered": True,
                         "embedded_images": report_result.get("embedded_images", [])
                     })
-                    self.emit_stream('status', "✅ Auto-report generation completed")
+                    self.emit_stream('status', "Auto-report generation completed")
                 else:
                     final_result["auto_report_failed"] = True
                     final_result["auto_report_error"] = report_result.get("error", "Unknown error")
@@ -1720,11 +1720,11 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         Generate a report using only session-persisted data (no new analysis)
         """
         try:
-            self.emit_stream('status', "📋 Generating report from session data without new analysis")
+            # self.emit_stream('status', "Generating report from session data without new analysis")
             
             # Collect all session images
             image_sas_urls = self._collect_generated_image_sas_urls()  # No current files, only session
-            self.emit_stream('status', f"📊 Found {len(image_sas_urls)} images from previous analysis")
+            # self.emit_stream('status', f"Found {len(image_sas_urls)} images from previous analysis")
             
             # Create a mock analysis result from session data
             session_analysis_result = {
@@ -2202,7 +2202,7 @@ Please provide a concise summary following your format guidelines that highlight
         FIXED: Handle simple conversational queries using Assistants API
         """
         try:
-            self.emit_stream('status', '💬 Processing conversational query with AI...')
+            self.emit_stream('status', 'Processing conversational query with AI...')
             
             # Use Assistants API for conversational queries
             if self.assistant_manager and self.thread_manager:
@@ -2680,18 +2680,18 @@ Please provide a concise summary following your format guidelines that highlight
                 return self._fallback_fully_analytical_handler(user_query, intent_data)
             
             # STEP 2: Download and categorize generated files
-            self.emit_stream('status', "📁 Processing generated files...")
+            self.emit_stream('status', "Processing files...")
             generated_files = self._download_and_categorize_generated_files(analysis_result.get("generated_files", []))
             
             # Extract ACTUAL DataFrames
             extracted_dataframes = self._extract_and_stream_actual_dataframes_from_assistant_result(analysis_result)
             
             # STEP 3: Collect image SAS URLs from blob storage
-            self.emit_stream('status', "📷 Collecting visualization URLs...")
+            # self.emit_stream('status', "📷 Collecting visualization URLs...")
             image_sas_urls = self._collect_generated_image_sas_urls(generated_files)
             
             # STEP 4: Generate plain text report with embedded images
-            self.emit_stream('status', "📝 Generating comprehensive business report...")
+            self.emit_stream('status', "Generating comprehensive business report...")
             report_result = self._generate_structured_html_report_with_sections(
                 user_query=user_query,
                 analysis_result=analysis_result,
@@ -2711,7 +2711,7 @@ Please provide a concise summary following your format guidelines that highlight
                     'report_metadata': report_result.get("report_metadata", {})
                 })
                 
-                print("✅ Successfully generated comprehensive structured HTML report")
+                print("Successfully generated comprehensive structured HTML report")
                 
                 # STEP 5: Return result with type="report"
                 return {
@@ -3273,7 +3273,7 @@ Please provide a concise summary following your format guidelines that highlight
                 # For images, also emit to frontend immediately and save session metadata
                 if category == 'images':
                     self._emit_image_to_frontend(local_path, blob_url)
-                    self.emit_stream('status', f"💾 Saved image to session: {filename}")
+                    # self.emit_stream('status', f"💾 Saved image to session: {filename}")
                     
                     # Save session metadata to blob storage after adding each image
                     self._save_session_metadata_to_blob()
@@ -3330,7 +3330,7 @@ Please provide a concise summary following your format guidelines that highlight
                 self.emit_stream('explanation', explanation)
             
         except Exception as e:
-            print(f"⚠️ Failed to generate explanation: {e}")
+            print(f"Failed to generate explanation: {e}")
         
         return result
     
@@ -3485,7 +3485,7 @@ Please provide a concise summary following your format guidelines that highlight
                 )
                 
                 if unique_urls:
-                    self.emit_stream('status', f'Saved {len(unique_urls)} charts to session memory')
+                    # self.emit_stream('status', f'Saved {len(unique_urls)} charts to session memory')
                     print(f"[INFO] Session memory: Added {len(unique_urls)} chart URLs for future reports")
                 
         except Exception as e:
@@ -4015,7 +4015,7 @@ Please provide a concise summary following your format guidelines that highlight
         UPDATED: Generate plain text report using assistants first, then fallback to chat completions
         """
         try:
-            self.emit_stream('status', '📝 Generating comprehensive business report with assistants...')
+            self.emit_stream('status', 'Generating comprehensive business report.')
             
             # STEP 1: Try assistants first
             assistant_result = self._try_assistants_report_generation(user_query, analysis_result, image_sas_urls)
@@ -4026,7 +4026,7 @@ Please provide a concise summary following your format guidelines that highlight
             
             # STEP 2: Fallback to chat completions (like legacy code)
             print("⚠️ Assistants failed, falling back to chat completions...")
-            self.emit_stream('status', '📝 Falling back to direct chat completions for report...')
+            self.emit_stream('status', 'Falling back to direct chat completions for report...')
             
             chat_result = self._fallback_to_chat_completions_report(user_query, analysis_result, image_sas_urls)
             
@@ -4096,7 +4096,7 @@ Please provide a concise summary following your format guidelines that highlight
                     'generated_by': 'report_generator_assistant'
                 })
                 
-                print("✅ Assistants report generation successful")
+                print("Report generation successful")
                 
                 return {
                     "success": True,
@@ -4158,7 +4158,7 @@ Please provide a concise summary following your format guidelines that highlight
                 'generated_by': 'chat_completions_fallback'
             })
             
-            print("✅ Chat completions fallback successful")
+            print("Chat completions fallback successful")
             
             return {
                 "success": True,

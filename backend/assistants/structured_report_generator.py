@@ -2154,7 +2154,7 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
     def _generate_structured_html_report_with_sections(self, user_query: str, analysis_result: Dict[str, Any], 
                                                      image_sas_urls: List[str], theme: str = "light") -> Dict[str, Any]:
         try:
-            self.emit_stream('status', '🏗️ Initializing fixed structured HTML report generation...')
+            self.emit_stream('status', 'Initializing structured HTML report generation...')
             
             structured_generator = StructuredReportGenerator(
                 self.assistant_manager,
@@ -2162,7 +2162,7 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
                 self.session_id
             )
             
-            self.emit_stream('status', '📋 Generating fixed HTML report with dynamic tables...')
+            self.emit_stream('status', 'Generating HTML report with dynamic tables...')
             
             report_result = structured_generator.generate_comprehensive_report(
                 user_query,
@@ -2172,7 +2172,7 @@ def integrate_structured_html_report_generator(enhanced_analyzer_class):
             )
             
             if report_result.get("success"):
-                self.emit_stream('status', '✅ Fixed structured HTML report with dynamic tables completed!')
+                self.emit_stream('status', 'Structured HTML report completed!')
                 
                 self.emit_stream('report', {
                     'type': 'fixed_comprehensive_html_report_with_dynamic_tables',
