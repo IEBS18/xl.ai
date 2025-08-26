@@ -960,6 +960,32 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             # Set analyzing flag
             self.is_analyzing = True
             
+            logging.info(f"🔍 [QUERY] Starting query analysis for session {self.session_id}")
+            logging.info(f"🔍 [QUERY] User query: {user_query}")
+            
+            # SYNC FILE IDs: Ensure analyzer has all uploaded assistant files
+            from app import session_data
+            if self.session_id in session_data:
+                current_session = session_data[self.session_id]
+                if 'files' in current_session and current_session['files']:
+                    # Get all completed assistant file IDs from session data
+                    session_file_ids = []
+                    pending_uploads = 0
+                    for file_data in current_session['files']:
+                        if file_data.get('assistant_file_id') and file_data.get('assistant_upload_status') == 'completed':
+                            session_file_ids.append(file_data['assistant_file_id'])
+                        elif file_data.get('assistant_upload_status') == 'pending':
+                            pending_uploads += 1
+                    
+                    # Update analyzer's file IDs to include all uploaded files
+                    if session_file_ids:
+                        self.current_file_ids = list(set(self.current_file_ids + session_file_ids))
+                        logging.info(f"🔄 [HANDLERS] Query sync: {len(self.current_file_ids)} files available to assistant")
+                    
+                    # Warn if files are still uploading
+                    if pending_uploads > 0:
+                        self.emit_stream('status', f"⏳ Note: {pending_uploads} file(s) still uploading to assistant. Analysis will use currently available files.")
+            
             # STEP 1: Rule-Based Query Classification using OpenAI
             has_data = self.df is not None
             
@@ -1427,16 +1453,28 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
                 assistant_id = self.assistant_manager.create_or_get_assistant("conversational")
                 
+                # Get filename mapping
+                logging.info(f"🔍 [HANDLERS-CONVERSATIONAL] Getting filename mapping for session {self.session_id}")
+                filename_mapping = self._get_filename_mapping_context()
+                
                 # Add enhanced context about the data if available
                 context_message = ""
                 if self.df is not None:
                     context_message = f"\n\nContext: I have access to a dataset with {self.df.shape[0]} rows and {self.df.shape[1]} columns containing: {', '.join(list(self.df.columns)[:5])}"
                 
-                enhanced_query = user_query + context_message
+                # Combine filename mapping with context
+                full_context = ""
+                if filename_mapping:
+                    full_context += f"\n\n{filename_mapping}\n\nInstructions: When referencing data files, use the actual filenames from the mapping above."
+                if context_message:
+                    full_context += context_message
+                
+                enhanced_query = user_query + full_context
                 
                 result = self.assistant_manager.run_assistant_analysis(
                     self.thread_id,
-                    enhanced_query
+                    enhanced_query,
+                    file_ids=self.current_file_ids
                 )
                 
                 if result.get("success"):
@@ -1540,8 +1578,14 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 ai_reasoning = metadata.get('ai_reasoning', 'Direct analytical query')
                 expected_output = metadata.get('expected_output', 'text')
                 
+                # Get filename mapping
+                logging.info(f"🔍 [HANDLERS-TEXTUAL] Getting filename mapping for session {self.session_id}")
+                filename_mapping = self._get_filename_mapping_context()
+                
                 enhanced_query = f"""
                 Answer this question about the dataset: {user_query}
+                
+                {filename_mapping}
                 
                 AI Classification Context:
                 - Query Type: {metadata.get('assistant_type', 'textual_analytical')}
@@ -1558,6 +1602,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 - Focus on giving the exact information requested
                 - If calculation is needed, show the result clearly
                 - Keep response focused and direct
+                - When referencing data files, use the actual filenames from the mapping above
                 """
                 
                 # Run assistant analysis with file attachments
@@ -1632,8 +1677,14 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             expected_output = metadata.get('expected_output', 'visualization')
             query_complexity = metadata.get('query_complexity', 'complex')
             
+            # Get filename mapping
+            logging.info(f"🔍 [HANDLERS-COMPLEX] Getting filename mapping for session {self.session_id}")
+            filename_mapping = self._get_filename_mapping_context()
+            
             enhanced_query = f"""
             Analyze the dataset and answer: {user_query}
+            
+            {filename_mapping}
             
             AI Classification Context:
             - Query Type: {metadata.get('assistant_type', 'data_analyst')}
@@ -1656,6 +1707,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             - Since AI classified this as {expected_output} focused, prioritize that output type
             - Provide comprehensive analysis that matches the AI's complexity assessment: {query_complexity}
             - Generate appropriate visualizations for {assistant_type} level analysis
+            - When referencing data files, use the actual filenames from the mapping above
             """
             
             # Run enhanced data analysis
@@ -4402,6 +4454,94 @@ Please provide a concise summary following your format guidelines that highlight
         except Exception as e:
             print(f"❌ Error generating plain text report: {e}")
             return self._generate_fallback_report(user_query, analysis_result, image_sas_urls)
+    
+    def _get_filename_mapping_context(self) -> str:
+        """
+        Create filename mapping context for assistant instructions.
+        Maps assistant file IDs to actual filenames for user-friendly responses.
+        Uses current_file_ids and FileManager to avoid import issues.
+        """
+        try:
+            logging.info(f"🔍 [HANDLERS] Filename mapping for session {self.session_id}")
+            logging.info(f"📂 [HANDLERS] Current file IDs: {self.current_file_ids}")
+            
+            if not self.current_file_ids:
+                logging.warning("📂 [HANDLERS] No file IDs found in current_file_ids")
+                return ""
+            
+            mapping_lines = ["File Mapping (use actual filenames in your responses):"]
+            mapped_count = 0
+            
+            # Try to get session data for filename mapping (with fallback)
+            session_files = {}
+            try:
+                # Import at function level to avoid circular imports
+                import sys
+                if 'app' in sys.modules:
+                    app_module = sys.modules['app']
+                    if hasattr(app_module, 'session_data'):
+                        session_data = app_module.session_data
+                        current_session = session_data.get(self.session_id, {})
+                        
+                        # Create a lookup map
+                        for file_data in current_session.get('files', []):
+                            assistant_file_id = file_data.get('assistant_file_id')
+                            filename = file_data.get('filename')
+                            upload_status = file_data.get('assistant_upload_status', 'unknown')
+                            
+                            if assistant_file_id and filename and upload_status == 'completed':
+                                session_files[assistant_file_id] = filename
+                                
+                        logging.info(f"📂 [HANDLERS] Found {len(session_files)} files from session_data")
+                    else:
+                        logging.warning("📂 [HANDLERS] No session_data attribute in app module")
+                else:
+                    logging.warning("📂 [HANDLERS] App module not loaded")
+            except Exception as session_error:
+                logging.warning(f"📂 [HANDLERS] Could not access session_data: {session_error}")
+            
+            # Map current file IDs to filenames
+            for file_id in self.current_file_ids:
+                filename = None
+                
+                # First try: session data lookup
+                if file_id in session_files:
+                    filename = session_files[file_id]
+                    logging.info(f"📂 [HANDLERS] Session mapped: {file_id} → {filename}")
+                
+                # Fallback: Try FileManager API
+                if not filename:
+                    try:
+                        file_info = self.file_manager.get_file_info(file_id)
+                        api_filename = file_info.get('filename', 'unknown')
+                        if api_filename != 'unknown':
+                            filename = api_filename
+                            logging.info(f"📂 [HANDLERS] API mapped: {file_id} → {filename}")
+                        else:
+                            logging.warning(f"📂 [HANDLERS] No filename from API for {file_id}")
+                    except Exception as api_error:
+                        logging.warning(f"📂 [HANDLERS] API error for {file_id}: {api_error}")
+                
+                # Add to mapping if we found a filename
+                if filename:
+                    mapping_lines.append(f"- {file_id} → {filename}")
+                    mapped_count += 1
+                else:
+                    logging.warning(f"📂 [HANDLERS] No filename found for {file_id}")
+            
+            logging.info(f"📂 [HANDLERS] Successfully mapped {mapped_count} files")
+            
+            if mapped_count > 0:
+                mapping_lines.append("\nIMPORTANT: Always reference files by their actual names (e.g., 'drug_price_forecast.csv') not the file ID.")
+                return "\n".join(mapping_lines)
+            
+            logging.warning("📂 [HANDLERS] No files were successfully mapped")
+            return ""
+            
+        except Exception as e:
+            logging.error(f"❌ [HANDLERS] Error creating filename mapping: {e}")
+            logging.exception("Detailed filename mapping error:")
+            return ""
 
     def _try_assistants_report_generation(self, user_query: str, analysis_result: Dict[str, Any], image_sas_urls: List[str]) -> Dict[str, Any]:
         """

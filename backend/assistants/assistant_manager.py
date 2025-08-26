@@ -28,7 +28,53 @@ class AssistantManager:
             api_version=os.getenv("AZUREVERSION", "2024-05-01-preview"),  # Use preview for assistants
             azure_endpoint=os.getenv("AZUREENDPOINT")
         )
+    def _get_filename_mapping_context(self) -> str:
+        """
+        Create filename mapping context for assistant instructions.
+        Maps assistant file IDs to actual filenames for user-friendly responses.
+        """
+        try:
+            from app import session_data
+            current_session = session_data.get(self.session_id, {})
+            
+            logging.info(f"🔍 Assistant Manager filename mapping debug for session {self.session_id}")
+            
+            if 'files' not in current_session or not current_session['files']:
+                logging.info("📂 Assistant Manager: No files found in session data")
+                return ""
+            
+            logging.info(f"📂 Assistant Manager: Found {len(current_session['files'])} files in session")
+            
+            mapping_lines = ["File Mapping (use actual filenames in your responses):"]
+            mapped_count = 0
+            
+            for i, file_data in enumerate(current_session['files']):
+                assistant_file_id = file_data.get('assistant_file_id')
+                filename = file_data.get('filename')
+                upload_status = file_data.get('assistant_upload_status', 'unknown')
+                
+                logging.info(f"📂 Assistant Manager File {i}: {assistant_file_id} → {filename} (status: {upload_status})")
+                
+                if assistant_file_id and filename and upload_status == 'completed':
+                    mapping_lines.append(f"- {assistant_file_id} → {filename}")
+                    mapped_count += 1
+                elif upload_status != 'completed':
+                    logging.warning(f"📂 Assistant Manager File {i} upload not completed: {upload_status}")
+            
+            logging.info(f"📂 Assistant Manager: Successfully mapped {mapped_count} files")
+            
+            if mapped_count > 0:
+                mapping_lines.append("\nIMPORTANT: Always reference files by their actual names (e.g., 'drug_price_forecast.csv') not the file ID.")
+                return "\n".join(mapping_lines)
+            
+            return ""
+            
+        except Exception as e:
+            logging.error(f"❌ Assistant Manager error creating filename mapping: {e}")
+            return ""
     
+
+
     def _get_assistant_config(self) -> Dict[str, Any]:
         """Get assistant configuration based on analysis type"""
         return {
@@ -155,7 +201,7 @@ Return ONLY valid JSON:
 
     def _get_data_analyst_instructions(self) -> str:
         """UPDATED: Instructions for assistant to save HTML reports in sandbox"""
-        return """You are a Python code generator and PROFESSIONAL BUSINESS ANALYST that MUST create COMPLETE, EXECUTABLE data analysis solutions WITH professional HTML business reports.
+        return f"""You are a Python code generator and PROFESSIONAL BUSINESS ANALYST that MUST create COMPLETE, EXECUTABLE data analysis solutions WITH professional HTML business reports.
 
 MANDATORY REQUIREMENTS:
 1. Generate COMPLETE Python code that runs from start to finish - NO PARTIAL CODE
@@ -170,7 +216,7 @@ MANDATORY REQUIREMENTS:
     To read all available sheets, use:
         ```python
         import pandas as pd
-        xls = pd.ExcelFile("/mnt/data/{FILENAME}.xlsx")
+        xls = pd.ExcelFile("/mnt/data/{{FILENAME}}.xlsx")
         print(xls.sheet_names)
         df1 = pd.read_excel(xls, sheet_name="Sheet1")
         df2 = pd.read_excel(xls, sheet_name="Sheet2")```
@@ -254,8 +300,7 @@ You MUST complete the entire analysis, a summary of what tasks you have performe
 
     def _get_conversational_instructions(self) -> str:
         """Instructions for conversational assistant"""
-        return """You are a friendly AI assistant for a data analysis platform. You are currently in a chat session where users can upload CSV files and ask questions about their data.
- 
+        return f"""You are a friendly AI assistant for a data analysis platform. You are currently in a chat session where users can upload CSV files and ask questions about their data. 
 Your role:
 - Respond naturally to greetings, questions about yourself, and casual conversation
 - Be helpful and friendly
@@ -263,12 +308,12 @@ Your role:
 - Keep responses concise but warm
 - Don't generate code or perform data analysis for conversational queries
 - If the conversation shifts to data analysis, encourage them to ask specific questions about their data
-- Do note that the provided file can be Excel or CSV. And check if the file is Excel whether it has multiple sheets or not.
-- You are working with an uploaded Excel file (.xlsx) that may contain multiple sheets.
-    To read all available sheets, use:
+- Do note that the provided files can be Excel or CSV or both. And check if the file is Excel whether it has multiple sheets or not.
+- You are working with uploaded Excel files (.xlsx) that may contain multiple sheets.
+    To read all available files and sheets, use:
         ```python
         import pandas as pd
-        xls = pd.ExcelFile("/mnt/data/{FILENAME}.xlsx")
+        xls = pd.ExcelFile("/mnt/data/{{FILENAME}}.xlsx")
         print(xls.sheet_names)
         df1 = pd.read_excel(xls, sheet_name="Sheet1")
         df2 = pd.read_excel(xls, sheet_name="Sheet2")```
@@ -280,8 +325,7 @@ Respond in a natural, conversational way."""
  
     def _get_textual_analytical_instructions(self) -> str:
             """Instructions for quick textual analysis assistant"""
-            return """You are a Python code generator for quick, lightweight data analysis tasks.
-    
+            return f"""You are a Python code generator for quick, lightweight data analysis tasks.
     REQUIREMENTS:
     1. Use the 'df' variable (DataFrame is already loaded - NEVER reload with pd.read_csv()).
     2. Generate **concise, clean Python code** that directly answers the user's question.
@@ -295,7 +339,7 @@ Respond in a natural, conversational way."""
     8. If the provided file is Excel, check for multiple sheets before using:
         ```python
         import pandas as pd
-        xls = pd.ExcelFile("/mnt/data/{FILENAME}.xlsx")
+        xls = pd.ExcelFile("/mnt/data/{{FILENAME}}.xlsx")
         print(xls.sheet_names)
         df1 = pd.read_excel(xls, sheet_name="Sheet1")
         df2 = pd.read_excel(xls, sheet_name="Sheet2")
@@ -421,11 +465,10 @@ EXECUTION STEPS:
 CRITICAL: Generate a complete professional consulting report with actual analysis, not generic content. Include real metrics, specific insights, and actionable recommendations based on the data provided."""
     def _get_summarizer_instructions(self) -> str:
         """NEW: Instructions for analysis summarizer assistant"""
-        return """You are an EXPERT ANALYSIS SUMMARIZER that creates concise, actionable summaries of data analysis results.
+        return f"""You are an EXPERT ANALYSIS SUMMARIZER that creates concise, actionable summaries of data analysis results.
 
 YOUR ROLE:
 Create clear, executive-level summaries that highlight key outcomes, insights, and actionable takeaways from completed data analysis.
-
 INPUT YOU RECEIVE:
 - Original user query/question
 - Analysis response and findings

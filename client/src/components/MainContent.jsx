@@ -14,8 +14,8 @@ const MainContent = () => {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
 
-  const handleFileUpload = async (file) => {
-    if (!file) return
+  const handleFileUpload = async (files) => {
+    if (!files || (Array.isArray(files) && files.length === 0)) return
 
     // Check authentication first
     if (!isAuthenticated) {
@@ -23,29 +23,37 @@ const MainContent = () => {
       return
     }
 
-    const validTypes = [".csv", ".xlsx", ".xls"]
-    const fileExtension = "." + file.name.split(".").pop().toLowerCase()
-    if (!validTypes.includes(fileExtension)) {
-      alert("Please upload a CSV or Excel file (.csv, .xlsx, .xls)")
-      return
-    }
+    // Convert single file to array for consistency
+    const fileArray = Array.isArray(files) ? files : [files]
 
+    const validTypes = [".csv", ".xlsx", ".xls"]
     const MAX_FILE_SIZE_MB = 128;
     const maxSize = MAX_FILE_SIZE_MB * 1024 * 1024; // bytes
 
-    if (file.size > maxSize) {
-      alert(`File size too large. Please upload a file smaller than ${MAX_FILE_SIZE_MB} MB.`);
-      return;
+    // Validate all files
+    for (const file of fileArray) {
+      const fileExtension = "." + file.name.split(".").pop().toLowerCase()
+      if (!validTypes.includes(fileExtension)) {
+        alert(`Invalid file type for "${file.name}". Please upload CSV or Excel files only (.csv, .xlsx, .xls)`)
+        return
+      }
+
+      if (file.size > maxSize) {
+        alert(`File "${file.name}" is too large. Please upload files smaller than ${MAX_FILE_SIZE_MB} MB.`);
+        return;
+      }
     }
 
     const formData = new FormData()
-    formData.append("file", file)
+    fileArray.forEach(file => {
+      formData.append("files", file)
+    })
 
     try {
       setIsUploading(true)
       setUploadProgress(10)
 
-      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+      const response = await fetch(`${BACKEND_URL}/api/upload-files`, {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -59,12 +67,12 @@ const MainContent = () => {
       }
 
       const result = await response.json()
-      if (result.success && result.sessionId) {
+      if (result.success && result.session_id) {
         setUploadProgress(100)
 
         // Small delay to show 100% before redirect
         setTimeout(() => {
-          navigate(`/chat/${result.sessionId}`)
+          navigate(`/chat/${result.session_id}`)
         }, 500)
       } else {
         throw new Error(result.error || "Upload failed")
@@ -97,10 +105,11 @@ const MainContent = () => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.csv,.xlsx,.xls'
+    input.multiple = true
     input.onchange = (e) => {
-      const selectedFile = e.target.files[0]
-      if (selectedFile) {
-        handleFileUpload(selectedFile)
+      const selectedFiles = Array.from(e.target.files)
+      if (selectedFiles.length > 0) {
+        handleFileUpload(selectedFiles)
       }
     }
     input.click()

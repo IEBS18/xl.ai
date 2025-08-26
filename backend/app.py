@@ -1041,6 +1041,9 @@ def get_session_info(session_id):
         # Get analyzer for data preview
         analyzer = analyzers[session_id]
         
+        # Get current session data for file information
+        current_session = session_data.get(session_id, {})
+        
         # Add enhanced analyzer capabilities info
         enhanced_info = {}
         if isinstance(analyzer, EnhancedStreamingAnalyzer):
@@ -1054,6 +1057,8 @@ def get_session_info(session_id):
                 'assistants_enabled': True,
                 'thread_id': getattr(analyzer, 'thread_id', None),
                 'uploaded_files_count': len(getattr(analyzer, 'current_file_ids', [])),
+                'total_session_files': len(current_session.get('files', [])),
+                'files_ready_for_assistant': len([f for f in current_session.get('files', []) if f.get('assistant_upload_status') == 'completed']),
                 'assistant_upload_status': assistant_upload_status,  # NEW - Track upload status
                 'is_assistant_upload_complete': assistant_upload_status == "completed",  # NEW - Boolean helper
                 'capabilities': analyzer.get_analysis_capabilities(),
@@ -1109,8 +1114,26 @@ def get_session_info(session_id):
             'sheets': {
                 'preview': data_preview
             },
-            'data': analyzer.df.head(100).to_dict('records') if analyzer.df is not None else []
+            'data': analyzer.df.head(100).fillna('').to_dict('records') if analyzer.df is not None else []
         }
+        
+        # Add multiple files information if available
+        if 'files' in current_session and current_session['files']:
+            file_info['files'] = current_session['files']
+            file_info['totalFiles'] = len(current_session['files'])
+            file_info['isMultipleFiles'] = len(current_session['files']) > 1
+            
+            # Sync analyzer's current_file_ids with all completed uploads from session_data
+            if hasattr(analyzer, 'current_file_ids'):
+                # Get all completed assistant file IDs from session data
+                session_file_ids = []
+                for file_data in current_session['files']:
+                    if file_data.get('assistant_file_id') and file_data.get('assistant_upload_status') == 'completed':
+                        session_file_ids.append(file_data['assistant_file_id'])
+                
+                # Update analyzer's file IDs to include all uploaded files
+                analyzer.current_file_ids = list(set(analyzer.current_file_ids + session_file_ids))
+                logging.info(f"🔄 Synced analyzer file IDs: {len(analyzer.current_file_ids)} total files")
         
         # Add multiple sheets info if available (for Excel files)
         if hasattr(analyzer, 'sheets_info') and analyzer.sheets_info:
@@ -1123,7 +1146,7 @@ def get_session_info(session_id):
                 'shape': session_summary.get('shape'),
                 'columns': session_summary.get('columns'),
                 'preview': data_preview,
-                'data': analyzer.df.head(100).to_dict('records') if analyzer.df is not None else []
+                'data': analyzer.df.head(100).fillna('').to_dict('records') if analyzer.df is not None else []
             }]
         
         session_info = {
@@ -1274,6 +1297,478 @@ def upload_to_existing_session(session_id):
         print(f"❌ Session upload error: {str(e)}")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+
+@app.route('/upload-files', methods=['POST', 'OPTIONS'])
+def upload_multiple_files_with_session():
+    """Handle multiple CSV file upload - ENHANCED for Assistants API support"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+   
+    # Get list of files instead of single file
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+   
+    # Validate all files first
+    for file in files:
+        if file.filename == '':
+            return jsonify({'error': 'One or more files not selected'}), 400
+        if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+            return jsonify({'error': f'Please upload CSV or Excel files only. Invalid: {file.filename}'}), 400
+   
+    try:
+        # Generate new session ID for this upload (same as before)
+        new_session_id = str(uuid.uuid4())
+        
+        # Initialize ENHANCED analyzer (same as before)
+        analyzer = EnhancedStreamingAnalyzer(new_session_id, socketio)
+        
+        # Check blob storage (same as before)
+        if not analyzer.blob_service_client:
+            return jsonify({'error': 'Blob storage not configured. Please check Azure credentials.'}), 500
+        
+        logging.info(f"Processing {len(files)} files upload with Assistants API support")
+        
+        # Process each file
+        files_info = []
+        blob_results = []
+        
+        for i, file in enumerate(files):
+            # Upload each file stream to blob storage with indexed naming
+            file.stream.seek(0)  # Reset stream position
+            indexed_filename = f"{i}_{file.filename}"  # Add index to avoid conflicts
+            
+            blob_result = analyzer.upload_stream_and_get_sas_url(
+                file.stream, 
+                indexed_filename, 
+                expiry_hours=168
+            )
+            
+            if not blob_result['success']:
+                return jsonify({'error': f"Failed to upload {file.filename} to blob storage: {blob_result.get('error')}"}), 500
+            
+            blob_results.append({
+                'index': i,
+                'filename': file.filename,
+                'indexed_filename': indexed_filename,
+                'sas_url': blob_result['sas_url'],
+                'blob_name': blob_result['blob_name']
+            })
+            
+            # Reset file stream for size calculation
+            file.stream.seek(0)
+            file_content = file.stream.read()
+            file_size = len(file_content)
+            
+            files_info.append({
+                'index': i,
+                'filename': file.filename,
+                'size': file_size,
+                'upload_status': 'blob_completed',
+                'assistant_upload_status': 'pending'
+            })
+        
+        # Load and analyze first file (primary file) WITHOUT uploading to assistant yet
+        # (Assistant upload will happen in background for ALL files including primary)
+        primary_file = blob_results[0]
+        
+        # Load primary file data but skip assistant upload (will be done in background)
+        import requests
+        import tempfile
+        import os
+        
+        file_extension = os.path.splitext(primary_file['filename'])[-1]
+        
+        response = requests.get(primary_file['sas_url'])
+        response.raise_for_status()
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            temp_file.write(response.content)
+            temp_path = temp_file.name
+        
+        try:
+            if file_extension == ".csv":
+                analyzer.df = pd.read_csv(temp_path, encoding="utf-8")
+            else:
+                analyzer.df = pd.read_excel(temp_path, engine='openpyxl')
+            
+            # Update conversation context
+            analyzer.conversation_context.update({
+                "has_data": True,
+                "filename": primary_file['filename'],
+                "shape": analyzer.df.shape,
+                "columns": list(analyzer.df.columns)
+            })
+            
+        finally:
+            os.unlink(temp_path)
+        
+        # Store analyzer and session data (same as before)
+        analyzers[new_session_id] = analyzer
+        
+        # Enhanced session data for multiple files  
+        logging.info(f"📂 [UPLOAD] Creating session data for session: {new_session_id}")
+        logging.info(f"📂 [UPLOAD] Files info: {files_info}")
+        
+        session_data[new_session_id] = {
+            'session_id': new_session_id,
+            'files': files_info,  # Array of file info
+            'primary_file_index': 0,  # Which file is primary
+            'blob_results': blob_results,
+            'filename': primary_file['filename'],  # For backward compatibility
+            'blob_sas_url': primary_file['sas_url'],  # For backward compatibility
+            'blob_name': primary_file['blob_name'],  # For backward compatibility
+            'upload_time': datetime.now().isoformat(),
+            'shape': analyzer.df.shape,  # Shape of primary file
+            'columns': list(analyzer.df.columns),  # Columns of primary file
+            'created_by': session.get('user_id', 'anonymous'),
+            'last_activity': datetime.now().isoformat(),
+            'analyzer_type': 'enhanced_assistants',
+            'storage_type': 'blob_only',
+            'assistants_enabled': True,
+            'thread_id': analyzer.thread_id,
+            'assistant_upload_status': 'pending',
+            'is_assistant_upload_complete': False
+        }
+        
+        # Start background assistant upload for all files
+        def background_assistant_upload():
+            try:
+                logging.info(f"🚀 Starting background assistant upload for {len(blob_results)} files in session {new_session_id}")
+                for i, blob_info in enumerate(blob_results):
+                    try:
+                        logging.info(f"📂 Processing file {i+1}/{len(blob_results)}: {blob_info['filename']} (index: {blob_info['index']})")
+                        
+                        # Download file from blob for assistant upload
+                        blob_client = analyzer.blob_service_client.get_blob_client(
+                            container=analyzer.container_name, 
+                            blob=blob_info['blob_name']
+                        )
+                        blob_data = blob_client.download_blob()
+                        
+                        from io import BytesIO
+                        file_stream = BytesIO(blob_data.readall())
+                        
+                        logging.info(f"🔄 Uploading {blob_info['filename']} to assistant...")
+                        file_id = analyzer.file_manager.upload_csv_from_stream(
+                            file_stream, 
+                            blob_info['filename'], 
+                            new_session_id  # Use consistent session ID
+                        )
+                        logging.info(f"✅ Assistant upload complete: {blob_info['filename']} -> {file_id}")
+                        
+                        # Ensure we have the correct index in session_data
+                        file_index = blob_info['index']
+                        logging.info(f"📂 [BACKGROUND] Updating session {new_session_id}, file index {file_index} with assistant_file_id {file_id}")
+                        
+                        if file_index < len(session_data[new_session_id]['files']):
+                            # Update session data with assistant file ID
+                            session_data[new_session_id]['files'][file_index]['assistant_file_id'] = file_id
+                            session_data[new_session_id]['files'][file_index]['assistant_upload_status'] = 'completed'
+                            logging.info(f"📋 [BACKGROUND] Updated session_data for file index {file_index}: {session_data[new_session_id]['files'][file_index]['filename']}")
+                            logging.info(f"📋 [BACKGROUND] Session now has {len([f for f in session_data[new_session_id]['files'] if f.get('assistant_upload_status') == 'completed'])} completed files")
+                        else:
+                            logging.error(f"❌ File index {file_index} out of range for session files array (length: {len(session_data[new_session_id]['files'])})")
+                        
+                        # Also update the analyzer's current_file_ids
+                        if hasattr(analyzer, 'current_file_ids'):
+                            analyzer.current_file_ids.append(file_id)
+                            logging.info(f"📋 Added file_id {file_id} to analyzer.current_file_ids. Total: {len(analyzer.current_file_ids)}")
+                        
+                    except Exception as file_error:
+                        logging.error(f"❌ Error processing file {blob_info['filename']}: {file_error}")
+                        # Mark this specific file as failed
+                        if blob_info['index'] < len(session_data[new_session_id]['files']):
+                            session_data[new_session_id]['files'][blob_info['index']]['assistant_upload_status'] = 'failed'
+                
+                # Mark overall upload as complete
+                session_data[new_session_id]['assistant_upload_status'] = 'completed'
+                session_data[new_session_id]['is_assistant_upload_complete'] = True
+                
+                # Also update the analyzer's session memory
+                if hasattr(analyzer, 'session_memory') and analyzer.session_memory:
+                    analyzer.session_memory.set_assistant_upload_status('completed')
+                
+                logging.info(f"✅ Background assistant upload completed for session {new_session_id}")
+                
+            except Exception as e:
+                logging.error(f"❌ Background assistant upload failed for session {new_session_id}: {e}")
+                logging.exception("Detailed background upload error:")
+                session_data[new_session_id]['assistant_upload_status'] = 'failed'
+                
+                # Also update the analyzer's session memory
+                if hasattr(analyzer, 'session_memory') and analyzer.session_memory:
+                    analyzer.session_memory.set_assistant_upload_status('failed')
+                
+                for file_info in session_data[new_session_id]['files']:
+                    if file_info['assistant_upload_status'] == 'pending':
+                        file_info['assistant_upload_status'] = 'failed'
+        
+        # Set initial session memory status
+        if hasattr(analyzer, 'session_memory') and analyzer.session_memory:
+            analyzer.session_memory.set_assistant_upload_status('pending')
+        
+        # Start background thread (same pattern as current code)
+        threading.Thread(target=background_assistant_upload, daemon=True).start()
+        
+        # Clear any existing stop signals for this session
+        clear_stop_signal_for_session(new_session_id)
+        
+        # Generate preview for primary file (same as single file logic)
+        try:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, primary_file['filename'])
+            
+            # Download primary file from blob to temp file for preview generation
+            blob_client = analyzer.blob_service_client.get_blob_client(
+                container=analyzer.container_name, 
+                blob=primary_file['blob_name']
+            )
+            
+            with open(temp_file_path, "wb") as temp_file:
+                blob_data = blob_client.download_blob()
+                temp_file.write(blob_data.readall())
+            
+            # Use image-based preview system for primary file
+            preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=3)
+            
+            # Clean up temp file
+            os.unlink(temp_file_path)
+            
+        except Exception as e:
+            print(f"Failed to generate file preview: {e}")
+            # Fallback to simple message
+            preview_html = f'''
+            <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+                <div class="text-center">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                        Multiple Files Uploaded Successfully
+                    </h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        {len(files)} files ready for analysis. Preview generated from: {primary_file['filename']}
+                    </p>
+                </div>
+            </div>
+            '''
+        
+        # Prepare response data (similar to single file)
+        response_data = {
+            'success': True,
+            'session_id': new_session_id,
+            'files': files_info,
+            'total_files': len(files_info),
+            'primary_file': files_info[0],
+            'data': {
+                'filename': primary_file['filename'],
+                'shape': list(analyzer.df.shape),
+                'columns': list(analyzer.df.columns),
+                'preview': preview_html,
+                'session_id': new_session_id,
+                'upload_time': datetime.now().isoformat(),
+                'total_files': len(files_info)
+            }
+        }
+        
+        response = jsonify(response_data)
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+           
+    except Exception as e:
+        print(f"❌ Multi-file upload error: {str(e)}")
+        logging.exception("Detailed multi-file upload error")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+
+@app.route('/session/<session_id>/upload-files', methods=['POST', 'OPTIONS'])
+def upload_files_to_existing_session(session_id):
+    """Add multiple files to an existing session - UPDATED FOR ENHANCED ANALYZER"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+    
+    # Validate files
+    for file in files:
+        if file.filename == '':
+            return jsonify({'error': 'One or more files not selected'}), 400
+        if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+            return jsonify({'error': f'Invalid file type: {file.filename}'}), 400
+    
+    try:
+        # Check if session exists (same as current logic)
+        if session_id not in analyzers:
+            return jsonify({'error': 'Session not found'}), 404
+        
+        analyzer = analyzers[session_id]
+        current_session_data = session_data[session_id]
+        
+        # Get current file count for indexing
+        existing_files = current_session_data.get('files', [])
+        start_index = len(existing_files) if existing_files else 1  # Start from 1 if no files array (backward compatibility)
+        
+        # Process new files
+        new_files_info = []
+        
+        for i, file in enumerate(files):
+            # Save to local uploads folder (following current logic pattern)
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{start_index + i}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            new_files_info.append({
+                'index': start_index + i,
+                'filename': file.filename,
+                'filepath': filepath,
+                'size': os.path.getsize(filepath),
+                'upload_status': 'completed',
+                'assistant_upload_status': 'pending'
+            })
+        
+        # Initialize files array if it doesn't exist (backward compatibility)
+        if 'files' not in current_session_data:
+            # Convert existing session to multi-file format
+            current_session_data['files'] = [{
+                'index': 0,
+                'filename': current_session_data.get('filename', 'unknown'),
+                'filepath': '',  # Blob storage based
+                'size': 0,
+                'upload_status': 'completed',
+                'assistant_upload_status': 'completed'
+            }]
+            current_session_data['primary_file_index'] = 0
+        
+        # Update session data by extending files array
+        current_session_data['files'].extend(new_files_info)
+        current_session_data['last_activity'] = datetime.now().isoformat()
+        
+        # Start background assistant upload for new files
+        def background_assistant_upload():
+            try:
+                for file_info in new_files_info:
+                    with open(file_info['filepath'], 'rb') as f:
+                        file_id = analyzer.file_manager.upload_csv_from_stream(
+                            f, 
+                            file_info['filename'], 
+                            session_id  # Use consistent session ID
+                        )
+                        file_info['assistant_file_id'] = file_id
+                        file_info['assistant_upload_status'] = 'completed'
+                        
+                        # Also update the analyzer's current_file_ids
+                        if hasattr(analyzer, 'current_file_ids'):
+                            analyzer.current_file_ids.append(file_id)
+                        
+                logging.info(f"✅ Background assistant upload completed for new files in session {session_id}")
+                        
+            except Exception as e:
+                logging.error(f"Background assistant upload failed: {e}")
+                for file_info in new_files_info:
+                    if file_info['assistant_upload_status'] == 'pending':
+                        file_info['assistant_upload_status'] = 'failed'
+        
+        threading.Thread(target=background_assistant_upload, daemon=True).start()
+        
+        # Clear any existing stop signals
+        clear_stop_signal_for_session(session_id)
+        
+        response_data = {
+            'success': True,
+            'message': f'Successfully added {len(files)} files to session',
+            'session_id': session_id,
+            'files': new_files_info,
+            'total_files': len(current_session_data['files']),
+            'data': {
+                'session_id': session_id,
+                'filename': new_files_info[0]['filename'],
+                'shape': analyzer.df.shape if hasattr(analyzer, 'df') and analyzer.df is not None else [0, 0],
+                'columns': list(analyzer.df.columns) if hasattr(analyzer, 'df') and analyzer.df is not None else [],
+                'total_files': len(current_session_data['files'])
+            }
+        }
+        
+        response = jsonify(response_data)
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        print(f"❌ Multi-file add error: {str(e)}")
+        return jsonify({'error': f'Failed to add files: {str(e)}'}), 500
+
+
+@app.route('/session/<session_id>/debug', methods=['GET', 'OPTIONS'])
+def debug_session_files(session_id):
+    """Debug endpoint to check file status and analyzer state"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        # Check session data
+        current_session = session_data.get(session_id, {})
+        analyzer = analyzers.get(session_id)
+        
+        debug_info = {
+            'session_id': session_id,
+            'session_exists': session_id in session_data,
+            'analyzer_exists': session_id in analyzers,
+            'session_data': {
+                'files': current_session.get('files', []),
+                'assistant_upload_status': current_session.get('assistant_upload_status'),
+                'is_assistant_upload_complete': current_session.get('is_assistant_upload_complete')
+            },
+            'analyzer_state': {},
+            'file_manager_state': {}
+        }
+        
+        if analyzer:
+            debug_info['analyzer_state'] = {
+                'current_file_ids': getattr(analyzer, 'current_file_ids', []),
+                'current_file_ids_count': len(getattr(analyzer, 'current_file_ids', [])),
+                'thread_id': getattr(analyzer, 'thread_id', None),
+                'session_id': analyzer.session_id,
+                'has_df': analyzer.df is not None,
+                'has_file_manager': hasattr(analyzer, 'file_manager'),
+                'has_assistant_manager': hasattr(analyzer, 'assistant_manager')
+            }
+            
+            if hasattr(analyzer, 'file_manager') and analyzer.file_manager:
+                debug_info['file_manager_state'] = {
+                    'uploaded_files': analyzer.file_manager.uploaded_files,
+                    'session_files': analyzer.file_manager.list_session_files(session_id)
+                }
+        
+        response = jsonify(debug_info)
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/session/<session_id>/history', methods=['GET', 'OPTIONS'])
 def get_session_history(session_id):
