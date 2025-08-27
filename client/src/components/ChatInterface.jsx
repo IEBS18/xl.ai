@@ -1088,6 +1088,8 @@ const EnhancedSidePanel = ({
         cleanedContent = cleanedContent.replace(/```html\s*/, '').replace(/```\s*$/, '')
       }
 
+      console.log(cleanedContent);
+
       const response = await fetch(`${BACKEND_URL}/api/generate-pdf`, {
         method: "POST",
         headers: {

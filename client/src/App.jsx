@@ -66,7 +66,6 @@ const AppContent = () => {
   )
 }
 
-
 const App = () => {
   return (
     <ThemeProvider>

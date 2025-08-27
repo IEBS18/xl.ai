@@ -43,7 +43,8 @@ class SessionMemoryManager:
             "last_updated": datetime.now().isoformat(),
             "queries": [],
             "total_charts": 0,
-            "total_queries": 0
+            "total_queries": 0,
+            "assistant_upload_status": "pending"  # Track OpenAI assistant upload status
         }
     
     def _save_memory(self):
@@ -182,6 +183,25 @@ class SessionMemoryManager:
         self._save_memory()
         logging.info(f"Cleared session memory for {self.session_id}")
     
+    def set_assistant_upload_status(self, status: str):
+        """
+        Set the OpenAI assistant upload status
+        
+        Args:
+            status: "pending", "uploading", "completed", "failed"
+        """
+        self.memory["assistant_upload_status"] = status
+        self._save_memory()
+        logging.info(f"Assistant upload status set to: {status} for session {self.session_id}")
+    
+    def get_assistant_upload_status(self) -> str:
+        """Get the current OpenAI assistant upload status"""
+        return self.memory.get("assistant_upload_status", "pending")
+    
+    def is_assistant_upload_complete(self) -> bool:
+        """Check if assistant upload is complete"""
+        return self.get_assistant_upload_status() == "completed"
+    
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get memory usage statistics"""
         try:
@@ -196,3 +216,126 @@ class SessionMemoryManager:
         except Exception as e:
             logging.error(f"Failed to get memory stats: {e}")
             return {"error": str(e)}
+        
+
+     # session_memory.py - ADD this method to SessionMemoryManager class
+
+    def get_comprehensive_session_data_for_report(self) -> Dict[str, Any]:
+        """
+        🎯 NEW: Get comprehensive session data specifically for sequential report generation.
+        
+        Returns all accumulated charts, analyses, and context needed for comprehensive reporting.
+        """
+        try:
+            all_charts = []
+            all_analyses = []
+            total_dataframes = 0
+            
+            # Collect data from all queries in session
+            for query_entry in self.memory["queries"]:
+                # Add charts with enhanced context
+                for i, url in enumerate(query_entry.get("chart_urls", [])):
+                    all_charts.append({
+                        "url": url,
+                        "query": query_entry["query"],
+                        "timestamp": query_entry["timestamp"],
+                        "query_id": query_entry["query_id"],
+                        "chart_index": i + 1,
+                        "description": f"Chart from: {query_entry['query'][:100]}...",
+                        "analysis_summary": query_entry.get("analysis_summary", "")
+                    })
+                
+                # Add analysis summaries
+                if query_entry.get("analysis_summary"):
+                    all_analyses.append({
+                        "query": query_entry["query"],
+                        "summary": query_entry["analysis_summary"],
+                        "timestamp": query_entry["timestamp"],
+                        "dataframes_info": query_entry.get("dataframes_info", {}),
+                        "chart_count": query_entry.get("chart_count", 0)
+                    })
+                    
+                    # Count DataFrames
+                    total_dataframes += len(query_entry.get("dataframes_info", {}))
+            
+            # Prepare comprehensive context
+            comprehensive_data = {
+                "session_id": self.session_id,
+                "total_queries": len(self.memory["queries"]),
+                "total_charts": len(all_charts),
+                "total_analyses": len(all_analyses),
+                "total_dataframes": total_dataframes,
+                "session_timespan": {
+                    "created_at": self.memory["created_at"],
+                    "last_updated": self.memory["last_updated"]
+                },
+                "charts": all_charts,
+                "analyses": all_analyses,
+                "chart_urls": [chart["url"] for chart in all_charts],
+                "session_summary": self._generate_session_summary()
+            }
+            
+            logging.info(f"📊 Comprehensive session data prepared: {len(all_charts)} charts, {len(all_analyses)} analyses")
+            return comprehensive_data
+            
+        except Exception as e:
+            logging.error(f"❌ Error getting comprehensive session data: {e}")
+            return {
+                "session_id": self.session_id,
+                "error": str(e),
+                "charts": [],
+                "analyses": [],
+                "chart_urls": []
+            }
+
+    def _generate_session_summary(self) -> str:
+        """Generate a narrative summary of the entire session for report context"""
+        try:
+            if not self.memory["queries"]:
+                return "No previous analyses in this session."
+            
+            summary_parts = []
+            summary_parts.append(f"This session contains {self.memory['total_queries']} analyses")
+            summary_parts.append(f"with {self.memory['total_charts']} visualizations generated.")
+            
+            # Add query summaries
+            for i, query_entry in enumerate(self.memory["queries"][-3:], 1):  # Last 3 queries
+                summary_parts.append(f"Query {i}: {query_entry['query'][:80]}...")
+                if query_entry.get("chart_count", 0) > 0:
+                    summary_parts.append(f"  Generated {query_entry['chart_count']} charts.")
+            
+            return " ".join(summary_parts)
+            
+        except Exception as e:
+            logging.error(f"❌ Error generating session summary: {e}")
+            return "Session summary unavailable."
+
+    def mark_query_as_sequential(self, query: str, phase: str):
+        """
+        🎯 NEW: Mark a query as part of sequential execution.
+        
+        Args:
+            query: The original query
+            phase: 'data_analysis' or 'report_generation'
+        """
+        try:
+            # Find the latest query entry
+            for query_entry in reversed(self.memory["queries"]):
+                if query_entry["query"] == query:
+                    if "sequential_execution" not in query_entry:
+                        query_entry["sequential_execution"] = {
+                            "is_sequential": True,
+                            "phases": []
+                        }
+                    
+                    query_entry["sequential_execution"]["phases"].append({
+                        "phase": phase,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    self._save_memory()
+                    logging.info(f"🔄 Marked query as sequential phase: {phase}")
+                    break
+                    
+        except Exception as e:
+            logging.error(f"❌ Error marking query as sequential: {e}")   

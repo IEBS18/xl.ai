@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 
-export const useSessionFileUpload = (backendUrl, sessionId, onMessage) => {
+export const useSessionFileUpload = (backendUrl, sessionId, onMessage, setFileProcessingState) => {
   const [fileUploaded, setFileUploaded] = useState(false)
   const [fileInfo, setFileInfo] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -27,6 +27,31 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage) => {
       if (data.success && data.fileInfo) {
         setFileUploaded(true)
         setFileInfo(data.fileInfo)
+        
+        // Check assistant upload status and set file processing state accordingly
+        if (setFileProcessingState) {
+          const assistantUploadStatus = data.assistant_upload_status || "pending"
+          const isUploadComplete = data.is_assistant_upload_complete || false
+          
+          console.log('🔍 Session validation - Assistant upload status:', {
+            assistantUploadStatus,
+            isUploadComplete,
+            sessionId
+          })
+          
+          // Set processing state based on upload status
+          if (assistantUploadStatus === "pending" || assistantUploadStatus === "uploading") {
+            setFileProcessingState(true)
+            console.log('⏳ File still processing for session:', sessionId)
+          } else if (assistantUploadStatus === "completed") {
+            setFileProcessingState(false)
+            console.log('✅ File processing completed for session:', sessionId)
+          } else if (assistantUploadStatus === "failed") {
+            setFileProcessingState(false)
+            console.log('❌ File processing failed for session:', sessionId)
+          }
+        }
+        
         return true
       }
 
@@ -35,7 +60,7 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage) => {
       console.error("Session validation failed:", error)
       return false
     }
-  }, [backendUrl, sessionId])
+  }, [backendUrl, sessionId, setFileProcessingState])
 
   // Load session info on mount
   useEffect(() => {

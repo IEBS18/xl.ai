@@ -31,6 +31,7 @@ from assistants.assistant_manager import AssistantManager
 from assistants.thread_manager import ThreadManager
 from assistants.file_manager import FileManager
 from assistants.query_router import EnhancedQueryClassifier
+from assistants.query_check import OpenAIQueryCategorizer, QueryCategory 
 from assistants.structured_report_generator import StructuredReportGenerator, integrate_structured_html_report_generator
 
 # Import all handlers and utilities
@@ -605,6 +606,9 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 print("🚀 Starting parallel upload to Assistants API...")
                 logging.info(f"⏰ Upload worker started at {datetime.now().isoformat()}")
                 
+                # Update session memory status to uploading
+                self.session_memory.set_assistant_upload_status("uploading")
+                
                 # Emit progress to frontend
                 if self.socketio:
                     self.socketio.emit('stream_data', {
@@ -710,9 +714,12 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 #         self.socketio.emit('stream_data', test_event, to=self.session_id)
                 #         logging.info(f"🏥 Test event emitted to session: {self.session_id}")
                         
-                #         # Method 3: broadcast to all
-                #         self.socketio.emit('stream_data', test_event)
-                #         logging.info(f"🏥 Test event broadcasted to all clients")
+                        # Method 3: broadcast to all
+                        self.socketio.emit('stream_data', test_event)
+                        logging.info(f"🏥 Test event broadcasted to all clients")
+                
+                # Update session memory status to completed
+                self.session_memory.set_assistant_upload_status("completed")
                 
                 # Notify frontend of completion
                 if self.socketio:
@@ -731,6 +738,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     
             except Exception as e:
                 logging.error(f"❌ Parallel assistants upload failed: {e}")
+                
+                # Update session memory status to failed
+                self.session_memory.set_assistant_upload_status("failed")
+                
                 # Don't fail the entire process - just emit warning
                 if self.socketio:
                     self.socketio.emit('stream_data', {
@@ -944,21 +955,22 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             )
 
 # UPDATED: Main analysis method with enhanced routing
+   
     def analyze_query_streaming(self, user_query: str) -> Dict[str, Any]:
         """
-        ENHANCED analyze_query_streaming with AI-powered query classification.
+        ENHANCED analyze_query_streaming with sequential execution support.
         
         Key Changes:
-        1. Uses AssistantQueryRouter for intelligent classification
-        2. Better handling of analytical queries that can be answered textually
-        3. Dynamic routing based on query complexity and context
+        1. Uses rule-based classification instead of AI routing
+        2. Handles sequential execution for DATA_ANALYSIS_AND_REPORT
+        3. Better handling of analytical queries
         """
         
         try:
             # Set analyzing flag
             self.is_analyzing = True
             
-            # STEP 1: AI-Powered Query Classification
+            # STEP 1: Rule-Based Query Classification using OpenAI
             has_data = self.df is not None
             
             # Prepare enhanced context for routing
@@ -969,7 +981,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 'columns': self.conversation_context.get('columns', [])
             }
             
-            # Use enhanced classifier with AI routing
+            # Use enhanced classifier with rule-based routing
             query_category, classification_metadata = self.query_classifier.classify_query(
                 user_query, 
                 has_data=has_data,
@@ -977,41 +989,48 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 context=context
             )
             
-            # Enhanced logging with AI reasoning
-            ai_reasoning = classification_metadata.get('ai_reasoning', 'No reasoning provided')
+            # Enhanced logging with OpenAI reasoning
+            openai_reasoning = classification_metadata.get('ai_reasoning', 'No reasoning provided')
             assistant_type = classification_metadata.get('assistant_type', 'unknown')
             confidence = classification_metadata.get('confidence', 'unknown')
+            execution_mode = classification_metadata.get('execution_mode', 'single')
             
-            self.emit_stream('status', f"🧭 AI Router: {assistant_type} (confidence: {confidence})")
+            self.emit_stream('status', f"🎯 OpenAI Classification: {assistant_type} (confidence: {confidence})")
             
-            print(f"🎯 AI Query Classification:")
+            print(f"🎯 OpenAI Query Classification:")
             print(f"   Query: '{user_query}'")
             print(f"   Category: {query_category}")
             print(f"   Assistant Type: {assistant_type}")
+            print(f"   Execution Mode: {execution_mode}")
             print(f"   Confidence: {confidence}")
-            print(f"   Reasoning: {ai_reasoning}")
+            print(f"   OpenAI Reasoning: {openai_reasoning}")
             print(f"   Expected Output: {classification_metadata.get('expected_output', 'unknown')}")
             
-            # STEP 2: Enhanced routing based on AI decision
+            # STEP 2: Check for sequential execution
+            if classification_metadata.get('sequential_execution', False):
+                # 🎯 NEW: Handle DATA_ANALYSIS_AND_REPORT with sequential execution
+                return self._handle_sequential_execution(user_query, classification_metadata)
+            
+            # STEP 3: Handle single execution (existing logic)
             if not classification_metadata.get('requires_analysis', False):
                 # Simple response, no analysis needed
                 return self._handle_conversational_query_enhanced(user_query, classification_metadata)
             
-            # STEP 3: Route to appropriate handler based on AI decision
-            result = self._route_query_with_ai_decision(user_query, classification_metadata)
+            # STEP 4: Route to appropriate handler based on classification
+            result = self._route_query_with_classification_decision(user_query, classification_metadata)
             
-            # STEP 4: Enhanced result formatting and processing
+            # STEP 5: Enhanced result formatting and processing
             result = self._format_analysis_result_with_dataframes_and_code(result, user_query)
             
-            # STEP 5: Add AI-powered explanation
+            # STEP 6: Add AI-powered explanation
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_ai_explanation_to_result(result, user_query, classification_metadata)
             
-            # STEP 6: Add AI-generated summary
+            # STEP 7: Add AI-generated summary
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_summary_to_result(result, user_query)
             
-            # STEP 7: Save query result to session memory
+            # STEP 8: Save query result to session memory
             self._save_to_session_memory(user_query, result)
                 
         except StopAnalysisException:
@@ -1024,7 +1043,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 "stopped_by_user": True,
                 "dataframes": {},
                 "generated_code": "",
-                "ai_classification": classification_metadata if 'classification_metadata' in locals() else {}
+                "classification": classification_metadata if 'classification_metadata' in locals() else {}
             }
             if hasattr(self, 'conversation_history'):
                 self.conversation_history.add_conversation(user_query, stop_result)
@@ -1045,7 +1064,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 "success": False,
                 "dataframes": {},
                 "generated_code": "",
-                "ai_classification": classification_metadata if 'classification_metadata' in locals() else {}
+                "classification": classification_metadata if 'classification_metadata' in locals() else {}
             }
             if hasattr(self, 'conversation_history'):
                 self.conversation_history.add_conversation(user_query, error_result)
@@ -1053,7 +1072,358 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             return error_result
         
         return result
-    
+
+    def _handle_sequential_execution(self, user_query: str, classification_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Handle sequential execution for DATA_ANALYSIS_AND_REPORT queries.
+        
+        Flow:
+        1. Run data_analyst
+        2. Save results to session memory
+        3. Run report_generator using session data
+        4. Return combined results
+        """
+        
+        try:
+            sequence = classification_metadata.get('sequence', ['data_analyst', 'report_generator'])
+            
+            self.emit_stream('status', f"🔄 Sequential execution: {' → '.join(sequence)}")
+            print(f"🔄 Starting sequential execution: {sequence}")
+            
+            # STEP 1: Execute data analysis first
+            self.emit_stream('status', "📊 Phase 1: Running data analysis...")
+            
+            # Temporarily modify metadata to indicate single execution for data_analyst
+            data_analysis_metadata = classification_metadata.copy()
+            data_analysis_metadata.update({
+                'assistant_type': 'data_analyst',
+                'execution_mode': 'single',
+                'sequential_execution': False,  # Prevent recursive calls
+                'phase': 'data_analysis'
+            })
+            
+            # Run data analysis
+            analysis_result = self._handle_complex_analytical_with_classification_context(
+                user_query, data_analysis_metadata
+            )
+            
+            if not analysis_result.get('success'):
+                self.emit_stream('error', "❌ Data analysis phase failed")
+                return analysis_result
+            
+            self.emit_stream('status', "✅ Phase 1 completed: Data analysis finished")
+            
+            # STEP 2: Save analysis results to session memory
+            self.emit_stream('status', "💾 Saving analysis results to session memory...")
+            
+            # Extract image URLs from analysis result
+            image_sas_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
+            generated_code = analysis_result.get('generated_code', '')
+            
+            # Save to session memory for report generation
+            self._save_analysis_to_session_memory(user_query, analysis_result, image_sas_urls, generated_code)
+            
+            self.emit_stream('status', f"✅ Saved {len(image_sas_urls)} charts to session memory")
+            
+            # STEP 3: Execute report generation using session data
+            self.emit_stream('status', "📋 Phase 2: Generating comprehensive report...")
+            
+            # Prepare report metadata
+            report_metadata = classification_metadata.copy()
+            report_metadata.update({
+                'assistant_type': 'report_generator',
+                'execution_mode': 'single',
+                'sequential_execution': False,  # Prevent recursive calls
+                'phase': 'report_generation',
+                'uses_session_data': True,
+                'analysis_phase_completed': True
+            })
+            
+            # Run report generation using session data
+            report_result = self._handle_report_generation_from_session(
+                user_query, report_metadata, analysis_result
+            )
+            
+            if not report_result.get('success'):
+                self.emit_stream('warning', "⚠️ Report generation failed, returning analysis results only")
+                # Return analysis results if report generation fails
+                analysis_result['sequential_execution_partial'] = True
+                analysis_result['report_generation_failed'] = True
+                return analysis_result
+            
+            self.emit_stream('status', "✅ Phase 2 completed: Report generated successfully")
+            
+            # STEP 4: Combine results
+            self.emit_stream('status', "🔗 Combining analysis and report results...")
+            
+            combined_result = self._combine_sequential_results(
+                user_query, analysis_result, report_result, classification_metadata
+            )
+            
+            self.emit_stream('status', "🎉 Sequential execution completed successfully!")
+            
+            return combined_result
+            
+        except Exception as e:
+            logging.error(f"❌ Sequential execution failed: {e}")
+            self.emit_stream('error', f"❌ Sequential execution failed: {str(e)}")
+            
+            # Return partial results if available
+            if 'analysis_result' in locals() and analysis_result.get('success'):
+                analysis_result['sequential_execution_failed'] = True
+                analysis_result['sequential_error'] = str(e)
+                return analysis_result
+            
+            # Return error result
+            return {
+                "query": user_query,
+                "type": "sequential_execution_error",
+                "success": False,
+                "error": str(e),
+                "dataframes": {},
+                "generated_code": "",
+                "classification": classification_metadata,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def _save_analysis_to_session_memory(self, user_query: str, analysis_result: Dict[str, Any], 
+                                    image_sas_urls: List[str], generated_code: str):
+        """
+        🎯 NEW: Save analysis results to session memory for report generation.
+        
+        This is specifically for sequential execution where we need to persist
+        analysis results between data_analyst and report_generator phases.
+        """
+        try:
+            # Extract generated code
+            if isinstance(generated_code, dict):
+                code_string = generated_code.get('code', '')
+            else:
+                code_string = str(generated_code) if generated_code else ''
+            
+            # Save comprehensive analysis context
+            self.session_memory.add_query_result(
+                query=user_query,
+                analysis_result=analysis_result,
+                chart_urls=image_sas_urls,
+                generated_code=code_string
+            )
+            
+            # Also store in temporary sequential context
+            if not hasattr(self, '_sequential_context'):
+                self._sequential_context = {}
+            
+            self._sequential_context[user_query] = {
+                'analysis_result': analysis_result,
+                'image_urls': image_sas_urls,
+                'generated_code': code_string,
+                'dataframes': analysis_result.get('dataframes', {}),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            print(f"💾 Saved analysis context: {len(image_sas_urls)} images, {len(code_string)} chars code")
+            
+        except Exception as e:
+            logging.error(f"❌ Error saving analysis to session memory: {e}")
+            raise
+
+    def _handle_report_generation_from_session(self, user_query: str, metadata: Dict[str, Any], 
+                                            analysis_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Generate report using session data from previous analysis.
+        
+        This method specifically handles report generation that uses data from
+        the previous data_analyst phase in sequential execution.
+        """
+        try:
+            print("📋 Generating report from session data and analysis results")
+            
+            # Collect all image URLs from session
+            session_image_urls = self._collect_generated_image_sas_urls(analysis_result.get('generated_files', {}))
+            
+            # Also get any images from session memory
+            session_summary = self.session_memory.get_session_summary()
+            all_chart_urls = session_summary.get('chart_urls', [])
+            
+            # Combine current and session images (remove duplicates)
+            combined_image_urls = list(dict.fromkeys(session_image_urls + all_chart_urls))
+            
+            self.emit_stream('status', f"📊 Using {len(combined_image_urls)} charts for report generation")
+            
+            # Enhanced context for report generation
+            enhanced_context = {
+                'sequential_execution': True,
+                'uses_session_data': True,
+                'analysis_phase_completed': True,
+                'classification': metadata,
+                'session_data_available': True,
+                'query_complexity': metadata.get('query_complexity', 'complex'),
+                'original_query': user_query,
+                'analysis_summary': analysis_result.get('response', '')
+            }
+            
+            # Generate structured HTML report with all session data
+            report_result = self._generate_structured_html_report_with_sections(
+                user_query=user_query,
+                analysis_result=analysis_result,
+                image_sas_urls=combined_image_urls,
+                enhanced_context=enhanced_context
+            )
+            
+            if report_result.get("success"):
+                # Update result type and metadata
+                report_result.update({
+                    'type': 'report',
+                    'sequential_phase': 'report_generation',
+                    'uses_session_data': True,
+                    'analysis_phase_completed': True,
+                    'combined_images_count': len(combined_image_urls),
+                    'session_images_used': len(all_chart_urls),
+                    'current_images_used': len(session_image_urls)
+                })
+                
+                return report_result
+            else:
+                return {
+                    "success": False,
+                    "error": "Report generation from session data failed",
+                    "type": "report_generation_error"
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ Error generating report from session: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "type": "report_generation_error"
+            }
+
+    def _combine_sequential_results(self, user_query: str, analysis_result: Dict[str, Any], 
+                                report_result: Dict[str, Any], classification_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🎯 NEW: Combine results from sequential execution (data_analyst + report_generator).
+        
+        Creates a unified result that contains both analysis and report data.
+        """
+        try:
+            # Combine DataFrames from both phases
+            combined_dataframes = {}
+            combined_dataframes.update(analysis_result.get('dataframes', {}))
+            combined_dataframes.update(report_result.get('dataframes', {}))
+            
+            # Combine generated files
+            combined_files = analysis_result.get('generated_files', {})
+            report_files = report_result.get('generated_files', {})
+            for file_type, files in report_files.items():
+                if file_type in combined_files:
+                    combined_files[file_type].extend(files)
+                else:
+                    combined_files[file_type] = files
+            
+            # Get the comprehensive report
+            comprehensive_report = report_result.get('html_report', report_result.get('plain_text_report', ''))
+            
+            # Create combined result
+            combined_result = {
+                "query": user_query,
+                "type": "sequential_analysis_and_report",  # 🎯 NEW result type
+                "success": True,
+                "response": analysis_result.get('response', ''),
+                "comprehensive_report": comprehensive_report,
+                "report_generated": True,
+                "report_type": "sequential_html_report",
+                "embedded_images": report_result.get('embedded_images', []),
+                "generated_code": analysis_result.get('generated_code', ''),
+                "execution_result": analysis_result.get('execution_result', {}),
+                "generated_images": analysis_result.get('generated_images', []),
+                "generated_files": combined_files,
+                "dataframes": combined_dataframes,
+                "analysis_summary": analysis_result.get('analysis_summary', ''),
+                
+                # Sequential execution metadata
+                "sequential_execution": True,
+                "execution_sequence": classification_metadata.get('sequence', ['data_analyst', 'report_generator']),
+                "phases_completed": ['data_analysis', 'report_generation'],
+                "analysis_phase_result": analysis_result,
+                "report_phase_result": report_result,
+                "classification": classification_metadata,
+                
+                # Timing and performance
+                "timestamp": datetime.now().isoformat(),
+                "assistant_id": analysis_result.get('assistant_id'),
+                "thread_id": self.thread_id,
+                "session_based_report": True,
+                "total_images": len(report_result.get('embedded_images', [])),
+                "total_dataframes": len(combined_dataframes),
+                "phases_successful": 2
+            }
+            
+            print(f"🔗 Combined sequential results:")
+            print(f"   - Analysis DataFrames: {len(analysis_result.get('dataframes', {}))}")
+            print(f"   - Report DataFrames: {len(report_result.get('dataframes', {}))}")
+            print(f"   - Total Combined DataFrames: {len(combined_dataframes)}")
+            print(f"   - Total Images: {len(report_result.get('embedded_images', []))}")
+            print(f"   - Report Length: {len(comprehensive_report)} characters")
+            
+            return combined_result
+            
+        except Exception as e:
+            logging.error(f"❌ Error combining sequential results: {e}")
+            
+            # Return analysis results as fallback
+            analysis_result.update({
+                "sequential_execution": True,
+                "combination_failed": True,
+                "combination_error": str(e),
+                "partial_results": True
+            })
+            
+            return analysis_result
+
+    def _route_query_with_classification_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        UPDATED: Route queries based on OpenAI classification instead of AI routing.
+        """
+        
+        assistant_type = metadata.get('assistant_type', 'conversational')
+        analysis_type = metadata.get('analysis_type', 'general')
+        confidence = metadata.get('confidence', 'medium')
+        
+        # Check for stop signal before routing
+        self.check_stop_signal()
+        
+        print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
+        
+        # Route based on OpenAI classification
+        if assistant_type == "textual_analytical":
+            # Simple textual analysis
+            return self._handle_textual_analytical_with_classification_context(user_query, metadata)
+            
+        elif assistant_type == "data_analyst":
+            # Complex analysis with visualizations
+            return self._handle_complex_analytical_with_classification_context(user_query, metadata)
+            
+        elif assistant_type == "report_generator":
+            # Report generation
+            return self._handle_report_generation_with_classification_context(user_query, metadata)
+            
+        else:
+            # Fallback or unknown assistant type
+            print(f"⚠️ Unknown assistant type '{assistant_type}', falling back to original analysis")
+            return self._fallback_to_original_analysis(user_query)
+
+    # Add these helper methods that mirror the existing methods but use classification context
+    def _handle_textual_analytical_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle textual analytical queries with OpenAI classification context"""
+        return self._handle_textual_analytical_with_ai_context(user_query, metadata)
+
+    def _handle_complex_analytical_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle complex analytical queries with OpenAI classification context"""
+        return self._handle_complex_analytical_with_ai_context(user_query, metadata)
+
+    def _handle_report_generation_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle report generation with OpenAI classification context"""
+        return self._handle_report_generation_with_ai_context(user_query, metadata)
     def _handle_conversational_query_enhanced(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         ENHANCED: Handle conversational queries with AI-powered responses
@@ -1121,37 +1491,37 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 "timestamp": datetime.now().isoformat()
             }
         
-    def _route_query_with_ai_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        ENHANCED: Route queries based on AI decision instead of hardcoded rules
-        """
+    # def _route_query_with_ai_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    #     """
+    #     ENHANCED: Route queries based on AI decision instead of hardcoded rules
+    #     """
         
-        assistant_type = metadata.get('assistant_type', 'conversational')
-        analysis_type = metadata.get('analysis_type', 'general')
-        confidence = metadata.get('confidence', 'medium')
+    #     assistant_type = metadata.get('assistant_type', 'conversational')
+    #     analysis_type = metadata.get('analysis_type', 'general')
+    #     confidence = metadata.get('confidence', 'medium')
         
-        # Check for stop signal before routing
-        self.check_stop_signal()
+    #     # Check for stop signal before routing
+    #     self.check_stop_signal()
         
-        print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
+    #     print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
         
-        # Enhanced routing based on AI decision
-        if assistant_type == "textual_analytical":
-            # AI determined this should be handled as simple textual analysis
-            return self._handle_textual_analytical_with_ai_context(user_query, metadata)
+    #     # Enhanced routing based on AI decision
+    #     if assistant_type == "textual_analytical":
+    #         # AI determined this should be handled as simple textual analysis
+    #         return self._handle_textual_analytical_with_ai_context(user_query, metadata)
             
-        elif assistant_type == "data_analyst":
-            # AI determined this needs complex analysis with visualizations
-            return self._handle_complex_analytical_with_ai_context(user_query, metadata)
+    #     elif assistant_type == "data_analyst":
+    #         # AI determined this needs complex analysis with visualizations
+    #         return self._handle_complex_analytical_with_ai_context(user_query, metadata)
             
-        elif assistant_type == "report_generator":
-            # AI determined this should generate a report
-            return self._handle_report_generation_with_ai_context(user_query, metadata)
+    #     elif assistant_type == "report_generator":
+    #         # AI determined this should generate a report
+    #         return self._handle_report_generation_with_ai_context(user_query, metadata)
             
-        else:
-            # Fallback or unknown assistant type
-            print(f"⚠️ Unknown assistant type '{assistant_type}', falling back to original analysis")
-            return self._fallback_to_original_analysis(user_query)
+    #     else:
+    #         # Fallback or unknown assistant type
+    #         print(f"⚠️ Unknown assistant type '{assistant_type}', falling back to original analysis")
+    #         return self._fallback_to_original_analysis(user_query)
 
     def _handle_textual_analytical_with_ai_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
             """
@@ -1246,6 +1616,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         ENHANCED: Handle complex analytical queries with AI context for better results
         """
         assistant_type = metadata.get('assistant_type', 'conversational')
+        
         print("🔬 Handling complex analytical query with AI-enhanced context")
         
         try:
