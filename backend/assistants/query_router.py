@@ -97,11 +97,15 @@ class RuleBasedQueryRouter:
             }
             
         elif category_enum == QueryCategory.DATA_ANALYSIS:
+            # Check if this is a database session
+            data_source_type = context.get('data_source_type', 'files')
+            assistant_type = 'database_analyst' if data_source_type == 'database' else 'data_analyst'
+            
             return {
-                'assistant_type': 'data_analyst',
+                'assistant_type': assistant_type,
                 'execution_mode': 'single',
                 'confidence': 'high', 
-                'reasoning': 'Complex data analysis with visualizations required',
+                'reasoning': f'Complex data analysis with visualizations required (data source: {data_source_type})',
                 'query_complexity': 'complex',
                 'expected_output': 'visualization',
                 'requires_data': True,

@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthProvider"
 import { BACKEND_URL } from "../utils/constants"
 import Header from "./Header"
 import LandingPage from "./LandingPage"
+import DatabaseConnectionModal from "./DatabaseConnectionModal"
 
 const MainContent = () => {
   const { themeClasses } = useTheme()
@@ -13,6 +14,7 @@ const MainContent = () => {
   const navigate = useNavigate()
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
+  const [showDatabaseModal, setShowDatabaseModal] = useState(false)
 
   const handleFileUpload = async (files) => {
     if (!files || (Array.isArray(files) && files.length === 0)) return
@@ -125,6 +127,18 @@ const MainContent = () => {
     alert("Please upload a file first to start analyzing your data")
   }
 
+  const handleDatabaseConnect = () => {
+    if (!isAuthenticated) {
+      alert("Please sign in to connect to a database")
+      return
+    }
+    setShowDatabaseModal(true)
+  }
+
+  const handleDatabaseConnectionSuccess = (sessionId) => {
+    navigate(`/chat/${sessionId}`)
+  }
+
   return (
     <div className={`min-h-screen flex flex-col transition-all duration-500 ${themeClasses.bg} ${themeClasses.text}`}>
       {/* Header - Fixed positioning */}
@@ -137,11 +151,19 @@ const MainContent = () => {
             isConnected={true}
             onSendMessage={handleSendMessage}
             onFileUpload={triggerFileUpload}
+            onDatabaseConnect={handleDatabaseConnect}
             uploadProgress={uploadProgress}
             isUploading={isUploading}
           />
         </div>
       </div>
+
+      {/* Database Connection Modal */}
+      <DatabaseConnectionModal
+        isOpen={showDatabaseModal}
+        onClose={() => setShowDatabaseModal(false)}
+        onSuccess={handleDatabaseConnectionSuccess}
+      />
     </div>
   )
 }

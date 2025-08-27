@@ -6,6 +6,7 @@ import tempfile
 import traceback
 import logging
 import shutil
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from pathlib import Path
@@ -118,6 +119,13 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             EnhancedStreamingAnalyzer._session_generated_files[session_id] = self.generated_files
         
         print(f"Enhanced analyzer with Assistants API initialized for session: {session_id}")
+        
+        # Database-specific properties (NEW)
+        self.data_source_type = None  # 'files' or 'database'
+        self.db_connection_params = None
+        self.db_schema = None
+        self.connector = None
+        self.function_tools = {}  # For database function calling
         
         # Load session metadata from blob storage (Docker-compatible)
         self._load_session_metadata_from_blob()
@@ -944,6 +952,445 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 user_query, analysis_result, image_sas_urls
             )
 
+# =============================================================================
+# DATABASE SUPPORT METHODS (NEW)
+# =============================================================================
+
+    def load_database_connection(self, connection_params: dict) -> bool:
+        """
+        Load database connection and prepare for analysis (mirrors load_csv_from_sas_url)
+        
+        Args:
+            connection_params: Database connection parameters
+            
+        Returns:
+            Boolean indicating success
+        """
+        try:
+            from utils.database_connector import DatabaseConnector
+            
+            logging.info(f"🔗 Loading database connection: {connection_params['connection_type']}")
+            
+            # Set up database properties
+            self.data_source_type = 'database'
+            self.db_connection_params = connection_params
+            self.connector = DatabaseConnector()
+            
+            # Extract database schema
+            self.db_schema = self.connector.get_database_schema(connection_params)
+            logging.info(f"📊 Extracted schema for {len(self.db_schema)} tables")
+            
+            # Upload schema to assistants as JSON file (like CSV upload)
+            self._upload_schema_to_assistants()
+            
+            # Update conversation context (mirrors file loading)
+            self.conversation_context.update({
+                "has_data": True,
+                "data_source": "database",
+                "database_type": connection_params['connection_type'],
+                "database_name": connection_params['database'],
+                "tables": list(self.db_schema.keys()),
+                "tables_count": len(self.db_schema)
+            })
+            
+            # Initialize database function tools for assistant
+            self._initialize_database_tools()
+            
+            # Initialize handlers for database mode
+            self._initialize_handlers()
+            
+            logging.info(f"✅ Database connection loaded successfully")
+            return True
+            
+        except Exception as e:
+            logging.error(f"❌ Database connection failed: {e}")
+            return False
+    
+    def _upload_schema_to_assistants(self):
+        """Upload database schema as JSON file to assistants (like CSV upload)"""
+        try:
+            import json
+            import tempfile
+            
+            # Create schema JSON content
+            schema_content = {
+                "database_type": self.db_connection_params['connection_type'],
+                "database_name": self.db_connection_params['database'],
+                "tables": self.db_schema,
+                "summary": {
+                    "total_tables": len(self.db_schema),
+                    "table_names": list(self.db_schema.keys())
+                }
+            }
+            
+            schema_json = json.dumps(schema_content, indent=2)
+            
+            # Create temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                temp_file.write(schema_json)
+                temp_path = temp_file.name
+            
+            try:
+                # Upload to assistants using stream method
+                with open(temp_path, 'rb') as f:
+                    file_id = self.file_manager.upload_csv_from_stream(
+                        file_stream=f,
+                        filename=f"database_schema_{self.session_id}.json",
+                        session_id=self.session_id
+                    )
+                
+                self.current_file_ids.append(file_id)
+                
+                # Update session memory status to completed (same as file upload)
+                self.session_memory.set_assistant_upload_status("completed")
+                
+                logging.info(f"✅ Database schema uploaded to assistants: {file_id}")
+                
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logging.warning(f"⚠️ Could not delete temp schema file: {e}")
+                    
+        except Exception as e:
+            logging.error(f"❌ Failed to upload schema to assistants: {e}")
+    
+    def _initialize_database_tools(self):
+        """Initialize function tools for database assistant (based on testdb.py pattern)"""
+        self.function_tools = {
+            'query_database': self._query_database,
+            'query_and_visualize': self._query_and_visualize
+        }
+        logging.info(f"🛠️ Initialized database function tools: {list(self.function_tools.keys())}")
+    
+    def _generate_database_tailwind_table(self, df, sql_query: str, max_rows: int = 100) -> str:
+        """Generate theme-aware HTML table for database results that works with ThemeProvider"""
+        import pandas as pd
+        
+        # Limit rows for performance
+        display_df = df.head(max_rows) if len(df) > max_rows else df
+        total_rows = len(df)
+        
+        # Clean white theme HTML - highly readable
+        html = f'''
+        <div class="w-full space-y-4 my-6">
+            <!-- Clean Table Info Header -->
+            <div class="flex items-center justify-between p-4 bg-blue-50 rounded-xl border border-blue-200 shadow-sm">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-3 h-3 bg-blue-500 rounded-full shadow-sm"></div>
+                        <span class="text-sm font-semibold text-gray-900">
+                            {total_rows:,} rows
+                        </span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-3 h-3 bg-green-500 rounded-full shadow-sm"></div>
+                        <span class="text-sm font-semibold text-gray-900">
+                            {len(df.columns)} columns
+                        </span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="w-3 h-3 bg-purple-500 rounded-full shadow-sm"></div>
+                        <span class="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded-md border">
+                            Database Query
+                        </span>
+                    </div>
+                </div>
+                <div class="text-xs text-gray-600 font-mono bg-white px-3 py-1 rounded-lg border max-w-xs truncate">
+                    {sql_query[:50]}{'...' if len(sql_query) > 50 else ''}
+                </div>
+            </div>
+
+            <!-- Clean Data Table -->
+            <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+                <div class="overflow-x-auto max-h-96">
+                    <table class="w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>'''
+        
+        # Add column headers - clean and readable
+        for col in display_df.columns:
+            html += f'''
+                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-r border-gray-300 last:border-r-0">
+                                    {str(col)}
+                                </th>'''
+        
+        html += '''
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-300">'''
+        
+        # Add data rows - clean alternating colors with good contrast
+        for idx, (_, row) in enumerate(display_df.iterrows()):
+            if idx % 2 == 0:
+                row_class = "bg-white hover:bg-blue-50"
+            else:
+                row_class = "bg-gray-50 hover:bg-blue-50"
+                
+            html += f'''
+                            <tr class="{row_class} transition-colors duration-150">'''
+            
+            for col in display_df.columns:
+                cell_value = str(row[col]) if pd.notna(row[col]) else ''
+                # Truncate long values
+                if len(cell_value) > 50:
+                    cell_value = cell_value[:47] + '...'
+                    
+                html += f'''
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border-r border-gray-200 last:border-r-0">
+                                    {cell_value}
+                                </td>'''
+            
+            html += '''
+                            </tr>'''
+        
+        # Add footer if data was truncated
+        if len(df) > max_rows:
+            html += f'''
+                        </tbody>
+                        <tfoot class="bg-yellow-50">
+                            <tr>
+                                <td colspan="{len(df.columns)}" class="px-6 py-3 text-center text-sm text-gray-700">
+                                    <div class="flex items-center justify-center space-x-2">
+                                        <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                                        <span class="font-medium">Showing first {max_rows:,} rows of {total_rows:,} total rows</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tfoot>'''
+        else:
+            html += '''
+                        </tbody>'''
+        
+        html += '''
+                    </table>
+                </div>
+            </div>
+        </div>'''
+        
+        return html
+    
+    def _query_database(self, sql_query: str) -> dict:
+        """
+        Execute SQL query and return results (function tool for assistant)
+        Based on testdb.py query_database function
+        
+        Args:
+            sql_query: SQL query string
+            
+        Returns:
+            Dictionary with query results or error
+        """
+        try:
+            logging.info(f"🔍 Executing SQL query: {sql_query[:100]}...")
+            
+            # Execute query using connector
+            df = self.connector.execute_query(self.db_connection_params, sql_query)
+            
+            # Stream progress to frontend
+            self.emit_stream('status', f'Query executed: {len(df)} rows returned')
+            
+            # Convert to records for assistant processing
+            records = df.to_dict(orient="records")
+            
+            # Emit dataframe event (same as file analysis)
+            if not df.empty:
+                tailwind_html = self._generate_database_tailwind_table(df, sql_query)
+                
+                self.emit_stream('dataframe', {
+                    'name': 'query_result',
+                    'shape': list(df.shape),
+                    'columns': list(df.columns.astype(str)),
+                    'preview': tailwind_html,  # HTML table preview
+                    'data': df.head(100).to_dict('records') if len(df) > 100 else records,
+                    'metadata': {
+                        'total_rows': len(df),
+                        'displayed_rows': min(len(df), 100),
+                        'sql_query': sql_query,
+                        'source': 'database'
+                    },
+                    'type': 'dataframe',
+                    'thisis': 4  # Assistants generated
+                })
+            
+            logging.info(f"✅ Query executed successfully: {len(records)} records returned")
+            return records
+            
+        except Exception as e:
+            error_msg = f"SQL execution failed: {str(e)}"
+            logging.error(f"❌ {error_msg}")
+            self.emit_stream('error', error_msg)
+            return {"error": error_msg}
+    
+    def _query_and_visualize(self, sql_query: str, chart_type: str, **kwargs) -> dict:
+        """
+        Execute SQL query and create visualization (function tool for assistant)
+        Based on testdb.py query_and_visualize function
+        
+        Args:
+            sql_query: SQL query string
+            chart_type: Type of chart to create
+            **kwargs: Additional chart parameters
+            
+        Returns:
+            Dictionary with success status and chart URL
+        """
+        try:
+            logging.info(f"📊 Executing query and creating {chart_type} chart")
+            
+            # First, execute the query
+            data = self._query_database(sql_query)
+            
+            if isinstance(data, dict) and "error" in data:
+                return data  # Return error from query execution
+            
+            if not data:
+                return {"error": "No data returned from query"}
+            
+            # Create visualization using existing chart creation logic
+            chart_url = self._create_chart_from_query_data(data, chart_type, sql_query, **kwargs)
+            
+            if chart_url:
+                # Emit image event to frontend (same as file analysis)  
+                self.emit_stream('image', {
+                    'filename': f'{chart_type}_chart.png',
+                    'data': chart_url,  # URL-based image
+                    'path': None,
+                    'url': chart_url,
+                    'thisis': 3,  # Assistant generated
+                    'chart_type': chart_type,
+                    'sql_query': sql_query,
+                    'data_points': len(data)
+                })
+                
+                logging.info(f"✅ Visualization created: {chart_url}")
+                return {'success': True, 'chart_url': chart_url, 'data_points': len(data)}
+            else:
+                return {"error": "Failed to create visualization"}
+                
+        except Exception as e:
+            error_msg = f"Visualization creation failed: {str(e)}"
+            logging.error(f"❌ {error_msg}")
+            return {"error": error_msg}
+    
+    def _create_chart_from_query_data(self, data: list, chart_type: str, sql_query: str, **kwargs) -> str:
+        """
+        Create chart from query data and upload to blob storage
+        
+        Args:
+            data: List of records from SQL query
+            chart_type: Type of chart to create
+            sql_query: Original SQL query for context
+            **kwargs: Additional chart parameters
+            
+        Returns:
+            Chart URL or None if failed
+        """
+        try:
+            import pandas as pd
+            import matplotlib.pyplot as plt
+            import tempfile
+            
+            # Convert data to DataFrame
+            df = pd.DataFrame(data)
+            
+            if df.empty:
+                logging.warning("No data to visualize")
+                return None
+            
+            # Create the chart
+            plt.figure(figsize=(12, 8))
+            
+            # Get column names for plotting
+            columns = df.columns.tolist()
+            
+            if chart_type == "bar" and len(columns) >= 2:
+                x_col, y_col = columns[0], columns[1]
+                plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
+                plt.xlabel(x_col)
+                plt.ylabel(y_col)
+                plt.xticks(rotation=45, ha='right')
+                
+            elif chart_type == "line" and len(columns) >= 2:
+                x_col, y_col = columns[0], columns[1]
+                plt.plot(df[x_col], pd.to_numeric(df[y_col], errors='coerce'), marker='o')
+                plt.xlabel(x_col)
+                plt.ylabel(y_col)
+                plt.xticks(rotation=45, ha='right')
+                
+            elif chart_type == "pie" and len(columns) >= 2:
+                x_col, y_col = columns[0], columns[1]
+                plt.pie(pd.to_numeric(df[y_col], errors='coerce'), labels=df[x_col], autopct='%1.1f%%')
+                
+            else:
+                # Default to bar chart
+                if len(columns) >= 2:
+                    x_col, y_col = columns[0], columns[1]
+                    plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
+                    plt.xlabel(x_col)
+                    plt.ylabel(y_col)
+                    plt.xticks(rotation=45, ha='right')
+            
+            # Set title
+            title = kwargs.get('title', f'Database Query Results ({chart_type.title()} Chart)')
+            plt.title(title)
+            plt.tight_layout()
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                plt.savefig(temp_file.name, dpi=150, bbox_inches='tight', facecolor='white')
+                plt.close()
+                
+                # Upload to blob storage (using existing upload logic)
+                chart_url = self._upload_file_to_blob(temp_file.name, f"database_charts")
+                
+                # Clean up temp file
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
+                    
+                return chart_url
+                
+        except Exception as e:
+            logging.error(f"Chart creation failed: {e}")
+            return None
+    
+    def handle_tool_call(self, tool_call) -> dict:
+        """
+        Handle function calls during assistant run (based on testdb.py pattern)
+        
+        Args:
+            tool_call: Tool call object from assistant
+            
+        Returns:
+            Dictionary with function result
+        """
+        try:
+            import json
+            
+            # Extract function name and arguments
+            func_name = tool_call.function.name
+            args = json.loads(tool_call.function.arguments)
+            
+            logging.info(f"🔧 Handling tool call: {func_name}")
+            
+            # Route to appropriate function
+            if func_name in self.function_tools:
+                result = self.function_tools[func_name](**args)
+                logging.info(f"✅ Tool call completed: {func_name}")
+                return result
+            else:
+                error_msg = f"Unknown function: {func_name}"
+                logging.error(f"❌ {error_msg}")
+                return {"error": error_msg}
+                
+        except Exception as e:
+            error_msg = f"Tool call failed: {str(e)}"
+            logging.error(f"❌ {error_msg}")
+            return {"error": error_msg}
+
 # UPDATED: Main analysis method with enhanced routing
    
     def analyze_query_streaming(self, user_query: str) -> Dict[str, Any]:
@@ -987,14 +1434,16 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                         self.emit_stream('status', f"⏳ Note: {pending_uploads} file(s) still uploading to assistant. Analysis will use currently available files.")
             
             # STEP 1: Rule-Based Query Classification using OpenAI
-            has_data = self.df is not None
+            # Check for data availability (CSV files OR database connection)
+            has_data = (self.df is not None) or (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None)
             
             # Prepare enhanced context for routing
             context = {
                 'has_data': has_data,
                 'filename': self.conversation_context.get('filename'),
                 'shape': self.conversation_context.get('shape'),
-                'columns': self.conversation_context.get('columns', [])
+                'columns': self.conversation_context.get('columns', []),
+                'data_source_type': self.data_source_type or 'files'  # Add data source type for routing
             }
             
             # Use enhanced classifier with rule-based routing
@@ -1396,6 +1845,221 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             
             return analysis_result
 
+    def _handle_database_function_calling(self, run, assistant_id: str) -> Dict[str, Any]:
+        """Handle database function calling like testdb.py"""
+        import json
+        import time
+        
+        # Track dataframes and SQL queries from function calls  
+        collected_dataframes = {}
+        generated_sql_queries = []
+        
+        try:
+            # Process function calling loop (like testdb.py)
+            while True:
+                run_status = self.thread_manager.client.beta.threads.runs.retrieve(
+                    thread_id=self.thread_id,
+                    run_id=run.id
+                )
+                
+                if run_status.status == "completed":
+                    break
+                elif run_status.status == "requires_action":
+                    tool_outputs = []
+                    
+                    for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
+                        try:
+                            # Handle function call using database function tools
+                            function_name = tool_call.function.name
+                            arguments = json.loads(tool_call.function.arguments)
+                            
+                            self.emit_stream('status', f"🛠️ Executing {function_name}...")
+                            
+                            if function_name in self.function_tools:
+                                # Call the appropriate function
+                                function_result = self.function_tools[function_name](**arguments)
+                                
+                                # Collect SQL queries and dataframes for final response
+                                if function_name in ['query_database', 'query_and_visualize']:
+                                    sql_query = arguments.get('sql_query', '')
+                                    if sql_query:
+                                        generated_sql_queries.append(sql_query)
+                                        
+                                        # Emit SQL code same as file methods
+                                        self.emit_stream('code', {
+                                            'code': sql_query,
+                                            'type': 'sql',
+                                            'language': 'sql',
+                                            'lines': len(sql_query.split('\n')),
+                                            'summary': {
+                                                'function': function_name,
+                                                'query_type': 'database'
+                                            }
+                                        })
+                                
+                                tool_outputs.append({
+                                    "tool_call_id": tool_call.id,
+                                    "output": json.dumps(function_result)
+                                })
+                            else:
+                                error_msg = f"Unknown function: {function_name}"
+                                tool_outputs.append({
+                                    "tool_call_id": tool_call.id,
+                                    "output": json.dumps({"error": error_msg})
+                                })
+                                
+                        except Exception as e:
+                            logging.error(f"Function call error: {e}")
+                            tool_outputs.append({
+                                "tool_call_id": tool_call.id,
+                                "output": json.dumps({"error": str(e)})
+                            })
+                    
+                    # Submit tool outputs
+                    self.thread_manager.client.beta.threads.runs.submit_tool_outputs(
+                        thread_id=self.thread_id,
+                        run_id=run.id,
+                        tool_outputs=tool_outputs
+                    )
+                    
+                elif run_status.status == "failed":
+                    error_msg = f"Assistant run failed: {run_status.last_error}"
+                    self.emit_stream('error', error_msg)
+                    return {
+                        "error": error_msg,
+                        "type": "database_analytical",
+                        "success": False
+                    }
+                else:
+                    # Wait a bit before checking again
+                    time.sleep(0.5)
+            
+            # Get the assistant's response
+            messages = self.thread_manager.client.beta.threads.messages.list(
+                thread_id=self.thread_id,
+                order="desc",
+                limit=1
+            )
+            
+            if messages.data:
+                response_content = messages.data[0].content[0].text.value
+                
+                # Generate explanation same as file methods
+                if generated_sql_queries:
+                    explanation = f"I executed {len(generated_sql_queries)} SQL query(ies) on your database to analyze the data and provide insights."
+                    self.emit_stream('explanation', explanation + response_content)
+                
+                self.emit_stream('response', response_content)
+                self.emit_stream('completion', "ANalysis Completed")
+                
+                # Build SQL code string from collected queries
+                generated_code = "\n\n-- SQL Queries Executed:\n" + "\n\n".join([
+                    f"-- Query {i+1}:\n{query}" 
+                    for i, query in enumerate(generated_sql_queries)
+                ]) if generated_sql_queries else ""
+                
+                return {
+                    "query": "database_query",
+                    "type": "fully_analytical",  # Match file-based type for compatibility
+                    "success": True,
+                    "response": response_content,
+                    "dataframes": collected_dataframes,  # Populated from function calls
+                    "generated_code": generated_code,  # SQL queries as code
+                    "execution_result": {"success": True, "result": response_content},
+                    "generated_images": [],  # Charts are handled via visualization events
+                    "ai_classification": {},
+                    "timestamp": datetime.now().isoformat(),
+                    "analysis_type": "database"  # Indicate this is database analysis
+                }
+            else:
+                return {
+                    "error": "No response from assistant",
+                    "type": "database_analytical",
+                    "success": False
+                }
+                
+        except Exception as e:
+            logging.error(f"Database function calling failed: {e}")
+            return {
+                "error": str(e),
+                "type": "database_analytical", 
+                "success": False
+            }
+
+    def _handle_database_analytical_query(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle database queries using database_analyst assistant with function calling
+        """
+        
+        print("🗄️ Handling database analytical query with function calling")
+        
+        try:
+            # Check for database connection
+            if not (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None):
+                error_msg = "No database connection available. Please connect to a database first."
+                self.emit_stream('error', error_msg)
+                return {
+                    "error": error_msg,
+                    "type": "database_analytical",
+                    "success": False,
+                    "dataframes": {},
+                    "generated_code": "",
+                    "ai_classification": metadata
+                }
+            
+            # Create database analyst assistant
+            assistant_id = self.assistant_manager.create_or_get_assistant("database_analyst")
+            
+            # Enhance query with database context
+            enhanced_query = f"""
+Database Query Request: {user_query}
+
+You have access to the following database connection:
+- Database Type: {self.db_connection_params.get('connection_type', 'unknown')}
+- Database Name: {self.db_connection_params.get('database', 'unknown')}
+- Schema: Available as uploaded JSON file
+
+Please analyze this query and use the query_database() and query_and_visualize() functions to:
+1. Execute appropriate SQL queries
+2. Create visualizations if requested
+3. Provide insights about the data
+
+Use your database schema knowledge to write accurate SQL queries.
+            """
+            
+            self.emit_stream('status', "🗄️ Running database analysis with function calling...")
+            
+            # Add message to thread
+            self.thread_manager.add_message_to_thread(
+                thread_id=self.thread_id, 
+                role="user", 
+                content=enhanced_query, 
+                file_ids=self.current_file_ids
+            )
+            
+            # Create and run the assistant with function calling support
+            run = self.thread_manager.client.beta.threads.runs.create(
+                thread_id=self.thread_id,
+                assistant_id=assistant_id
+            )
+            
+            # Handle function calling manually (like testdb.py)
+            result = self._handle_database_function_calling(run, assistant_id)
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ Database analytical query failed: {e}")
+            self.emit_stream('error', f"Database analysis failed: {str(e)}")
+            return {
+                "error": str(e),
+                "type": "database_analytical",
+                "success": False,
+                "dataframes": {},
+                "generated_code": "",
+                "ai_classification": metadata
+            }
+
     def _route_query_with_classification_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         UPDATED: Route queries based on OpenAI classification instead of AI routing.
@@ -1408,7 +2072,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         # Check for stop signal before routing
         self.check_stop_signal()
         
-        print(f"🚀 Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
+        print(f" Routing to {assistant_type} assistant (analysis_type: {analysis_type})")
         
         # Route based on OpenAI classification
         if assistant_type == "textual_analytical":
@@ -1418,6 +2082,10 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         elif assistant_type == "data_analyst":
             # Complex analysis with visualizations
             return self._handle_complex_analytical_with_classification_context(user_query, metadata)
+            
+        elif assistant_type == "database_analyst":
+            # Database analysis with direct SQL execution
+            return self._handle_database_analytical_query(user_query, metadata)
             
         elif assistant_type == "report_generator":
             # Report generation
@@ -1559,11 +2227,14 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             print("📊 Handling textual analytical query with AI-enhanced context")
             
             try:
-                # Check if we have data
-                if self.df is None:
-                    self.emit_stream('error', "No CSV file loaded. Please upload a CSV file first.")
+                # Check for data availability (CSV files OR database connection)
+                has_data = (self.df is not None) or (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None)
+                
+                if not has_data:
+                    error_msg = "No data available. Please upload a CSV file or connect to a database first."
+                    self.emit_stream('error', error_msg)
                     return {
-                        "error": "No CSV file loaded",
+                        "error": error_msg,
                         "type": "textual_analytical",
                         "success": False,
                         "dataframes": {},
@@ -1655,10 +2326,14 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
         print("🔬 Handling complex analytical query with AI-enhanced context")
         
         try:
-            if self.df is None:
-                self.emit_stream('error', "No CSV file loaded. Please upload a CSV file first.")
+            # Check for data availability (CSV files OR database connection)
+            has_data = (self.df is not None) or (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None)
+            
+            if not has_data:
+                error_msg = "No data available. Please upload a CSV file or connect to a database first."
+                self.emit_stream('error', error_msg)
                 return {
-                    "error": "No CSV file loaded",
+                    "error": error_msg,
                     "type": "fully_analytical",
                     "success": False,
                     "dataframes": {},

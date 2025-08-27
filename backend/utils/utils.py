@@ -3530,8 +3530,21 @@ def validate_session_exists(session_id: str, analyzers: dict, session_data: dict
         return False, f"Session {session_id} not found in session data"
     
     analyzer = analyzers[session_id]
-    if analyzer.df is None:
-        return False, f"Session {session_id} has no loaded data"
+    
+    # Check if session has loaded data based on its type
+    session_info = session_data[session_id]
+    data_source_type = session_info.get('data_source_type', 'files')
+    
+    if data_source_type == 'database':
+        # For database sessions, check if database connection exists
+        if not hasattr(analyzer, 'connector') or analyzer.connector is None:
+            return False, f"Session {session_id} has no database connection"
+        if not hasattr(analyzer, 'db_schema') or not analyzer.db_schema:
+            return False, f"Session {session_id} has no database schema loaded"
+    else:
+        # For file sessions, check if dataframe exists
+        if analyzer.df is None:
+            return False, f"Session {session_id} has no loaded data"
     
     return True, "Session is valid"
 

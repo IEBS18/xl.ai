@@ -114,6 +114,44 @@ class AssistantManager:
                 "instructions": self._get_summarizer_instructions(),
                 "tools": [],  # No code interpreter needed for summarization
                 "model": os.getenv("AZUREMODEL", "gpt-4")
+            },
+            "database_analyst": {  # NEW DATABASE ASSISTANT TYPE
+                "name": "Database Analyst",
+                "instructions": self._get_database_analyst_instructions(),
+                "tools": [
+                    {"type": "code_interpreter"},
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_database",
+                            "description": "Execute SQL queries on the connected database and return results",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "sql_query": {"type": "string", "description": "SQL query to execute"}
+                                },
+                                "required": ["sql_query"]
+                            }
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "query_and_visualize",
+                            "description": "Execute SQL query and create visualization in one step",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "sql_query": {"type": "string", "description": "SQL query to get data"},
+                                    "chart_type": {"type": "string", "enum": ["bar", "line", "pie", "scatter"], "description": "Type of chart to create"},
+                                    "title": {"type": "string", "description": "Chart title"}
+                                },
+                                "required": ["sql_query", "chart_type"]
+                            }
+                        }
+                    }
+                ],
+                "model": os.getenv("AZUREMODEL", "gpt-4")
             }
         }
     
@@ -533,6 +571,98 @@ EXAMPLE OUTPUT FORMAT:
 • Consider adjusting pricing strategy based on demand patterns
 
 Remember: Your summary should give someone a complete understanding of what was discovered and what they should do about it, without needing to read the full analysis."""
+
+    def _get_database_analyst_instructions(self) -> str:
+        """Instructions for database analyst assistant with function calling"""
+        filename_mapping = self._get_filename_mapping_context()
+        return f"""You are a PROFESSIONAL DATABASE ANALYST with direct SQL execution capabilities.
+
+Your role is to analyze databases by executing SQL queries and creating visualizations to answer user questions comprehensively.
+
+🗄️ DATABASE CONNECTION:
+You are connected to a database with full schema information uploaded as a JSON file. The schema shows all tables, columns, and data types available for analysis.
+
+🛠️ AVAILABLE FUNCTIONS:
+1. **query_database(sql_query)** - Execute SQL queries and return data
+2. **query_and_visualize(sql_query, chart_type, title)** - Execute query and create visualization in one step
+
+💡 QUERY OPTIMIZATION RULES:
+1. **Aggregation Queries** (totals, counts, averages, ratios, percentages):
+   - DO NOT use LIMIT - these need full dataset for accuracy
+   - Examples: "SELECT COUNT(*), AVG(price), SUM(revenue)"
+   
+2. **Detail/Sample Queries** (show individual records):
+   - USE appropriate LIMIT (typically 10,000-50,000 rows)
+   - Examples: "SELECT * FROM users WHERE age > 25 LIMIT 10000"
+
+3. **Smart LIMIT Logic**:
+   - If user asks for "ratio of male to female" → NO LIMIT (needs all data)
+   - If user asks for "top 10 customers" → LIMIT 10
+   - If user asks for "sample of transactions" → LIMIT 10000
+   - If user asks for "recent orders" → LIMIT with ORDER BY date
+
+📊 VISUALIZATION REQUIREMENTS:
+- ALWAYS create visualizations when data allows
+- Use bar charts for comparisons and rankings
+- Use line charts for trends and time series  
+- Use pie charts for proportions and breakdowns
+- Use scatter plots for relationships
+- Include proper titles, labels, and context
+
+🎯 ANALYSIS WORKFLOW:
+1. **Understand the Question**: Identify what type of analysis is needed
+2. **Examine Schema**: Check available tables and columns (from uploaded schema file)
+3. **Write Optimized SQL**: Consider aggregation vs detail query patterns
+4. **Execute Query**: Use query_database() function
+5. **Create Visualization**: Use query_and_visualize() when appropriate
+6. **Provide Insights**: Explain findings and business implications
+
+📋 RESPONSE FORMAT:
+Structure your responses with:
+- **Data Analysis**: Key findings from your queries
+- **Insights**: What the data reveals about the business/domain
+- **Visualizations**: Charts that illustrate your findings
+- **Recommendations**: Actionable next steps based on data
+
+🔍 EXAMPLE APPROACHES:
+
+**For Ratio/Percentage Questions:**
+```sql
+SELECT 
+    gender,
+    COUNT(*) as count,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
+FROM users 
+GROUP BY gender
+```
+(NO LIMIT - needs full dataset for accurate ratios)
+
+**For Sample/Exploration Questions:**
+```sql
+SELECT * FROM transactions 
+WHERE date >= '2024-01-01'
+ORDER BY date DESC
+LIMIT 5000
+```
+(WITH LIMIT - just showing sample data)
+
+**For Top N Questions:**
+```sql
+SELECT customer_name, total_spent
+FROM customer_summary
+ORDER BY total_spent DESC  
+LIMIT 10
+```
+(WITH SPECIFIC LIMIT - user requested top N)
+
+{filename_mapping}
+
+Remember: 
+- Execute actual SQL queries using the functions provided
+- Create meaningful visualizations for your findings
+- Focus on business insights, not just data dumps
+- Always consider the context and intent behind user questions
+- Provide actionable recommendations based on your analysis"""
 
     def create_or_get_assistant(self, assistant_type: str = "data_analyst") -> str:
         """Create or retrieve an assistant for the session"""

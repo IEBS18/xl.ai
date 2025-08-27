@@ -1770,6 +1770,175 @@ def debug_session_files(session_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# =============================================================================
+# DATABASE CONNECTION ENDPOINTS
+# =============================================================================
+
+@app.route('/database/test-connection', methods=['POST', 'OPTIONS'])
+def test_database_connection():
+    """Test database connection before creating session"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        connection_params = request.json
+        
+        # Validate required parameters
+        required_params = ['connection_type', 'host', 'database', 'username', 'password']
+        missing_params = [param for param in required_params if not connection_params.get(param)]
+        if missing_params:
+            return jsonify({
+                'success': False,
+                'message': f'Missing required parameters: {", ".join(missing_params)}'
+            }), 400
+        
+        # Import and use database connector
+        from utils.database_connector import DatabaseConnector
+        
+        connector = DatabaseConnector()
+        result = connector.test_connection(connection_params)
+        
+        return jsonify({
+            'success': result['status'] == 'success',
+            'message': result['message'],
+            'tables_count': result.get('tables_count', 0)
+        })
+        
+    except Exception as e:
+        logging.error(f"Database connection test failed: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Connection test failed: {str(e)}'
+        }), 500
+
+
+@app.route('/database/connect', methods=['POST', 'OPTIONS'])
+def connect_database():
+    """Create session with database connection (mirrors file upload flow)"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        connection_params = request.json
+        
+        # Validate required parameters
+        required_params = ['connection_type', 'host', 'database', 'username', 'password']
+        missing_params = [param for param in required_params if not connection_params.get(param)]
+        if missing_params:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required parameters: {", ".join(missing_params)}'
+            }), 400
+        
+        # Generate session ID (same as file upload)
+        session_id = str(uuid.uuid4())
+        
+        # Initialize database analyzer
+        analyzer = EnhancedStreamingAnalyzer(session_id, socketio)
+        success = analyzer.load_database_connection(connection_params)
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to connect to database'
+            }), 400
+        
+        # Store session data (mirrors file upload session structure)
+        session_data[session_id] = {
+            'data_source_type': 'database',
+            'database_connection': {
+                'connection_params': connection_params,
+                'connection_status': 'connected'
+            },
+            'created_at': datetime.now().isoformat(),
+            'files': [],  # Empty for database sessions
+            'last_activity': datetime.now().isoformat(),
+            'message_count': 0,
+            'assistant_upload_status': 'completed'  # Database schema uploaded to assistants
+        }
+        
+        # Store analyzer
+        analyzers[session_id] = analyzer
+        
+        logging.info(f"✅ Database session created: {session_id} ({connection_params['connection_type']})")
+        
+        response = jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': f'Connected to {connection_params["connection_type"]} database successfully'
+        })
+        
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+        
+    except Exception as e:
+        logging.error(f"Database connection failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to connect to database: {str(e)}'
+        }), 500
+
+
+@app.route('/database/schema/<session_id>', methods=['GET', 'OPTIONS'])
+def get_database_schema(session_id):
+    """Get database schema information for a session"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        origin = request.headers.get('Origin', '*')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Methods', 'GET')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
+    try:
+        # Validate session exists and is database type
+        if session_id not in session_data:
+            return jsonify({'success': False, 'error': 'Session not found'}), 404
+        
+        session = session_data[session_id]
+        if session.get('data_source_type') != 'database':
+            return jsonify({'success': False, 'error': 'Not a database session'}), 400
+        
+        # Get database info
+        db_connection = session.get('database_connection', {})
+        analyzer = analyzers.get(session_id)
+        
+        schema_info = {}
+        if analyzer and hasattr(analyzer, 'db_schema'):
+            schema_info = analyzer.db_schema
+        
+        return jsonify({
+            'success': True,
+            'connection_status': db_connection.get('connection_status', 'unknown'),
+            'connection_type': db_connection.get('connection_params', {}).get('connection_type', 'unknown'),
+            'database_name': db_connection.get('connection_params', {}).get('database', 'unknown'),
+            'tables': schema_info,
+            'tables_count': len(schema_info)
+        })
+        
+    except Exception as e:
+        logging.error(f"Error getting database schema: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/session/<session_id>/history', methods=['GET', 'OPTIONS'])
 def get_session_history(session_id):
     """Get conversation history for a specific session."""
