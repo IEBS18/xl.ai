@@ -58,6 +58,7 @@ const ChatInterface = ({
   const [chatPanelWidth, setChatPanelWidth] = useState(65)
   const [isDragging, setIsDragging] = useState(false)
   const [isFilePreviewModalOpen, setIsFilePreviewModalOpen] = useState(false)
+  const [selectedFileForPreview, setSelectedFileForPreview] = useState(null)
   const containerRef = useRef(null)
   const { themeClasses, isDark } = useTheme()
 
@@ -157,11 +158,75 @@ const ChatInterface = ({
   }, [triggerFileUpload, isFileProcessing])
 
   // Handle file preview
-  const handleShowFilePreview = useCallback(() => {
+  const handleShowFilePreview = useCallback(async (specificFile = null) => {
     if (!fileInfo || isFileProcessing) return
 
-    // Open the file preview modal
-    setIsFilePreviewModalOpen(true)
+    try {
+      if (specificFile) {
+        // Individual file preview - use preview data from file object
+        console.log('🔍 Showing preview for specific file:', specificFile.filename)
+        
+        // Check if the file already has preview data (from upload response)
+        if (specificFile.preview) {
+          const fileForPreview = {
+            filename: specificFile.filename,
+            shape: specificFile.shape || [0, 0],
+            columns: specificFile.columns || [],
+            preview: specificFile.preview,
+            data: specificFile.data || [],
+            sheets: specificFile.sheets || [{ 
+              name: specificFile.filename,
+              preview: specificFile.preview,
+              data: specificFile.data || [],
+              shape: specificFile.shape || [0, 0],
+              columns: specificFile.columns || []
+            }]
+          }
+          setSelectedFileForPreview(fileForPreview)
+        } else {
+          // Fallback for files without preview data
+          const fileForPreview = {
+            filename: specificFile.filename,
+            shape: [0, 0],
+            columns: [],
+            preview: `<div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+              <div class="text-center">
+                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                  ${specificFile.filename}
+                </h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  ${specificFile.assistant_upload_status === 'pending' ? 'Processing file...' : 'Preview not available'}
+                </p>
+              </div>
+            </div>`,
+            data: [],
+            sheets: [{ 
+              name: specificFile.filename,
+              preview: `<div class="text-center p-8">
+                <p class="text-gray-500">
+                  ${specificFile.assistant_upload_status === 'pending' ? 'File is being processed...' : 'Preview not available'}
+                </p>
+              </div>`,
+              data: [],
+              shape: [0, 0],
+              columns: []
+            }]
+          }
+          setSelectedFileForPreview(fileForPreview)
+        }
+      } else {
+        // Default behavior - show primary file or file selection
+        setSelectedFileForPreview(fileInfo)
+      }
+
+      // Open the file preview modal
+      setIsFilePreviewModalOpen(true)
+    } catch (error) {
+      console.error('Error preparing file preview:', error)
+      // Fallback to default fileInfo
+      setSelectedFileForPreview(fileInfo)
+      setIsFilePreviewModalOpen(true)
+    }
   }, [fileInfo, isFileProcessing])
 
   // Handle file removal
@@ -385,8 +450,11 @@ const ChatInterface = ({
       {/* File Preview Modal */}
       <FilePreviewModal
         isOpen={isFilePreviewModalOpen}
-        onClose={() => setIsFilePreviewModalOpen(false)}
-        fileInfo={fileInfo}
+        onClose={() => {
+          setIsFilePreviewModalOpen(false)
+          setSelectedFileForPreview(null)
+        }}
+        fileInfo={selectedFileForPreview || fileInfo}
       />
     </div>
   )

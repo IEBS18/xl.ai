@@ -2,7 +2,7 @@
 
 import { useCallback } from "react"
 import { useDropzone } from "react-dropzone"
-import { Upload, FileSpreadsheet, Loader2, CloudUpload } from "lucide-react"
+import { Upload, FileSpreadsheet, Loader2, CloudUpload, Files } from "lucide-react"
 import { useTheme } from "../context/ThemeProvider"
 
 export function FileUpload({ onFileUpload, loading }) {
@@ -10,7 +10,7 @@ export function FileUpload({ onFileUpload, loading }) {
   const onDrop = useCallback(
     (acceptedFiles) => {
       if (acceptedFiles.length > 0) {
-        onFileUpload(acceptedFiles[0])
+        onFileUpload(acceptedFiles)
       }
     },
     [onFileUpload],
@@ -23,16 +23,16 @@ export function FileUpload({ onFileUpload, loading }) {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
       "application/vnd.ms-excel": [".xls"],
     },
-    multiple: false,
+    multiple: true,
     disabled: loading,
   })
 
   return (
     <div className="w-full max-w-2xl">
       <div className="text-center mb-8">
-        <CloudUpload className="w-16 h-16 text-primary-500 mx-auto mb-4" />
+        <Files className="w-16 h-16 text-primary-500 mx-auto mb-4" />
         <h2 className={`text-2xl font-bold ${themeClasses.text} mb-2`}>Import Your Data</h2>
-        <p className={themeClasses.textSecondary}>Upload CSV or Excel files to start analyzing your data with AI-powered insights</p>
+        <p className={themeClasses.textSecondary}>Upload multiple CSV or Excel files to start analyzing your data with AI-powered insights</p>
       </div>
 
       <div
@@ -54,10 +54,10 @@ export function FileUpload({ onFileUpload, loading }) {
 
           <div>
             <h3 className={`text-lg font-semibold ${themeClasses.text} mb-2`}>
-              {loading ? "Processing your file..." : isDragActive ? "Drop your file here" : "Choose a file to upload"}
+              {loading ? "Processing your files..." : isDragActive ? "Drop your files here" : "Choose files to upload"}
             </h3>
             <p className={`text-sm ${themeClasses.textSecondary} mb-4`}>
-              {isDragActive ? "Release to upload your data file" : "Drag and drop your file here, or click to browse"}
+              {isDragActive ? "Release to upload your data files" : "Drag and drop your files here, or click to browse"}
             </p>
             <div className={`flex items-center justify-center space-x-4 text-xs ${themeClasses.textMuted}`}>
               <span className={`badge ${themeClasses.surface} ${themeClasses.textSecondary}`}>.CSV</span>
@@ -69,7 +69,7 @@ export function FileUpload({ onFileUpload, loading }) {
           {!loading && (
             <button className="btn btn-primary px-6 py-2">
               <Upload className="w-4 h-4 mr-2" />
-              Select File
+              Select Files
             </button>
           )}
         </div>

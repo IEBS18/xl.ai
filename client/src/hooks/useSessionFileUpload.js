@@ -46,6 +46,12 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage, setFilePr
           } else if (assistantUploadStatus === "completed") {
             setFileProcessingState(false)
             console.log('✅ File processing completed for session:', sessionId)
+            
+            // Force a small delay to ensure state propagation
+            setTimeout(() => {
+              console.log('🔄 Double-checking file processing state after completion')
+              setFileProcessingState(false)
+            }, 100)
           } else if (assistantUploadStatus === "failed") {
             setFileProcessingState(false)
             console.log('❌ File processing failed for session:', sessionId)
@@ -69,31 +75,46 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage, setFilePr
     }
   }, [sessionId, validateSession])
 
-  const handleFileUpload = useCallback(async (event) => {
-    const file = event.target.files[0]
-    if (!file || !sessionId) return
-
-    const validTypes = [".csv", ".xlsx", ".xls"]
-    const fileExtension = "." + file.name.split(".").pop().toLowerCase()
-    if (!validTypes.includes(fileExtension)) {
-      onMessage("error", "Please upload a CSV or Excel file (.csv, .xlsx, .xls)")
+  const handleFileUpload = useCallback(async (filesOrEvent) => {
+    let files = []
+    
+    // Handle both file array from dropzone and event from file input
+    if (Array.isArray(filesOrEvent)) {
+      files = filesOrEvent
+    } else if (filesOrEvent.target && filesOrEvent.target.files) {
+      files = Array.from(filesOrEvent.target.files)
+    } else {
       return
     }
+    
+    if (!files.length || !sessionId) return
 
+    const validTypes = [".csv", ".xlsx", ".xls"]
     const maxSize = 128 * 1024 * 1024
-    if (file.size > maxSize) {
-      onMessage("error", "File size too large. Please upload a file smaller than 128MB.")
-      return
+
+    // Validate all files
+    for (const file of files) {
+      const fileExtension = "." + file.name.split(".").pop().toLowerCase()
+      if (!validTypes.includes(fileExtension)) {
+        onMessage("error", `Invalid file type for "${file.name}". Please upload CSV or Excel files only.`)
+        return
+      }
+      if (file.size > maxSize) {
+        onMessage("error", `File "${file.name}" is too large. Please upload files smaller than 128MB.`)
+        return
+      }
     }
 
     const formData = new FormData()
-    formData.append("file", file)
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
 
     try {
       setUploadProgress(10)
-      onMessage("status", `Uploading "${file.name}" to session ${sessionId}...`)
+      onMessage("status", `Uploading ${files.length} file(s) to session ${sessionId}...`)
       
-      const response = await fetch(`${backendUrl}/api/session/${sessionId}/upload`, {
+      const response = await fetch(`${backendUrl}/api/session/${sessionId}/upload-files`, {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -108,11 +129,15 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage, setFilePr
       const result = await response.json()
       if (result.success) {
         setFileUploaded(true)
-        setFileInfo(result.data)
+        setFileInfo({
+          ...result.data,
+          files: result.files,
+          totalFiles: result.total_files
+        })
         setUploadProgress(100)
         onMessage(
           "success",
-          `Successfully loaded "${result.data.filename}" in session ${sessionId}!`,
+          `Successfully loaded ${files.length} file(s) in session ${sessionId}!`,
         )
 
         setTimeout(() => setUploadProgress(0), 1000)

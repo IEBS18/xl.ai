@@ -11,6 +11,7 @@ const LandingPage = ({
   isConnected, 
   onSendMessage, 
   onFileUpload,
+  onDatabaseConnect,
   uploadProgress = 0
 }) => {
   return (
@@ -19,6 +20,7 @@ const LandingPage = ({
         isConnected={isConnected}
         onSendMessage={onSendMessage}
         onFileUpload={onFileUpload}
+        onDatabaseConnect={onDatabaseConnect}
         uploadProgress={uploadProgress}
       />
       

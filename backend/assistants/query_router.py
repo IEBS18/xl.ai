@@ -73,8 +73,12 @@ class RuleBasedQueryRouter:
         """
         
         if category_enum == QueryCategory.CONVERSATIONAL:
+            assistant_type='conversational'
+            # data_source_type = context.get('data_source_type', 'files')
+            # assistant_type = 'database_analyst' if data_source_type == 'database' else 'conversational'
+            
             return {
-                'assistant_type': 'conversational',
+                'assistant_type': assistant_type,
                 'execution_mode': 'single',
                 'confidence': 'high',
                 'reasoning': 'General conversation or capability question',
@@ -85,23 +89,45 @@ class RuleBasedQueryRouter:
             }
             
         elif category_enum == QueryCategory.SIMPLE_CALCULATION:
-            return {
-                'assistant_type': 'textual_analytical',
-                'execution_mode': 'single', 
-                'confidence': 'high',
-                'reasoning': 'Simple calculation or direct data question',
-                'query_complexity': 'simple',
-                'expected_output': 'text',
-                'requires_data': True,
-                'business_analysis': False
-            }
+        # Check if this is a database session
+            # data_source_type = context.get('data_source_type', 'files')
             
+            # if data_source_type == 'database':
+            #     # For database sessions, simple queries should use database_analyst
+            #     return {
+            #         'assistant_type': 'database_analyst',
+            #         'execution_mode': 'single',
+            #         'confidence': 'high',
+            #         'reasoning': 'Simple database query requiring SQL execution',
+            #         'query_complexity': 'simple',
+            #         'expected_output': 'text',
+            #         'requires_data': True,
+            #         'business_analysis': False,
+            #         'database_simple_query': True  # Flag for simple database queries
+            #     }
+            # else:
+                # File-based sessions use textual_analytical as before
+                return {
+                    'assistant_type': 'textual_analytical',
+                    'execution_mode': 'single', 
+                    'confidence': 'high',
+                    'reasoning': 'Simple calculation or direct data question',
+                    'query_complexity': 'simple',
+                    'expected_output': 'text',
+                    'requires_data': True,
+                    'business_analysis': False
+                }
+                
         elif category_enum == QueryCategory.DATA_ANALYSIS:
+            # Check if this is a database session
+            data_source_type = context.get('data_source_type', 'files')
+            assistant_type = 'database_analyst' if data_source_type == 'database' else 'data_analyst'
+            
             return {
-                'assistant_type': 'data_analyst',
+                'assistant_type': assistant_type,
                 'execution_mode': 'single',
                 'confidence': 'high', 
-                'reasoning': 'Complex data analysis with visualizations required',
+                'reasoning': f'Complex data analysis with visualizations required (data source: {data_source_type})',
                 'query_complexity': 'complex',
                 'expected_output': 'visualization',
                 'requires_data': True,
@@ -109,6 +135,9 @@ class RuleBasedQueryRouter:
             }
             
         elif category_enum == QueryCategory.REPORT:
+            data_source_type = context.get('data_source_type', 'files')
+            assistant_type = 'database_analyst' if data_source_type == 'database' else 'data_analyst'
+            
             return {
                 'assistant_type': 'report_generator',
                 'execution_mode': 'single',
@@ -121,11 +150,14 @@ class RuleBasedQueryRouter:
             }
             
         elif category_enum == QueryCategory.DATA_ANALYSIS_AND_REPORT:
+
+            data_source_type = context.get('data_source_type', 'files')
+            assistant_type = 'database_analyst' if data_source_type == 'database' else 'data_analyst'
             # 🎯 KEY: Sequential execution mode
             return {
-                'assistant_type': 'data_analyst',  # Start with data analysis
+                'assistant_type': assistant_type,  # Start with data analysis
                 'execution_mode': 'sequential',    # NEW: Indicates sequential execution
-                'sequence': ['data_analyst', 'report_generator'],  # NEW: Execution sequence
+                'sequence': [assistant_type, 'report_generator'],  # NEW: Execution sequence
                 'confidence': 'high',
                 'reasoning': 'Requires both data analysis and report generation',
                 'query_complexity': 'complex',

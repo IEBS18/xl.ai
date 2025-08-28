@@ -241,6 +241,124 @@ const ChatSession = () => {
     }
   }, [fileUploaded, hasSetInitialProcessingState, setFileProcessingState])
 
+  // State recovery mechanism: sync isFileProcessing with session file status
+  useEffect(() => {
+    if (fileInfo && fileInfo.files && fileInfo.files.length > 0) {
+      // Check if all files are completed
+      const allFilesCompleted = fileInfo.files.every(
+        file => file.assistant_upload_status === 'completed'
+      )
+      
+      // If all files are completed but isFileProcessing is still true, fix it
+      if (allFilesCompleted && isFileProcessing) {
+        console.log('🔄 State recovery: All files completed, updating isFileProcessing to false')
+        setFileProcessingState(false)
+      }
+      
+      // If any file is still processing but isFileProcessing is false, fix it
+      const anyFileProcessing = fileInfo.files.some(
+        file => file.assistant_upload_status === 'pending'
+      )
+      
+      if (anyFileProcessing && !isFileProcessing) {
+        console.log('🔄 State recovery: Files still processing, updating isFileProcessing to true')
+        setFileProcessingState(true)
+      }
+    }
+  }, [fileInfo, isFileProcessing, setFileProcessingState])
+
+  // Active session info polling to track file processing status
+  useEffect(() => {
+    if (!sessionId || !fileUploaded) return
+
+    let pollInterval = null
+    let hasAnyPendingFiles = false
+
+    const pollSessionInfo = async () => {
+      try {
+        console.log('🔄 Polling session info for file status updates...')
+        
+        const response = await fetch(`/api/session/${sessionId}/info`, {
+          method: 'GET',
+          credentials: 'include'
+        })
+
+        console.log('📡 Response status:', response.status, response.statusText)
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log('📦 Session API response:', data)
+          
+          if (data.success && data.fileInfo && data.fileInfo.files) {
+            const files = data.fileInfo.files
+            
+            // Check current status
+            const pendingFiles = files.filter(f => f.assistant_upload_status === 'pending')
+            const completedFiles = files.filter(f => f.assistant_upload_status === 'completed')
+            
+            console.log(`📊 Session poll result: ${completedFiles.length}/${files.length} files completed`)
+            console.log('📂 Files data from server:', files)
+            
+            // Update processing state based on actual file status
+            if (pendingFiles.length > 0) {
+              hasAnyPendingFiles = true
+              if (!isFileProcessing) {
+                console.log('🔄 Setting processing state to TRUE - files still pending')
+                setFileProcessingState(true)
+              }
+            } else if (files.length > 0 && completedFiles.length === files.length) {
+              // All files completed
+              if (isFileProcessing) {
+                console.log('✅ All files completed - setting processing state to FALSE')
+                setFileProcessingState(false)
+              }
+              
+              // Stop polling once all files are completed
+              if (pollInterval) {
+                clearInterval(pollInterval)
+                pollInterval = null
+                console.log('🛑 Stopping session polling - all files completed')
+              }
+            }
+
+            // Trigger session validation to update fileInfo through the hook
+            console.log('🔄 Triggering session validation to update fileInfo')
+            validateSession(sessionId, null, null, setSessionValid, null, setFileProcessingState)
+            console.log('✅ Session validation triggered')
+          }
+        } else {
+          console.error('❌ Failed to poll session info:', response.status, response.statusText)
+          const errorText = await response.text()
+          console.error('❌ Response body:', errorText)
+        }
+      } catch (error) {
+        console.error('❌ Error polling session info:', error)
+      }
+    }
+
+    // Start polling immediately
+    pollSessionInfo()
+
+    // Continue polling every 3 seconds until all files are completed
+    pollInterval = setInterval(pollSessionInfo, 3000)
+
+    // Stop polling after 2 minutes max to avoid infinite polling
+    const stopAfterMaxTime = setTimeout(() => {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+        console.log('🕐 Stopped session polling after max time limit')
+      }
+    }, 120000) // 2 minutes
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
+      clearTimeout(stopAfterMaxTime)
+    }
+  }, [sessionId, fileUploaded, setFileProcessingState, isFileProcessing, validateSession, setSessionValid])
+
   // Enhanced message sending with query classification support and processing check
   const handleSendMessage = (message) => {
     if (!message.trim() || isAnalyzing || isFileProcessing) {

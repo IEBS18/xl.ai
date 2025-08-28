@@ -1,5 +1,5 @@
 import React from "react"
-import { FileText, Database, CheckCircle, Bug, RefreshCw } from "lucide-react"
+import { FileText, Database, CheckCircle, Bug, RefreshCw, Files } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 import { BACKEND_URL } from "../utils/constants"
 
@@ -65,6 +65,9 @@ const FileInfo = ({ fileInfo, onDebug, onSync, onShowPreview, sessionId }) => {
     }
   }
 
+  const files = fileInfo.files || []
+  const hasMultipleFiles = files.length > 1
+
   return (
     <div className={`px-4 py-4 ${themeClasses.bg} ${themeClasses.border} border-t transition-colors`}>
       <div className={`${themeClasses.glass} rounded-2xl p-4 shadow-sm`}>
@@ -72,16 +75,40 @@ const FileInfo = ({ fileInfo, onDebug, onSync, onShowPreview, sessionId }) => {
           {/* File Information Section */}
           <div className="flex items-center space-x-3 min-w-0 flex-1 flex-wrap">
             <div className={`p-2 ${themeClasses.surface} rounded-lg flex-shrink-0`}>
-              <FileText size={16} className={themeClasses.textSecondary} />
+              {hasMultipleFiles ? (
+                <Files size={16} className={themeClasses.textSecondary} />
+              ) : (
+                <FileText size={16} className={themeClasses.textSecondary} />
+              )}
             </div>
             <div className="flex flex-col min-w-0 flex-1">
-              <button
-                onClick={handleFilenameClick}
-                className={`text-sm font-medium ${themeClasses.text} truncate text-left hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors cursor-pointer`}
-                title="Click to view data preview"
-              >
-                {fileInfo.filename}
-              </button>
+              {hasMultipleFiles ? (
+                <div className="space-y-1">
+                  <div className={`text-sm font-medium ${themeClasses.text}`}>
+                    {fileInfo.totalFiles || files.length} Files Uploaded
+                  </div>
+                  <div className="space-y-1 max-h-20 overflow-y-auto">
+                    {files.slice(0, 3).map((file, index) => (
+                      <div key={index} className={`text-xs ${themeClasses.textSecondary} truncate`}>
+                        • {file.filename}
+                      </div>
+                    ))}
+                    {files.length > 3 && (
+                      <div className={`text-xs ${themeClasses.textMuted} italic`}>
+                        +{files.length - 3} more files
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={handleFilenameClick}
+                  className={`text-sm font-medium ${themeClasses.text} truncate text-left hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors cursor-pointer`}
+                  title="Click to view data preview"
+                >
+                  {fileInfo.filename}
+                </button>
+              )}
               <div className="flex items-center flex-wrap gap-2 mt-1">
                 <div className={`flex items-center space-x-1 text-xs ${themeClasses.textSecondary} ${themeClasses.surface} px-2 py-1 rounded-full flex-shrink-0`}>
                   <Database size={12} />
@@ -94,26 +121,6 @@ const FileInfo = ({ fileInfo, onDebug, onSync, onShowPreview, sessionId }) => {
               </div>
             </div>
           </div>
-
-          {/* Buttons Section (Stacked below Loaded on small screens) */}
-          {/* <div className="flex flex-col sm:flex-row items-center gap-2 flex-shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
-            <button
-              onClick={onDebug}
-              className={`flex items-center space-x-2 text-xs ${themeClasses.buttonSecondary} border px-3 py-1.5 rounded-xl hover:scale-105 transition-all duration-200 shadow-sm hover:shadow-md font-medium`}
-              title="Debug session info"
-            >
-              <Bug size={14} />
-              <span>Debug</span>
-            </button>
-            <button
-              onClick={onSync}
-              className="flex items-center space-x-2 text-xs bg-blue-500 text-white px-3 py-1.5 rounded-xl hover:bg-blue-600 hover:scale-105 transition-all duration-200 shadow-sm hover:shadow-md font-medium"
-              title="Refresh session sync"
-            >
-              <RefreshCw size={14} />
-              <span>Sync</span>
-            </button>
-          </div> */}
         </div>
       </div>
     </div>

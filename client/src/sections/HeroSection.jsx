@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react"
-import { Send, Paperclip } from "lucide-react"
+import { Send, Plus, Upload, Database } from "lucide-react"
 import { motion } from "framer-motion"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
@@ -7,11 +7,12 @@ import { getTimeBasedGreeting } from "../utils/helpers"
 import AnimatedInterface from "../components/AnimatedInterface"
 import AuthModal from "../components/AuthModal"
 
-const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress = 0 }) => {
+const HeroSection = ({ isConnected, onSendMessage, onFileUpload, onDatabaseConnect, uploadProgress = 0 }) => {
   const { isDark, themeClasses } = useTheme()
   const { isAuthenticated, user, isLoading, login, register } = useAuth()
   const [inputMessage, setInputMessage] = useState("")
   const [authModal, setAuthModal] = useState({ isOpen: false, mode: "login" })
+  const [showDataSourceDropdown, setShowDataSourceDropdown] = useState(false)
   const heroRef = useRef(null)
 
   useEffect(() => {
@@ -19,6 +20,19 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress 
       closeAuthModal()
     }
   }, [isAuthenticated, authModal.isOpen])
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showDataSourceDropdown && !event.target.closest('.relative')) {
+        setShowDataSourceDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showDataSourceDropdown])
 
   const openAuthModal = (mode = "login") => {
     setAuthModal({ isOpen: true, mode })
@@ -46,7 +60,18 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress 
       return
     }
 
+    setShowDataSourceDropdown(false)
     onFileUpload()
+  }
+
+  const handleDatabaseConnect = () => {
+    if (!isAuthenticated) {
+      openAuthModal('login')
+      return
+    }
+
+    setShowDataSourceDropdown(false)
+    onDatabaseConnect()
   }
 
   const handleKeyPress = (e) => {
@@ -143,30 +168,69 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, uploadProgress 
                     )}
                     
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 flex items-center space-x-3">
-                      <button
-                        onClick={handleFileUpload}
-                        disabled={uploadProgress > 0}
-                        className={`p-2 ${themeClasses.textMuted} hover:${themeClasses.text} ${isDark 
-                          ? 'hover:bg-white/10' 
-                          : 'hover:bg-black/10'
-                        } transition-all duration-200 rounded-xl backdrop-blur-sm group-hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
-                          !isAuthenticated ? 'relative' : ''
-                        }`}
-                        title={
-                          uploadProgress > 0 
-                            ? "Upload in progress..." 
-                            : isAuthenticated 
-                            ? "Upload file" 
-                            : "Sign in to upload files"
-                        }
-                      >
-                        <Paperclip size={18} />
-                        {!isAuthenticated && (
-                          <div className={`absolute -top-1 -right-1 w-3 h-3 ${isDark ? 'bg-white' : 'bg-black'} rounded-full flex items-center justify-center`}>
-                            <span className={`text-xs font-bold ${isDark ? 'text-black' : 'text-white'}`}>!</span>
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowDataSourceDropdown(!showDataSourceDropdown)}
+                          disabled={uploadProgress > 0}
+                          className={`p-2 ${themeClasses.textMuted} hover:${themeClasses.text} ${isDark 
+                            ? 'hover:bg-white/10' 
+                            : 'hover:bg-black/10'
+                          } transition-all duration-200 rounded-xl backdrop-blur-sm group-hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
+                            !isAuthenticated ? 'relative' : ''
+                          }`}
+                          title={
+                            uploadProgress > 0 
+                              ? "Upload in progress..." 
+                              : isAuthenticated 
+                              ? "Add data source" 
+                              : "Sign in to add data sources"
+                          }
+                        >
+                          <Plus size={18} />
+                          {!isAuthenticated && (
+                            <div className={`absolute -top-1 -right-1 w-3 h-3 ${isDark ? 'bg-white' : 'bg-black'} rounded-full flex items-center justify-center`}>
+                              <span className={`text-xs font-bold ${isDark ? 'text-black' : 'text-white'}`}>!</span>
+                            </div>
+                          )}
+                        </button>
+                        
+                        {/* Data Source Dropdown */}
+                        {showDataSourceDropdown && isAuthenticated && (
+                          <div className={`absolute bottom-full mb-2 right-0 ${isDark 
+                            ? 'bg-black/80 border-white/20' 
+                            : 'bg-white/90 border-black/20'
+                          } backdrop-blur-xl rounded-xl shadow-2xl border min-w-48 z-60`}>
+                            <div className="p-2">
+                              <button
+                                onClick={handleFileUpload}
+                                className={`w-full flex items-center space-x-3 p-3 ${isDark 
+                                  ? 'hover:bg-white/10 text-white' 
+                                  : 'hover:bg-black/10 text-black'
+                                } rounded-lg transition-all duration-200 text-left`}
+                              >
+                                <Upload size={16} />
+                                <div>
+                                  <div className="font-medium">Upload Files</div>
+                                  {/* <div className={`text-xs ${themeClasses.textMuted}`}>CSV, Excel files</div> */}
+                                </div>
+                              </button>
+                              <button
+                                onClick={handleDatabaseConnect}
+                                className={`w-full flex items-center space-x-3 p-3 ${isDark 
+                                  ? 'hover:bg-white/10 text-white' 
+                                  : 'hover:bg-black/10 text-black'
+                                } rounded-lg transition-all duration-200 text-left`}
+                              >
+                                <Database size={16} />
+                                <div>
+                                  <div className="font-medium">Connect Database</div>
+                                  {/* <div className={`text-xs ${themeClasses.textMuted}`}>PostgreSQL, MySQL, SQLite</div> */}
+                                </div>
+                              </button>
+                            </div>
                           </div>
                         )}
-                      </button>
+                      </div>
                       <button
                         onClick={handleSendMessage}
                         disabled={!inputMessage.trim() || !isConnected || uploadProgress > 0}

@@ -600,7 +600,7 @@ class StreamingAnalyzer(QuadraticCSVAnalyzer):
         Handle conversational queries with OpenAI directly
         """
         try:
-            self.emit_stream('status', "💬 Handling conversational query...")
+            # self.emit_stream('status', "💬 Handling conversational query...")
             
             # Get conversation context for more natural responses  
             context = self.conversation_history.get_context_for_ai(last_n=5)
@@ -3530,8 +3530,21 @@ def validate_session_exists(session_id: str, analyzers: dict, session_data: dict
         return False, f"Session {session_id} not found in session data"
     
     analyzer = analyzers[session_id]
-    if analyzer.df is None:
-        return False, f"Session {session_id} has no loaded data"
+    
+    # Check if session has loaded data based on its type
+    session_info = session_data[session_id]
+    data_source_type = session_info.get('data_source_type', 'files')
+    
+    if data_source_type == 'database':
+        # For database sessions, check if database connection exists
+        if not hasattr(analyzer, 'connector') or analyzer.connector is None:
+            return False, f"Session {session_id} has no database connection"
+        if not hasattr(analyzer, 'db_schema') or not analyzer.db_schema:
+            return False, f"Session {session_id} has no database schema loaded"
+    else:
+        # For file sessions, check if dataframe exists
+        if analyzer.df is None:
+            return False, f"Session {session_id} has no loaded data"
     
     return True, "Session is valid"
 

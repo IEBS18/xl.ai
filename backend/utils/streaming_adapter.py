@@ -26,7 +26,7 @@ class StreamingAdapter:
             start_time = time.time()
             max_wait_time = 6000
             
-            self._emit_stream('status', '🤖 Starting assistant analysis...', session_id)
+            # self._emit_stream('status', '🤖 Starting assistant analysis...', session_id)
             
             last_status = None
             last_step_count = 0
@@ -203,7 +203,7 @@ class StreamingAdapter:
     def _handle_completion_enhanced(self, thread_id: str, run_id: str, session_id: str) -> Dict[str, Any]:
         """Enhanced completion handling with comprehensive result capture."""
         try:
-            self._emit_stream('status', '✅ Analysis completed successfully!', session_id)
+            self._emit_stream('status', 'Analysis completed successfully!', session_id)
             
             # Get final messages
             messages = self.client.beta.threads.messages.list(
@@ -291,12 +291,12 @@ class StreamingAdapter:
     def _handle_status_change(self, status: str, session_id: str):
         """Handle status changes with appropriate streaming messages."""
         status_messages = {
-            "queued": "📋 Analysis queued...",
-            "in_progress": "⚙️ Running analysis...",
+            "queued": "Analysis queued...",
+            "in_progress": " Running analysis...",
             "cancelling": "🛑 Cancelling analysis...",
             "cancelled": "❌ Analysis cancelled",
             "failed": "❌ Analysis failed",
-            "completed": "✅ Analysis completed!"
+            "completed": "Analysis completed!"
         }
         
         message = status_messages.get(status, f"Status: {status}")
