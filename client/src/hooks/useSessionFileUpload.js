@@ -46,6 +46,12 @@ export const useSessionFileUpload = (backendUrl, sessionId, onMessage, setFilePr
           } else if (assistantUploadStatus === "completed") {
             setFileProcessingState(false)
             console.log('✅ File processing completed for session:', sessionId)
+            
+            // Force a small delay to ensure state propagation
+            setTimeout(() => {
+              console.log('🔄 Double-checking file processing state after completion')
+              setFileProcessingState(false)
+            }, 100)
           } else if (assistantUploadStatus === "failed") {
             setFileProcessingState(false)
             console.log('❌ File processing failed for session:', sessionId)

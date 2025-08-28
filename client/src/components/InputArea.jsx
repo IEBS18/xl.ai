@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Paperclip, Loader2, X, FileText } from "lucide-react"
+import { Send, Paperclip, Loader2, X, FileText, Files } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 
 const InputArea = ({
@@ -14,6 +14,7 @@ const InputArea = ({
   onRemoveFile,
   isFileProcessing = false, // New prop for file processing state
 }) => {
+  const [showAllFiles, setShowAllFiles] = useState(false)
   const [inputMessage, setInputMessage] = useState("")
   const { themeClasses, isDark } = useTheme()
   const textareaRef = useRef(null)
@@ -58,15 +59,16 @@ const InputArea = ({
     }
   }
 
-  const handleFilePreview = () => {
+  const handleFilePreview = (specificFile = null) => {
     console.log('👁️ File preview clicked:', {
       hasFileInfo: !!fileInfo,
       isFileProcessing,
-      hasPreviewHandler: !!onShowFilePreview
+      hasPreviewHandler: !!onShowFilePreview,
+      specificFile: specificFile ? specificFile.filename : 'default'
     })
 
     if (onShowFilePreview && fileInfo && !isFileProcessing) {
-      onShowFilePreview()
+      onShowFilePreview(specificFile)
     }
   }
 
@@ -101,40 +103,98 @@ const InputArea = ({
           <div className="flex flex-col">
             {fileInfo && (
               <div className="px-6 pt-4 pb-2">
-                <button
-                  onClick={handleFilePreview}
-                  disabled={isFileProcessing}
-                  className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group border ${themeClasses.border} shadow-sm ${isFileProcessing ? 'cursor-default opacity-75' : 'cursor-pointer'}`}
-                  title={isFileProcessing ? "Preprocessing file for analysis..." : "Click to view file preview"}
-                >
-                  {isFileProcessing ? (
-                    <>
-                      <Loader2 size={14} className={`${themeClasses.textSecondary} flex-shrink-0 animate-spin`} />
-                      <span className={`text-xs ${themeClasses.textSecondary} font-medium ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
-                        PROCESSING
+                {/* Multiple Files Display */}
+                {fileInfo.files && fileInfo.files.length > 1 ? (
+                  <div className="space-y-2">
+                    {/* Header showing total count */}
+                    <div className="flex items-center space-x-2">
+                      <Files size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
+                      <span className={`text-xs ${themeClasses.textSecondary} font-medium`}>
+                        {fileInfo.files.length} files uploaded
                       </span>
-                    </>
-                  ) : (
-                    <FileText size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
-                  )}
-                  <span
-                    className={`text-sm ${themeClasses.text} truncate max-w-[200px] ${!isFileProcessing ? (isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600') : ''}`}
-                  >
-                    {fileInfo.filename}
-                  </span>
-                  {isFileProcessing && (
-                    <span className={`text-xs ${themeClasses.textSecondary} whitespace-nowrap animate-pulse`}>
-                      Processing...
-                    </span>
-                  )}
+                      <button
+                        onClick={handleRemoveFile}
+                        className={`p-1 rounded-full ${isDark ? 'hover:bg-red-900/30' : 'hover:bg-red-100'} ${themeClasses.textSecondary} hover:text-red-600 transition-colors`}
+                        title="Remove all files"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    
+                    {/* Individual file buttons - show first 3 or all based on showAllFiles */}
+                    <div className="flex flex-wrap gap-2">
+                      {(showAllFiles ? fileInfo.files : fileInfo.files.slice(0, 3)).map((file, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleFilePreview(file)}
+                          disabled={isFileProcessing || file.assistant_upload_status === 'pending'}
+                          className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group border ${themeClasses.border} shadow-sm ${isFileProcessing || file.assistant_upload_status === 'pending' ? 'cursor-default opacity-75' : 'cursor-pointer'}`}
+                          title={file.assistant_upload_status === 'pending' ? "Processing file..." : `Click to preview ${file.filename}`}
+                        >
+                          {file.assistant_upload_status === 'pending' ? (
+                            <Loader2 size={12} className={`${themeClasses.textSecondary} flex-shrink-0 animate-spin`} />
+                          ) : (
+                            <FileText size={12} className={`${themeClasses.textSecondary} flex-shrink-0`} />
+                          )}
+                          <span
+                            className={`text-xs ${themeClasses.text} truncate max-w-[120px] ${file.assistant_upload_status !== 'pending' ? (isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600') : ''}`}
+                          >
+                            {file.filename}
+                          </span>
+                        </button>
+                      ))}
+                      
+                      {/* Show/Hide toggle for multiple files */}
+                      {fileInfo.files.length > 3 && (
+                        <button
+                          onClick={() => setShowAllFiles(!showAllFiles)}
+                          className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-full ${themeClasses.surfaceSecondary} hover:${themeClasses.surface} transition-colors border ${themeClasses.border} shadow-sm`}
+                          title={showAllFiles ? "Show fewer files" : "Show all files"}
+                        >
+                          <span className={`text-xs ${themeClasses.textSecondary}`}>
+                            {showAllFiles ? 'Show less' : `+${fileInfo.files.length - 3} more`}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Single File Display (fallback) */
                   <button
-                    onClick={handleRemoveFile}
-                    className={`p-0.5 rounded-full ${isDark ? 'hover:bg-red-900/30' : 'hover:bg-red-100'} ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
-                    title="Remove file"
+                    onClick={() => handleFilePreview()}
+                    disabled={isFileProcessing}
+                    className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full ${themeClasses.surface} hover:${themeClasses.surfaceSecondary} transition-colors group border ${themeClasses.border} shadow-sm ${isFileProcessing ? 'cursor-default opacity-75' : 'cursor-pointer'}`}
+                    title={isFileProcessing ? "Preprocessing file for analysis..." : "Click to view file preview"}
                   >
-                    <X size={12} />
+                    {isFileProcessing ? (
+                      <>
+                        <Loader2 size={14} className={`${themeClasses.textSecondary} flex-shrink-0 animate-spin`} />
+                        <span className={`text-xs ${themeClasses.textSecondary} font-medium ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                          PROCESSING
+                        </span>
+                      </>
+                    ) : (
+                      <FileText size={14} className={`${themeClasses.textSecondary} flex-shrink-0`} />
+                    )}
+                    <span
+                      className={`text-sm ${themeClasses.text} truncate max-w-[200px] ${!isFileProcessing ? (isDark ? 'group-hover:text-blue-400' : 'group-hover:text-blue-600') : ''}`}
+                    >
+                      {fileInfo.filename}
+                    </span>
+                    {isFileProcessing && (
+                      <span className={`text-xs ${themeClasses.textSecondary} whitespace-nowrap animate-pulse`}>
+                        Processing...
+                      </span>
+                    )}
+                    <button
+                      onClick={handleRemoveFile}
+                      className={`p-0.5 rounded-full ${isDark ? 'hover:bg-red-900/30' : 'hover:bg-red-100'} ${themeClasses.textSecondary} hover:text-red-600 transition-colors ml-1`}
+                      title="Remove file"
+                    >
+                      <X size={12} />
+                    </button>
                   </button>
-                </button>
+                )}
               </div>
             )}
 

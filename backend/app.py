@@ -1371,7 +1371,9 @@ def upload_multiple_files_with_session():
                 'filename': file.filename,
                 'size': file_size,
                 'upload_status': 'blob_completed',
-                'assistant_upload_status': 'pending'
+                'assistant_upload_status': 'pending',
+                'blob_name': blob_result['blob_name'],  # Add blob info for preview generation
+                'sas_url': blob_result['sas_url']       # Add SAS URL for direct access
             })
         
         # Load and analyze first file (primary file) WITHOUT uploading to assistant yet
@@ -1382,6 +1384,7 @@ def upload_multiple_files_with_session():
         import requests
         import tempfile
         import os
+        import pandas as pd
         
         file_extension = os.path.splitext(primary_file['filename'])[-1]
         
@@ -1520,59 +1523,122 @@ def upload_multiple_files_with_session():
         # Clear any existing stop signals for this session
         clear_stop_signal_for_session(new_session_id)
         
-        # Generate preview for primary file (same as single file logic)
-        try:
-            import tempfile
-            temp_dir = tempfile.gettempdir()
-            temp_file_path = os.path.join(temp_dir, primary_file['filename'])
-            
-            # Download primary file from blob to temp file for preview generation
-            blob_client = analyzer.blob_service_client.get_blob_client(
-                container=analyzer.container_name, 
-                blob=primary_file['blob_name']
-            )
-            
-            with open(temp_file_path, "wb") as temp_file:
-                blob_data = blob_client.download_blob()
-                temp_file.write(blob_data.readall())
-            
-            # Use image-based preview system for primary file
-            preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=3)
-            
-            # Clean up temp file
-            os.unlink(temp_file_path)
-            
-        except Exception as e:
-            print(f"Failed to generate file preview: {e}")
-            # Fallback to simple message
-            preview_html = f'''
-            <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
-                <div class="text-center">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-                        Multiple Files Uploaded Successfully
-                    </h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                        {len(files)} files ready for analysis. Preview generated from: {primary_file['filename']}
-                    </p>
-                </div>
-            </div>
-            '''
+        # Generate preview for ALL files (not just primary)
+        import tempfile
+        temp_dir = tempfile.gettempdir()
         
-        # Prepare response data (similar to single file)
+        # Add preview data to each file info
+        for i, file_info in enumerate(files_info):
+            try:
+                # Generate unique temp file path
+                temp_file_path = os.path.join(temp_dir, f"temp_{i}_{file_info['filename']}")
+                
+                # Download file from blob for preview generation
+                blob_client = analyzer.blob_service_client.get_blob_client(
+                    container=analyzer.container_name, 
+                    blob=file_info['blob_name']
+                )
+                
+                with open(temp_file_path, "wb") as temp_file:
+                    blob_data = blob_client.download_blob()
+                    temp_file.write(blob_data.readall())
+                
+                # Generate preview and handle Excel sheets properly
+                file_extension = os.path.splitext(file_info['filename'])[-1].lower()
+                
+                if file_extension in ['.xlsx', '.xls']:
+                    # For Excel files, process each sheet separately
+                    try:
+                        import pandas as pd
+                        from openpyxl import load_workbook
+                        
+                        # Load workbook to get sheet information
+                        wb = load_workbook(temp_file_path, data_only=True)
+                        sheets_data = []
+                        
+                        for sheet_idx, sheet_name in enumerate(wb.sheetnames[:3]):  # Max 3 sheets
+                            # Read individual sheet
+                            df_sheet = pd.read_excel(temp_file_path, sheet_name=sheet_name)
+                            
+                            # Create temp file for individual sheet
+                            base_path = os.path.splitext(temp_file_path)[0]
+                            sheet_temp_path = f"{base_path}_sheet_{sheet_idx}.csv"
+                            df_sheet.to_csv(sheet_temp_path, index=False)
+                            
+                            # Generate preview for individual sheet
+                            sheet_preview = generate_sheet_images_with_highlighting(sheet_temp_path, max_sheets=1)
+                            
+                            sheets_data.append({
+                                'name': sheet_name,
+                                'preview': sheet_preview,
+                                'shape': list(df_sheet.shape),
+                                'columns': df_sheet.columns.tolist(),
+                                'data': df_sheet.head(100).fillna('').to_dict('records')
+                            })
+                            
+                            # Clean up individual sheet temp file
+                            os.unlink(sheet_temp_path)
+                        
+                        # Use first sheet as main preview
+                        file_info['preview'] = sheets_data[0]['preview'] if sheets_data else ''
+                        file_info['sheets'] = sheets_data
+                        file_info['has_preview'] = True
+                        
+                    except Exception as excel_error:
+                        logging.error(f"❌ Excel processing failed for {file_info['filename']}: {excel_error}")
+                        # Fallback to combined preview
+                        file_preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=3)
+                        file_info['preview'] = file_preview_html
+                        file_info['has_preview'] = True
+                else:
+                    # For CSV files, use existing logic
+                    file_preview_html = generate_sheet_images_with_highlighting(temp_file_path, max_sheets=3)
+                    file_info['preview'] = file_preview_html
+                    file_info['has_preview'] = True
+                
+                # Clean up temp file
+                os.unlink(temp_file_path)
+                
+                logging.info(f"✅ Generated preview for file {i+1}/{len(files_info)}: {file_info['filename']}")
+                
+            except Exception as file_error:
+                logging.error(f"❌ Failed to generate preview for {file_info['filename']}: {file_error}")
+                # Add fallback preview
+                file_info['preview'] = f'''
+                <div class="sheet-images-preview bg-gray-50 dark:bg-gray-900 p-6">
+                    <div class="text-center">
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                            File Ready: {file_info['filename']}
+                        </h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                            Preview generation in progress...
+                        </p>
+                    </div>
+                </div>
+                '''
+                file_info['has_preview'] = False
+        
+        # Use primary file preview for backward compatibility
+        primary_preview = files_info[0].get('preview', 'No preview available')
+        
+        # Prepare response data with individual file previews
         response_data = {
             'success': True,
             'session_id': new_session_id,
-            'files': files_info,
+            'files': files_info,  # Now includes preview data for each file
             'total_files': len(files_info),
             'primary_file': files_info[0],
             'data': {
                 'filename': primary_file['filename'],
                 'shape': list(analyzer.df.shape),
                 'columns': list(analyzer.df.columns),
-                'preview': preview_html,
+                'preview': primary_preview,  # Primary file preview for compatibility
+                'files': files_info,  # Include all files with their previews
                 'session_id': new_session_id,
                 'upload_time': datetime.now().isoformat(),
-                'total_files': len(files_info)
+                'total_files': len(files_info),
+                'isMultipleFiles': len(files_info) > 1,
+                'totalFiles': len(files_info)  # For frontend compatibility
             }
         }
         
