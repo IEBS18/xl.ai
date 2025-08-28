@@ -1225,137 +1225,116 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
     
     def _query_and_visualize(self, sql_query: str, chart_type: str, **kwargs) -> dict:
         """
-        Execute SQL query and create visualization (function tool for assistant)
-        Based on testdb.py query_and_visualize function
-        
-        Args:
-            sql_query: SQL query string
-            chart_type: Type of chart to create
-            **kwargs: Additional chart parameters
-            
-        Returns:
-            Dictionary with success status and chart URL
+        Execute SQL query and let the assistant create visualization
         """
         try:
-            logging.info(f"📊 Executing query and creating {chart_type} chart")
+            logging.info(f"📊 Executing query for {chart_type} visualization")
             
-            # First, execute the query
+            # Just execute the query and return data - let assistant handle visualization
             data = self._query_database(sql_query)
             
             if isinstance(data, dict) and "error" in data:
-                return data  # Return error from query execution
+                return data
             
             if not data:
                 return {"error": "No data returned from query"}
             
-            # Create visualization using existing chart creation logic
-            chart_url = self._create_chart_from_query_data(data, chart_type, sql_query, **kwargs)
+            # Return data for assistant to visualize
+            return {
+                'success': True, 
+                'data': data, 
+                'chart_type': chart_type,
+                'sql_query': sql_query,
+                'message': f'Data ready for {chart_type} visualization. Use matplotlib to create and save the chart to /mnt/data/'
+            }
             
-            if chart_url:
-                # Emit image event to frontend (same as file analysis)  
-                self.emit_stream('image', {
-                    'filename': f'{chart_type}_chart.png',
-                    'data': chart_url,  # URL-based image
-                    'path': None,
-                    'url': chart_url,
-                    'thisis': 3,  # Assistant generated
-                    'chart_type': chart_type,
-                    'sql_query': sql_query,
-                    'data_points': len(data)
-                })
-                
-                logging.info(f"✅ Visualization created: {chart_url}")
-                return {'success': True, 'chart_url': chart_url, 'data_points': len(data)}
-            else:
-                return {"error": "Failed to create visualization"}
-                
         except Exception as e:
-            error_msg = f"Visualization creation failed: {str(e)}"
+            error_msg = f"Query execution failed: {str(e)}"
             logging.error(f"❌ {error_msg}")
             return {"error": error_msg}
-    
-    def _create_chart_from_query_data(self, data: list, chart_type: str, sql_query: str, **kwargs) -> str:
-        """
-        Create chart from query data and upload to blob storage
         
-        Args:
-            data: List of records from SQL query
-            chart_type: Type of chart to create
-            sql_query: Original SQL query for context
-            **kwargs: Additional chart parameters
+    # def _create_chart_from_query_data(self, data: list, chart_type: str, sql_query: str, **kwargs) -> str:
+    #     """
+    #     Create chart from query data and upload to blob storage
+        
+    #     Args:
+    #         data: List of records from SQL query
+    #         chart_type: Type of chart to create
+    #         sql_query: Original SQL query for context
+    #         **kwargs: Additional chart parameters
             
-        Returns:
-            Chart URL or None if failed
-        """
-        try:
-            import pandas as pd
-            import matplotlib.pyplot as plt
-            import tempfile
+    #     Returns:
+    #         Chart URL or None if failed
+    #     """
+    #     try:
+    #         import pandas as pd
+    #         import matplotlib.pyplot as plt
+    #         import tempfile
             
-            # Convert data to DataFrame
-            df = pd.DataFrame(data)
+    #         # Convert data to DataFrame
+    #         df = pd.DataFrame(data)
             
-            if df.empty:
-                logging.warning("No data to visualize")
-                return None
+    #         if df.empty:
+    #             logging.warning("No data to visualize")
+    #             return None
             
-            # Create the chart
-            plt.figure(figsize=(12, 8))
+    #         # Create the chart
+    #         plt.figure(figsize=(12, 8))
             
-            # Get column names for plotting
-            columns = df.columns.tolist()
+    #         # Get column names for plotting
+    #         columns = df.columns.tolist()
             
-            if chart_type == "bar" and len(columns) >= 2:
-                x_col, y_col = columns[0], columns[1]
-                plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
-                plt.xlabel(x_col)
-                plt.ylabel(y_col)
-                plt.xticks(rotation=45, ha='right')
+    #         if chart_type == "bar" and len(columns) >= 2:
+    #             x_col, y_col = columns[0], columns[1]
+    #             plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
+    #             plt.xlabel(x_col)
+    #             plt.ylabel(y_col)
+    #             plt.xticks(rotation=45, ha='right')
                 
-            elif chart_type == "line" and len(columns) >= 2:
-                x_col, y_col = columns[0], columns[1]
-                plt.plot(df[x_col], pd.to_numeric(df[y_col], errors='coerce'), marker='o')
-                plt.xlabel(x_col)
-                plt.ylabel(y_col)
-                plt.xticks(rotation=45, ha='right')
+    #         elif chart_type == "line" and len(columns) >= 2:
+    #             x_col, y_col = columns[0], columns[1]
+    #             plt.plot(df[x_col], pd.to_numeric(df[y_col], errors='coerce'), marker='o')
+    #             plt.xlabel(x_col)
+    #             plt.ylabel(y_col)
+    #             plt.xticks(rotation=45, ha='right')
                 
-            elif chart_type == "pie" and len(columns) >= 2:
-                x_col, y_col = columns[0], columns[1]
-                plt.pie(pd.to_numeric(df[y_col], errors='coerce'), labels=df[x_col], autopct='%1.1f%%')
+    #         elif chart_type == "pie" and len(columns) >= 2:
+    #             x_col, y_col = columns[0], columns[1]
+    #             plt.pie(pd.to_numeric(df[y_col], errors='coerce'), labels=df[x_col], autopct='%1.1f%%')
                 
-            else:
-                # Default to bar chart
-                if len(columns) >= 2:
-                    x_col, y_col = columns[0], columns[1]
-                    plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
-                    plt.xlabel(x_col)
-                    plt.ylabel(y_col)
-                    plt.xticks(rotation=45, ha='right')
+    #         else:
+    #             # Default to bar chart
+    #             if len(columns) >= 2:
+    #                 x_col, y_col = columns[0], columns[1]
+    #                 plt.bar(df[x_col].astype(str), pd.to_numeric(df[y_col], errors='coerce'))
+    #                 plt.xlabel(x_col)
+    #                 plt.ylabel(y_col)
+    #                 plt.xticks(rotation=45, ha='right')
             
-            # Set title
-            title = kwargs.get('title', f'Database Query Results ({chart_type.title()} Chart)')
-            plt.title(title)
-            plt.tight_layout()
+    #         # Set title
+    #         title = kwargs.get('title', f'Database Query Results ({chart_type.title()} Chart)')
+    #         plt.title(title)
+    #         plt.tight_layout()
             
-            # Save to temporary file
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                plt.savefig(temp_file.name, dpi=150, bbox_inches='tight', facecolor='white')
-                plt.close()
+    #         # Save to temporary file
+    #         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+    #             plt.savefig(temp_file.name, dpi=150, bbox_inches='tight', facecolor='white')
+    #             plt.close()
                 
-                # Upload to blob storage (using existing upload logic)
-                chart_url = self._upload_file_to_blob(temp_file.name, f"database_charts")
+    #             # Upload to blob storage (using existing upload logic)
+    #             chart_url = self._upload_file_to_blob(temp_file.name, f"database_charts")
                 
-                # Clean up temp file
-                try:
-                    os.unlink(temp_file.name)
-                except:
-                    pass
+    #             # Clean up temp file
+    #             try:
+    #                 os.unlink(temp_file.name)
+    #             except:
+    #                 pass
                     
-                return chart_url
+    #             return chart_url
                 
-        except Exception as e:
-            logging.error(f"Chart creation failed: {e}")
-            return None
+    #     except Exception as e:
+    #         logging.error(f"Chart creation failed: {e}")
+    #         return None
     
     def handle_tool_call(self, tool_call) -> dict:
         """
@@ -1483,21 +1462,20 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             
             # STEP 4: Route to appropriate handler based on classification
             result = self._route_query_with_classification_decision(user_query, classification_metadata)
-            
+
             # STEP 5: Enhanced result formatting and processing
             result = self._format_analysis_result_with_dataframes_and_code(result, user_query)
-            
+
             # STEP 6: Add AI-powered explanation
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_ai_explanation_to_result(result, user_query, classification_metadata)
-            
-            # STEP 7: Add AI-generated summary
+
+            # STEP 7: Add AI-generated summary (THIS SHOULD NOW WORK FOR DATABASE)
             if result.get('success') and result.get('type') != 'conversational':
                 result = self._add_summary_to_result(result, user_query)
-            
+
             # STEP 8: Save query result to session memory
-            self._save_to_session_memory(user_query, result)
-                
+            self._save_to_session_memory(user_query, result)    
         except StopAnalysisException:
             # Handle stop signal gracefully
             self.is_analyzing = False
@@ -1845,17 +1823,19 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             
             return analysis_result
 
+
     def _handle_database_function_calling(self, run, assistant_id: str) -> Dict[str, Any]:
-        """Handle database function calling like testdb.py"""
+        """Handle database function calling and download generated images"""
         import json
         import time
         
-        # Track dataframes and SQL queries from function calls  
+        # Track dataframes, SQL queries, and generated files
         collected_dataframes = {}
         generated_sql_queries = []
+        generated_images = []  # Add this
         
         try:
-            # Process function calling loop (like testdb.py)
+            # Process function calling loop
             while True:
                 run_status = self.thread_manager.client.beta.threads.runs.retrieve(
                     thread_id=self.thread_id,
@@ -1869,23 +1849,21 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                     
                     for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
                         try:
-                            # Handle function call using database function tools
                             function_name = tool_call.function.name
                             arguments = json.loads(tool_call.function.arguments)
                             
                             self.emit_stream('status', f"🛠️ Executing {function_name}...")
                             
                             if function_name in self.function_tools:
-                                # Call the appropriate function
                                 function_result = self.function_tools[function_name](**arguments)
                                 
-                                # Collect SQL queries and dataframes for final response
+                                # Collect SQL queries for final response
                                 if function_name in ['query_database', 'query_and_visualize']:
                                     sql_query = arguments.get('sql_query', '')
                                     if sql_query:
                                         generated_sql_queries.append(sql_query)
                                         
-                                        # Emit SQL code same as file methods
+                                        # Emit SQL code
                                         self.emit_stream('code', {
                                             'code': sql_query,
                                             'type': 'sql',
@@ -1925,14 +1903,54 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                 elif run_status.status == "failed":
                     error_msg = f"Assistant run failed: {run_status.last_error}"
                     self.emit_stream('error', error_msg)
-                    return {
-                        "error": error_msg,
-                        "type": "database_analytical",
-                        "success": False
-                    }
+                    return {"error": error_msg, "type": "database_analytical", "success": False}
                 else:
-                    # Wait a bit before checking again
                     time.sleep(0.5)
+            
+            # After completion, download any generated files (images)
+            generated_files = []
+            messages = self.thread_manager.client.beta.threads.messages.list(
+                thread_id=self.thread_id,
+                order="desc",
+                limit=10
+            )
+            
+            # Check for generated files in the latest messages
+            for message in messages.data:
+                if message.role == "assistant":
+                    for content in message.content:
+                        if content.type == "image_file":
+                            try:
+                                # Download the image
+                                image_id = content.image_file.file_id
+                                image_data = self.assistant_manager.client.files.content(image_id)
+                                
+                                # Save to temp location
+                                import tempfile
+                                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                                    temp_file.write(image_data.content)
+                                    temp_path = temp_file.name
+                                
+                                # Upload to blob storage and emit
+                                blob_url = self._upload_file_to_blob(temp_path, "database_charts")
+                                if blob_url:
+                                    self.emit_stream('image', {
+                                        'filename': f'database_chart_{len(generated_images)+1}.png',
+                                        'data': blob_url,
+                                        'path': temp_path,
+                                        'url': blob_url,
+                                        'thisis': 3,
+                                        'chart_type': 'database_generated',
+                                        'source': 'assistant_matplotlib'
+                                    })
+                                    generated_images.append(blob_url)
+                                    
+                                    # Clean up temp file
+                                    import os
+                                    os.unlink(temp_path)
+                                    
+                            except Exception as e:
+                                logging.error(f"Error downloading generated image: {e}")
             
             # Get the assistant's response
             messages = self.thread_manager.client.beta.threads.messages.list(
@@ -1944,38 +1962,47 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             if messages.data:
                 response_content = messages.data[0].content[0].text.value
                 
-                # Generate explanation same as file methods
+                # Generate explanation (keep this for immediate feedback)
                 if generated_sql_queries:
-                    explanation = f"I executed {len(generated_sql_queries)} SQL query(ies) on your database to analyze the data and provide insights."
+                    explanation = f"I executed {len(generated_sql_queries)} SQL query(ies) on your database and created {len(generated_images)} visualization(s)."
                     self.emit_stream('explanation', explanation + response_content)
                 
                 self.emit_stream('response', response_content)
-                self.emit_stream('completion', "ANalysis Completed")
+                # DON'T emit completion here - let the main handler do it
                 
-                # Build SQL code string from collected queries
+                # Build SQL code string
                 generated_code = "\n\n-- SQL Queries Executed:\n" + "\n\n".join([
                     f"-- Query {i+1}:\n{query}" 
                     for i, query in enumerate(generated_sql_queries)
                 ]) if generated_sql_queries else ""
                 
+                # RETURN RESULT IN STANDARD FORMAT - Don't process summaries here
                 return {
                     "query": "database_query",
-                    "type": "fully_analytical",  # Match file-based type for compatibility
+                    "type": "fully_analytical",  # This ensures summary generation
                     "success": True,
                     "response": response_content,
-                    "dataframes": collected_dataframes,  # Populated from function calls
-                    "generated_code": generated_code,  # SQL queries as code
+                    "dataframes": collected_dataframes,
+                    "generated_code": generated_code,
                     "execution_result": {"success": True, "result": response_content},
-                    "generated_images": [],  # Charts are handled via visualization events
-                    "ai_classification": {},
+                    "generated_images": generated_images,
+                    "generated_files": {"images": generated_images},
+                    "ai_classification": {"assistant_type": "database_analyst"},
                     "timestamp": datetime.now().isoformat(),
-                    "analysis_type": "database"  # Indicate this is database analysis
+                    "analysis_type": "database",
+                    # Add these fields for summary generation
+                    "assistant_id": assistant_id,
+                    "thread_id": self.thread_id,
+                    "run_id": run.id if hasattr(run, 'id') else None
                 }
             else:
                 return {
                     "error": "No response from assistant",
                     "type": "database_analytical",
-                    "success": False
+                    "success": False,
+                    "dataframes": {},
+                    "generated_code": "",
+                    "ai_classification": {}
                 }
                 
         except Exception as e:
@@ -1983,9 +2010,190 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             return {
                 "error": str(e),
                 "type": "database_analytical", 
-                "success": False
+                "success": False,
+                "dataframes": {},
+                "generated_code": "",
+                "ai_classification": {}
             }
+    
+    def _create_database_enhanced_query(self, user_query: str, query_type: str = "analytical") -> str:
+        """
+        Create database-enhanced query with appropriate context based on query type.
+        
+        Args:
+            user_query: The original user query
+            query_type: Type of query ("conversational", "simple_calculation", "analytical")
+        
+        Returns:
+            Enhanced query string with database context
+        """
+        try:
+            if self.data_source_type != 'database':
+                return user_query
+                
+            # Base database context
+            db_context = f"""
+    You have access to the following database connection:
+    - Database Type: {self.db_connection_params.get('connection_type', 'unknown')}
+    - Database Name: {self.db_connection_params.get('database', 'unknown')}
+    - Schema: Available as uploaded JSON file
+            """
+            
+            if query_type == "conversational":
+                enhanced_query = f"""
+    Database Conversational Query: {user_query}
 
+    {db_context}
+
+    Instructions for conversational queries:
+    - Respond naturally to greetings, questions about yourself, and casual conversation
+    - Be helpful and friendly about database capabilities
+    - If users ask what you can do, mention you can:
+        * Connect to and query databases (PostgreSQL, MySQL, SQLite, SQL Server)
+        * Analyze database data with SQL queries
+        * Create visualizations and generate reports from database data
+        * Answer questions about database structure and schema
+    - Keep responses concise but warm
+    - Don't generate code or perform data analysis for simple conversational queries
+    - If the conversation shifts to data analysis, encourage them to ask specific questions about their database
+    - You can reference the available database and tables when appropriate
+
+    Context: You are connected to a {self.db_connection_params.get('connection_type', 'unknown')} database named '{self.db_connection_params.get('database', 'unknown')}'.
+                """
+                
+            elif query_type == "simple_calculation":
+                enhanced_query = f"""
+    Database Simple Query: {user_query}
+
+    {db_context}
+
+    Instructions for simple database queries:
+    - This is a SIMPLE query requiring a direct, concise answer from the database
+    - Write and execute ONE SQL query using query_database() to answer the question
+    - Provide the answer in a clear, direct format
+    - Focus on giving the exact information requested from the database
+    - If a simple visualization would help, you can create one
+    - Use your database schema knowledge to write accurate SQL queries
+
+    Example approach:
+    1. Analyze what data is needed from the database
+    2. Write appropriate SQL query
+    3. Execute using query_database()
+    4. Provide direct answer with the results
+                """
+                
+            else:  # analytical
+                enhanced_query = f"""
+    Database Query Request: {user_query}
+
+    {db_context}
+
+    Please analyze this query and use the query_database() and query_and_visualize() functions to:
+    1. Execute appropriate SQL queries to gather relevant data
+    2. Create visualizations if requested using matplotlib (save to /mnt/data/)
+    3. Provide comprehensive insights about the data
+    4. Use your database schema knowledge to write accurate SQL queries
+    5. Generate meaningful analysis based on the database results
+
+    For complex analysis:
+    - Execute multiple SQL queries if needed to gather comprehensive data
+    - Create appropriate visualizations to support your analysis
+    - Provide business insights based on the database findings
+    - Reference specific tables and relationships from your schema knowledge
+                """
+            
+            return enhanced_query
+            
+        except Exception as e:
+            print(f"Error creating database enhanced query: {e}")
+            return user_query
+
+# Modify the existing conversational handler
+    def _handle_conversational_query_enhanced(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ENHANCED: Handle conversational queries with database support
+        """
+        try:
+            assistant_type = metadata.get('assistant_type', 'conversational')
+            
+            # Use appropriate assistant type based on data source
+            if self.data_source_type == 'database':
+                # For database sessions, use database_analyst for conversational queries too
+                assistant_id = self.assistant_manager.create_or_get_assistant("database_analyst")
+                
+                # Create database-enhanced conversational query
+                enhanced_query = self._create_database_enhanced_query(user_query, "conversational")
+                
+            else:
+                # For file sessions, use conversational assistant
+                assistant_id = self.assistant_manager.create_or_get_assistant("conversational")
+                
+                # Get filename mapping for file context
+                filename_mapping = self._get_filename_mapping_context()
+                
+                # Add context about the data if available
+                context_message = ""
+                if self.df is not None:
+                    context_message = f"\n\nContext: I have access to a dataset with {self.df.shape[0]} rows and {self.df.shape[1]} columns containing: {', '.join(list(self.df.columns)[:5])}"
+                
+                # Combine filename mapping with context
+                full_context = ""
+                if filename_mapping:
+                    full_context += f"\n\n{filename_mapping}\n\nInstructions: When referencing data files, use the actual filenames from the mapping above."
+                if context_message:
+                    full_context += context_message
+                
+                enhanced_query = user_query + full_context
+            
+            # Run the appropriate assistant
+            result = self.assistant_manager.run_assistant_analysis(
+                self.thread_id,
+                enhanced_query,
+                file_ids=self.current_file_ids
+            )
+            
+            if result.get("success"):
+                ai_response = result.get("response_content", "I'm here to help with your data analysis!")
+            else:
+                ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+            
+            # Stream the response
+            self.emit_stream('response', ai_response)
+            self.emit_stream('completion', 'Response complete!')
+            
+            return {
+                "query": user_query,
+                "type": "conversational",
+                "success": True,
+                "response": ai_response,
+                "generated_images": [],
+                "dataframes": {},
+                "generated_code": "",
+                "requires_analysis": False,
+                "ai_classification": metadata,
+                "assistant_type": assistant_type,
+                "data_source_type": self.data_source_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            fallback_response = "I'm here to help you analyze your data! What would you like to explore?"
+            self.emit_stream('response', fallback_response)
+            
+            return {
+                "query": user_query,
+                "type": "conversational", 
+                "success": True,
+                "response": fallback_response,
+                "generated_images": [],
+                "dataframes": {},
+                "generated_code": "",
+                "error": f"AI response failed, used fallback: {str(e)}",
+                "ai_classification": metadata,
+                "data_source_type": self.data_source_type,
+                "timestamp": datetime.now().isoformat()
+            }
+        
     def _handle_database_analytical_query(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle database queries using database_analyst assistant with function calling
@@ -2012,19 +2220,29 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
             
             # Enhance query with database context
             enhanced_query = f"""
-Database Query Request: {user_query}
+    Database Query Request: {user_query}
 
-You have access to the following database connection:
-- Database Type: {self.db_connection_params.get('connection_type', 'unknown')}
-- Database Name: {self.db_connection_params.get('database', 'unknown')}
-- Schema: Available as uploaded JSON file
+    You have access to the following database connection:
+    - Database Type: {self.db_connection_params.get('connection_type', 'unknown')}
+    - Database Name: {self.db_connection_params.get('database', 'unknown')}
+    - Schema: Available as uploaded JSON file
 
-Please analyze this query and use the query_database() and query_and_visualize() functions to:
-1. Execute appropriate SQL queries
-2. Create visualizations if requested
-3. Provide insights about the data
+    Please analyze this query and use the query_database() and query_and_visualize() functions to:
+    1. Execute appropriate SQL queries
+    2. Create visualizations if requested using matplotlib (save to /mnt/data/)
+    3. Provide insights about the data
+    4. If the query has simple conversational question then: 
+        - Respond naturally to greetings, questions about yourself, and casual conversation
+        - Be helpful and friendly
+        - If users ask what you can do, mention you can:
+            * Analyze CSV/Excel data
+            * Connect to and query databases (PostgreSQL, MySQL, SQLite, SQL Server)
+            * Create visualizations and generate reports
+             * Answer questions about data structure and schema- Keep responses concise but warm
+        - Don't generate code or perform data analysis for conversational queries
+        - If the conversation shifts to data analysis, encourage them to ask specific questions about their data
 
-Use your database schema knowledge to write accurate SQL queries.
+    Use your database schema knowledge to write accurate SQL queries.
             """
             
             self.emit_stream('status', "🗄️ Running database analysis with function calling...")
@@ -2043,8 +2261,22 @@ Use your database schema knowledge to write accurate SQL queries.
                 assistant_id=assistant_id
             )
             
-            # Handle function calling manually (like testdb.py)
+            # Handle function calling and get result
             result = self._handle_database_function_calling(run, assistant_id)
+            
+            # # ADD SUMMARY PROCESSING - SAME AS OTHER ANALYSIS TYPES
+            # if result.get('success'):
+            #     # Format the result to ensure DataFrames and code are properly structured
+            #     result = self._format_analysis_result_with_dataframes_and_code(result, user_query)
+                
+            #     # Add AI-powered explanation (same as other types)
+            #     result = self._add_ai_explanation_to_result(result, user_query, metadata)
+                
+            #     # Add AI-generated summary (same as other types)
+            #     result = self._add_summary_to_result(result, user_query)
+                
+            #     # Save query result to session memory (same as other types)
+            #     self._save_to_session_memory(user_query, result)
             
             return result
             
@@ -2085,7 +2317,11 @@ Use your database schema knowledge to write accurate SQL queries.
             
         elif assistant_type == "database_analyst":
             # Database analysis with direct SQL execution
-            return self._handle_database_analytical_query(user_query, metadata)
+            if metadata.get('database_simple_query', False):
+                return self._handle_simple_database_query(user_query, metadata)
+            else:
+                # Regular complex database analysis
+                return self._handle_database_analytical_query(user_query, metadata)
             
         elif assistant_type == "report_generator":
             # Report generation
@@ -2108,84 +2344,171 @@ Use your database schema knowledge to write accurate SQL queries.
     def _handle_report_generation_with_classification_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Handle report generation with OpenAI classification context"""
         return self._handle_report_generation_with_ai_context(user_query, metadata)
-    def _handle_conversational_query_enhanced(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    
+    # def _handle_conversational_query_enhanced(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    #     """
+    #     ENHANCED: Handle conversational queries with AI-powered responses
+    #     """
+    #     try:
+    #         assistant_type = metadata.get('assistant_type', 'conversational')
+            
+    #         # self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
+            
+    #         # Use the specific assistant type determined by AI
+    #         if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
+    #             assistant_id = self.assistant_manager.create_or_get_assistant("conversational")
+                
+    #             # Get filename mapping
+    #             logging.info(f"🔍 [HANDLERS-CONVERSATIONAL] Getting filename mapping for session {self.session_id}")
+    #             filename_mapping = self._get_filename_mapping_context()
+                
+    #             # Add enhanced context about the data if available
+    #             context_message = ""
+    #             if self.df is not None:
+    #                 context_message = f"\n\nContext: I have access to a dataset with {self.df.shape[0]} rows and {self.df.shape[1]} columns containing: {', '.join(list(self.df.columns)[:5])}"
+                
+    #             # Combine filename mapping with context
+    #             full_context = ""
+    #             if filename_mapping:
+    #                 full_context += f"\n\n{filename_mapping}\n\nInstructions: When referencing data files, use the actual filenames from the mapping above."
+    #             if context_message:
+    #                 full_context += context_message
+                
+    #             enhanced_query = user_query + full_context
+                
+    #             result = self.assistant_manager.run_assistant_analysis(
+    #                 self.thread_id,
+    #                 enhanced_query,
+    #                 file_ids=self.current_file_ids
+    #             )
+                
+    #             if result.get("success"):
+    #                 ai_response = result.get("response_content", "I'm here to help with your data analysis!")
+    #             else:
+    #                 ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+    #         else:
+    #             ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+            
+    #         # Stream the response
+    #         self.emit_stream('response', ai_response)
+    #         self.emit_stream('completion', 'Response complete!')
+            
+    #         return {
+    #             "query": user_query,
+    #             "type": "conversational",
+    #             "success": True,
+    #             "response": ai_response,
+    #             "generated_images": [],
+    #             "dataframes": {},
+    #             "generated_code": "",
+    #             "requires_analysis": False,
+    #             "ai_classification": metadata,
+    #             "assistant_type": assistant_type,
+    #             "timestamp": datetime.now().isoformat()
+    #         }
+            
+    #     except Exception as e:
+    #         fallback_response = "I'm here to help you analyze your data! What would you like to explore?"
+    #         self.emit_stream('response', fallback_response)
+            
+    #         return {
+    #             "query": user_query,
+    #             "type": "conversational", 
+    #             "success": True,
+    #             "response": fallback_response,
+    #             "generated_images": [],
+    #             "dataframes": {},
+    #             "generated_code": "",
+    #             "error": f"AI response failed, used fallback: {str(e)}",
+    #             "ai_classification": metadata,
+    #             "timestamp": datetime.now().isoformat()
+    #         }
+
+    def _handle_simple_database_query(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        ENHANCED: Handle conversational queries with AI-powered responses
+        Handle simple database queries that just need quick answers
         """
+        
+        print("Database simple textual query with optimized approach")
+        
         try:
-            assistant_type = metadata.get('assistant_type', 'conversational')
+            # Check for database connection
+            if not (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None):
+                error_msg = "No database connection available."
+                self.emit_stream('error', error_msg)
+                return {
+                    "error": error_msg,
+                    "type": "textual_analytical",
+                    "success": False,
+                    "dataframes": {},
+                    "generated_code": "",
+                    "ai_classification": metadata
+                }
             
-            # self.emit_stream('status', f'💬 Processing {assistant_type} query with AI...')
+            # Create database analyst assistant
+            assistant_id = self.assistant_manager.create_or_get_assistant("database_analyst")
             
-            # Use the specific assistant type determined by AI
-            if assistant_type == 'conversational' and self.assistant_manager and self.thread_manager:
-                assistant_id = self.assistant_manager.create_or_get_assistant("conversational")
-                
-                # Get filename mapping
-                logging.info(f"🔍 [HANDLERS-CONVERSATIONAL] Getting filename mapping for session {self.session_id}")
-                filename_mapping = self._get_filename_mapping_context()
-                
-                # Add enhanced context about the data if available
-                context_message = ""
-                if self.df is not None:
-                    context_message = f"\n\nContext: I have access to a dataset with {self.df.shape[0]} rows and {self.df.shape[1]} columns containing: {', '.join(list(self.df.columns)[:5])}"
-                
-                # Combine filename mapping with context
-                full_context = ""
-                if filename_mapping:
-                    full_context += f"\n\n{filename_mapping}\n\nInstructions: When referencing data files, use the actual filenames from the mapping above."
-                if context_message:
-                    full_context += context_message
-                
-                enhanced_query = user_query + full_context
-                
-                result = self.assistant_manager.run_assistant_analysis(
-                    self.thread_id,
-                    enhanced_query,
-                    file_ids=self.current_file_ids
-                )
-                
-                if result.get("success"):
-                    ai_response = result.get("response_content", "I'm here to help with your data analysis!")
-                else:
-                    ai_response = "I'm here to help you analyze your data! What would you like to explore?"
-            else:
-                ai_response = "I'm here to help you analyze your data! What would you like to explore?"
+            # Enhanced query for simple database questions
+            enhanced_query = f"""
+    SIMPLE DATABASE QUERY: {user_query}
+
+    Database Connection:
+    - Type: {self.db_connection_params.get('connection_type', 'unknown')}
+    - Database: {self.db_connection_params.get('database', 'unknown')}
+
+    Instructions:
+    - This is a SIMPLE query requiring a direct, concise answer
+    - Write and execute ONE SQL query to answer the question
+    - Provide the answer in a clear, direct format
+    - If visualization would help, create a simple chart
+    - Focus on giving the exact information requested
+
+    Use query_database() to execute SQL and get your answer.
+            """
             
-            # Stream the response
-            self.emit_stream('response', ai_response)
-            self.emit_stream('completion', 'Response complete!')
+            self.emit_stream('status', "Executing simple database query...")
             
-            return {
-                "query": user_query,
-                "type": "conversational",
-                "success": True,
-                "response": ai_response,
-                "generated_images": [],
-                "dataframes": {},
-                "generated_code": "",
-                "requires_analysis": False,
-                "ai_classification": metadata,
-                "assistant_type": assistant_type,
-                "timestamp": datetime.now().isoformat()
-            }
+            # Add message to thread
+            self.thread_manager.add_message_to_thread(
+                thread_id=self.thread_id, 
+                role="user", 
+                content=enhanced_query, 
+                file_ids=self.current_file_ids
+            )
+            
+            # Create and run the assistant
+            run = self.thread_manager.client.beta.threads.runs.create(
+                thread_id=self.thread_id,
+                assistant_id=assistant_id
+            )
+            
+            # Handle function calling (reuse existing method)
+            result = self._handle_database_function_calling(run, assistant_id)
+            
+            if result.get('success'):
+                # Mark as textual_analytical type for consistency
+                result['type'] = 'textual_analytical'
+                result['analysis_type'] = 'database_simple'
+                
+                # Process through summary pipeline
+                result = self._format_analysis_result_with_dataframes_and_code(result, user_query)
+                result = self._add_ai_explanation_to_result(result, user_query, metadata)
+                result = self._add_summary_to_result(result, user_query)
+                self._save_to_session_memory(user_query, result)
+            
+            return result
             
         except Exception as e:
-            fallback_response = "I'm here to help you analyze your data! What would you like to explore?"
-            self.emit_stream('response', fallback_response)
-            
+            logging.error(f"Simple database query failed: {e}")
+            self.emit_stream('error', f"Simple database query failed: {str(e)}")
             return {
-                "query": user_query,
-                "type": "conversational", 
-                "success": True,
-                "response": fallback_response,
-                "generated_images": [],
+                "error": str(e),
+                "type": "textual_analytical",
+                "success": False,
                 "dataframes": {},
                 "generated_code": "",
-                "error": f"AI response failed, used fallback: {str(e)}",
-                "ai_classification": metadata,
-                "timestamp": datetime.now().isoformat()
-            }
+                "ai_classification": metadata
+            }    
         
     # def _route_query_with_ai_decision(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     #     """
@@ -2224,11 +2547,13 @@ Use your database schema knowledge to write accurate SQL queries.
             ENHANCED: Handle textual analytical queries with AI context and reasoning
             """
             
-            print("📊 Handling textual analytical query with AI-enhanced context")
-            
+            print("Handling textual analytical query with AI-enhanced context")
+    
             try:
-                # Check for data availability (CSV files OR database connection)
-                has_data = (self.df is not None) or (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None)
+                # Check data availability (files OR database)
+                has_file_data = self.df is not None
+                has_database_data = (self.data_source_type == 'database' and hasattr(self, 'connector') and self.connector is not None)
+                has_data = has_file_data or has_database_data
                 
                 if not has_data:
                     error_msg = "No data available. Please upload a CSV file or connect to a database first."
@@ -2242,6 +2567,13 @@ Use your database schema knowledge to write accurate SQL queries.
                         "ai_classification": metadata
                     }
                 
+                # Route based on data source type
+                if has_database_data:
+                    # For database sessions, redirect to simple database handler
+                    metadata['database_simple_query'] = True
+                    return self._handle_simple_database_query(user_query, metadata)
+                
+                # For file-based sessions, use the existing file-based handler
                 # Create textual analytical assistant
                 assistant_id = self.assistant_manager.create_or_get_assistant("textual_analytical")
                 
@@ -2250,7 +2582,7 @@ Use your database schema knowledge to write accurate SQL queries.
                 expected_output = metadata.get('expected_output', 'text')
                 
                 # Get filename mapping
-                logging.info(f"🔍 [HANDLERS-TEXTUAL] Getting filename mapping for session {self.session_id}")
+                logging.info(f"[HANDLERS-TEXTUAL] Getting filename mapping for session {self.session_id}")
                 filename_mapping = self._get_filename_mapping_context()
                 
                 enhanced_query = f"""
@@ -2295,13 +2627,13 @@ Use your database schema knowledge to write accurate SQL queries.
                     # Return enhanced result
                     return {
                         "query": user_query,
-                        "type": "textual_analytical",
+                        "type": "textual_analytical", 
                         "success": True,
                         "response": response_text,
                         "generated_code": generated_code,
                         "execution_result": {"success": True, "result": response_text},
                         "generated_images": [],
-                        "dataframes": {},  # Will be populated by format function if any DataFrames exist
+                        "dataframes": {},
                         "analysis_type": "textual_with_ai_context",
                         "ai_classification": metadata,
                         "assistant_id": assistant_id,
@@ -2314,7 +2646,7 @@ Use your database schema knowledge to write accurate SQL queries.
                     return self._fallback_textual_analytical_handler(user_query, metadata)
                     
             except Exception as e:
-                print(f"❌ AI-enhanced textual analytical handler failed: {e}")
+                print(f"AI-enhanced textual analytical handler failed: {e}")
                 return self._fallback_textual_analytical_handler(user_query, metadata)
 
     def _handle_complex_analytical_with_ai_context(self, user_query: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -2414,7 +2746,7 @@ Use your database schema knowledge to write accurate SQL queries.
             
             # If user just wants a report and we have session data, use it directly
             report_only_indicators = ['give', 'generate', 'create', 'provide', 'show me']
-            report_keywords = ['report', 'summary', 'comprehensive', 'detailed']
+            report_keywords = ['report',  'comprehensive', 'detailed']
             
             is_report_only = (
                 any(action in user_query.lower() for action in report_only_indicators) and
@@ -2989,6 +3321,21 @@ Please provide a concise summary following your format guidelines that highlight
             context_parts.append(f"Analysis Type: {analysis_type}")
             context_parts.append(f"Success Status: {'Successful' if success_status else 'Failed'}")
             
+            # HANDLE DATABASE-SPECIFIC ANALYSIS
+            if result.get('analysis_type') == 'database':
+                context_parts.append("Data Source: Database (SQL queries executed)")
+                
+                # SQL queries executed
+                generated_code = result.get('generated_code', '')
+                if generated_code and 'SQL Queries Executed:' in generated_code:
+                    sql_queries = generated_code.split('-- Query ')
+                    context_parts.append(f"SQL Queries Executed: {len(sql_queries)-1 if len(sql_queries) > 1 else 0}")
+                
+                # Database connection info
+                if hasattr(self, 'db_connection_params'):
+                    db_type = self.db_connection_params.get('connection_type', 'unknown')
+                    db_name = self.db_connection_params.get('database', 'unknown')
+                    context_parts.append(f"Database: {db_type} - {db_name}")
             # Main response/findings
             main_response = result.get('response', '')
             if main_response:
@@ -3469,7 +3816,7 @@ Please provide a concise summary following your format guidelines that highlight
     def _extract_and_stream_dataframes_from_assistant_result(self, result: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
         """ENHANCED: Extract DataFrames and stream them using generate_tailwind_table"""
         dataframes = {}
-        
+        import os
         try:
             execution_outputs = result.get("execution_outputs", [])
             generated_code = result.get("generated_code", "")
@@ -3478,7 +3825,7 @@ Please provide a concise summary following your format guidelines that highlight
             if generated_code:
                 try:
                     # Safe execution environment
-                    exec_globals = {'df': self.df, 'pd': pd, 'np': __import__('numpy')}
+                    exec_globals = {'df': self.df, 'pd': pd, 'np': __import__('numpy'), 'os': os}
                     exec_locals = {}
                     
                     # Execute the assistant's code

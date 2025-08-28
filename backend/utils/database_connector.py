@@ -177,7 +177,8 @@ class DatabaseConnector:
             DATABASE={params['database']};
             UID={params['username']};
             PWD={params['password']}
-            """
+            """ 
+            
             return pyodbc.connect(connection_string, timeout=10)
         except ImportError:
             raise ImportError("pyodbc not installed. Install with: pip install pyodbc")
