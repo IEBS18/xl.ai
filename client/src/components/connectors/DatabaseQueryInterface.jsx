@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Send, Database, Table, Loader2, Code, MessageSquare, X, ChevronDown, ChevronUp } from 'lucide-react';
-import axios from 'axios';
 
 const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisconnect }) => {
   const [query, setQuery] = useState('');
@@ -20,9 +19,10 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
 
   const fetchTables = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/connectors/postgres/tables/${connectionId}`);
-      if (response.data.success) {
-        setTables(response.data.tables);
+      const response = await fetch(`http://localhost:5000/api/connectors/postgres/tables/${connectionId}`);
+      const data = await response.json();
+      if (data.success) {
+        setTables(data.tables);
       }
     } catch (error) {
       console.error('Failed to fetch tables:', error);
@@ -31,8 +31,9 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
 
   const checkConnectionStatus = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/connectors/postgres/status/${connectionId}`);
-      setConnectionStatus(response.data.status);
+      const response = await fetch(`http://0/api/connectors/postgres/status/${connectionId}`);
+      const data = await response.json();
+      setConnectionStatus(data.status);
     } catch (error) {
       setConnectionStatus('disconnected');
     }
@@ -54,28 +55,36 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
     setQuery('');
 
     try {
-      const response = await axios.post('http://localhost:5000/api/connectors/postgres/query', {
-        connectionId,
-        query: query
+      const response = await fetch('http://localhost:5000/api/connectors/postgres/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionId,
+          query: query
+        })
       });
 
-      if (response.data.success) {
+      const data = await response.json();
+
+      if (data.success) {
         const assistantMessage = {
           id: Date.now() + 1,
           type: 'assistant',
-          content: response.data.result,
-          sql: response.data.sql,
+          content: data.result,
+          sql: data.sql,
           timestamp: new Date().toISOString()
         };
         setMessages(prev => [...prev, assistantMessage]);
       } else {
-        throw new Error(response.data.message);
+        throw new Error(data.message);
       }
     } catch (error) {
       const errorMessage = {
         id: Date.now() + 1,
         type: 'error',
-        content: error.response?.data?.message || 'Failed to process query',
+        content: error.message || 'Failed to process query',
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -87,16 +96,24 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
   const executeSql = async (sql) => {
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/connectors/postgres/execute', {
-        connectionId,
-        sql
+      const response = await fetch('http://localhost:5000/api/connectors/postgres/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionId,
+          sql
+        })
       });
 
-      if (response.data.success) {
+      const data = await response.json();
+
+      if (data.success) {
         const resultMessage = {
           id: Date.now(),
           type: 'sql-result',
-          content: response.data.rows || `Query executed successfully. ${response.data.rowCount} rows affected.`,
+          content: data.rows || `Query executed successfully. ${data.rowCount} rows affected.`,
           timestamp: new Date().toISOString()
         };
         setMessages(prev => [...prev, resultMessage]);
@@ -105,7 +122,7 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
       const errorMessage = {
         id: Date.now(),
         type: 'error',
-        content: error.response?.data?.message || 'Failed to execute SQL',
+        content: error.message || 'Failed to execute SQL',
         timestamp: new Date().toISOString()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -116,8 +133,14 @@ const DatabaseQueryInterface = ({ connectionId, connectionName, database, onDisc
 
   const handleDisconnect = async () => {
     try {
-      await axios.post('http://localhost:5000/api/connectors/postgres/disconnect', {
-        connectionId
+      await fetch('http://localhost:5000/api/connectors/postgres/disconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionId
+        })
       });
       onDisconnect();
     } catch (error) {

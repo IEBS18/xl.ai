@@ -1,242 +1,3 @@
-# from llama_index.core import SQLDatabase
-# from llama_index.core.query_engine import NLSQLTableQueryEngine
-# from llama_index.llms.azure_openai import AzureOpenAI  # USE AZURE-SPECIFIC CLASS!
-# from llama_index.core import Settings
-# from sqlalchemy import create_engine, text
-# import urllib.parse
-# import os
-# from dotenv import load_dotenv
-
-# load_dotenv()
-
-# # ========================================
-# # AZURE OPENAI CONFIGURATION
-# # ========================================
-# AZURE_API_KEY = os.getenv("AZURE_API")
-# AZURE_BASE_URL = os.getenv("AZURE_BASE_URL")
-# AZURE_API_VERSION = os.getenv("AZURE_API_VERSION", "2024-08-01-preview")
-# AZURE_MODEL = os.getenv("AZURE_OPENAI_MODEL", "gpt-4o-mini")
-
-# # Extract the clean endpoint and deployment name from your URL
-# # Your URL: "https://hites-m730vlcq-swedencentral.openai.azure.com/openai/deployments/pharmaX/chat/completions?api-version=..."
-# if "/openai/deployments/" in AZURE_BASE_URL:
-#     # Extract base endpoint
-#     azure_endpoint = AZURE_BASE_URL.split("/openai/deployments/")[0]
-#     # Extract deployment name
-#     deployment_name = AZURE_BASE_URL.split("/openai/deployments/")[1].split("/")[0]
-# else:
-#     # Fallback if URL format is different
-#     azure_endpoint = AZURE_BASE_URL.rstrip("/")
-#     deployment_name = "pharmaX"
-
-# print("=" * 50)
-# print("AZURE OPENAI CONFIGURATION")
-# print("=" * 50)
-# print(f"Endpoint: {azure_endpoint}")
-# print(f"Deployment: {deployment_name}")
-# print(f"Model: {AZURE_MODEL}")
-# print(f"API Version: {AZURE_API_VERSION}")
-# print(f"API Key: {'***' + AZURE_API_KEY[-4:] if AZURE_API_KEY else 'NOT SET'}")
-
-# # ========================================
-# # DATABASE CONFIGURATION
-# # ========================================
-# config = {
-#     "username": os.getenv("DB_USER"),
-#     "password": os.getenv("DB_PASSWORD"),
-#     "host": os.getenv('DB_HOST'),
-#     "port": 5432,
-#     "database": os.getenv("DB_NAME")
-# }
-
-# # Check for missing configs
-# missing_configs = []
-# for key, value in config.items():
-#     if not value and key != "port":
-#         missing_configs.append(f"DB_{key.upper()}")
-
-# if missing_configs:
-#     print(f"\n❌ MISSING REQUIRED ENVIRONMENT VARIABLES: {', '.join(missing_configs)}")
-#     exit(1)
-
-# # Build connection string
-# password_encoded = urllib.parse.quote_plus(config["password"])
-# connection_string = (
-#     f"postgresql://{config['username']}:{password_encoded}@"
-#     f"{config['host']}:{config['port']}/{config['database']}?sslmode=require"
-# )
-
-# print("\n" + "=" * 50)
-# print("DATABASE CONNECTION")
-# print("=" * 50)
-
-# try:
-#     # Create engine and test connection
-#     engine = create_engine(connection_string)
-    
-#     with engine.connect() as conn:
-#         result = conn.execute(text("SELECT version()"))
-#         print(f"✓ Connected to PostgreSQL!")
-        
-#         # List tables
-#         result = conn.execute(text("""
-#             SELECT table_name 
-#             FROM information_schema.tables 
-#             WHERE table_schema = 'public' 
-#             ORDER BY table_name
-#             LIMIT 10;
-#         """))
-#         tables = result.fetchall()
-#         print(f"\nAvailable tables:")
-#         for table in tables:
-#             print(f"  - {table[0]}")
-    
-#     # ========================================
-#     # INITIALIZE AZURE OPENAI WITH LLAMAINDEX
-#     # ========================================
-#     print("\n" + "=" * 50)
-#     print("INITIALIZING AZURE OPENAI LLM")
-#     print("=" * 50)
-    
-#     # CRITICAL: Use AzureOpenAI class, not OpenAI!
-#     llm = AzureOpenAI(
-#         deployment_name=deployment_name,
-#         model=AZURE_MODEL,           
-#         api_key=AZURE_API_KEY,
-#         azure_endpoint=azure_endpoint,
-#         api_version=AZURE_API_VERSION,
-#         temperature=0,
-#         max_tokens=1000
-#     )
-    
-#     # Test the LLM connection
-#     try:
-#         print("Testing LLM connection...")
-#         test_response = llm.complete("Say 'Hello, Azure OpenAI is working!'")
-#         print(f"✓ LLM Test Response: {test_response.text.strip()}")
-#     except Exception as e:
-#         print(f"❌ LLM Test Failed: {e}")
-        
-#         # Fallback: Try with environment variables
-#         print("\nTrying fallback method with environment variables...")
-#         os.environ["AZURE_OPENAI_API_KEY"] = AZURE_API_KEY
-#         os.environ["AZURE_OPENAI_ENDPOINT"] = azure_endpoint
-#         os.environ["OPENAI_API_VERSION"] = AZURE_API_VERSION
-        
-#         llm = AzureOpenAI(
-#             deployment_name=deployment_name,
-#             model=AZURE_MODEL,
-#             temperature=0,
-#             max_tokens=1000
-#         )
-        
-#         test_response = llm.complete("Say 'Hello, Azure OpenAI is working!'")
-#         print(f"✓ Fallback successful! Response: {test_response.text.strip()}")
-    
-#     # ========================================
-#     # SETUP EMBEDDINGS (OPTIONAL)
-#     # ========================================
-#     print("\n" + "=" * 50)
-#     print("SETTING UP EMBEDDINGS")
-#     print("=" * 50)
-    
-#     try:
-#         # Option 1: Use Azure OpenAI embeddings if you have a deployment
-#         from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
-        
-#         # Uncomment if you have an embeddings deployment
-#         # embed_model = AzureOpenAIEmbedding(
-#         #     deployment_name="your-embedding-deployment",
-#         #     api_key=AZURE_API_KEY,
-#         #     azure_endpoint=azure_endpoint,
-#         #     api_version=AZURE_API_VERSION
-#         # )
-        
-#         # Option 2: Use local embeddings (no API calls)
-#         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-#         embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
-#         print("✓ Using HuggingFace local embeddings")
-        
-#     except ImportError:
-#         print("⚠️ No embeddings model available, proceeding without embeddings")
-#         embed_model = None
-    
-#     # ========================================
-#     # CONFIGURE LLAMAINDEX SETTINGS
-#     # ========================================
-#     Settings.llm = llm
-#     if embed_model:
-#         Settings.embed_model = embed_model
-    
-#     # ========================================
-#     # CREATE QUERY ENGINE
-#     # ========================================
-#     print("\n" + "=" * 50)
-#     print("CREATING QUERY ENGINE")
-#     print("=" * 50)
-    
-#     sql_database = SQLDatabase(engine)
-    
-#     query_engine = NLSQLTableQueryEngine(
-#         sql_database=sql_database,
-#         llm=llm,
-#         verbose=True  # Show SQL queries being generated
-#     )
-    
-#     # ========================================
-#     # TEST QUERIES
-#     # ========================================
-#     print("\n" + "=" * 50)
-#     print("TESTING QUERIES")
-#     print("=" * 50)
-    
-#     # Use the first available table or default
-#     table_name = tables[0][0] if tables else "users"
-    
-#     test_queries = [
-#         f"How many rows are in the {table_name} table?",
-#         f"What are the column names in the {table_name} table?",
-#         # Add more test queries as needed
-#     ]
-    
-#     for query in test_queries:
-#         try:
-#             print(f"\nQuery: {query}")
-#             response = query_engine.query(query)
-#             print(f"Response: {response}")
-#         except Exception as e:
-#             print(f"Error: {e}")
-    
-#     print("\n" + "=" * 50)
-#     print("✓ SETUP COMPLETE!")
-#     print("=" * 50)
-    
-# except Exception as e:
-#     print(f"\n❌ ERROR: {e}")
-#     import traceback
-#     traceback.print_exc()
-    
-#     # Additional debugging
-#     print("\n" + "=" * 50)
-#     print("DEBUGGING INFORMATION")
-#     print("=" * 50)
-#     print(f"Python version: {os.sys.version}")
-    
-#     # Check installed packages
-#     try:
-#         import llama_index
-#         print(f"LlamaIndex version: {llama_index.__version__}")
-#     except:
-#         print("LlamaIndex not properly installed")
-    
-#     try:
-#         import openai
-#         print(f"OpenAI version: {openai.__version__}")
-#     except:
-#         print("OpenAI package not installed")
-
-
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from llama_index.core import SQLDatabase, Settings
@@ -249,20 +10,50 @@ import urllib.parse
 import os
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2 import sql
 import threading
 import time
+import logging
+import traceback
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+allowed_origins = [
+    "http://localhost:5173", 
+    "http://localhost", 
+    "http://127.0.0.1:5173",
+    "https://preview--data-scope-ai-lens.lovable.app",
+    "https://*.lovable.app",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://20.197.12.172",
+    "https://insipredict.ai",
+    "https://www.insipredict.ai"
+]
+# Fix CORS to allow all common development origins
+CORS(app, 
+     origins=allowed_origins,  # Allow all origins in development
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     supports_credentials=True)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Generate or load encryption key
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    logger.warning("No ENCRYPTION_KEY found in environment, generating new key")
+    # Save the generated key for reference
+    print(f"Generated ENCRYPTION_KEY: {ENCRYPTION_KEY}")
+    print("Add this to your .env file to persist: ENCRYPTION_KEY=" + ENCRYPTION_KEY)
+
 cipher = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
 
 # Store active connections in memory (use Redis in production)
@@ -272,8 +63,19 @@ connection_lock = threading.Lock()
 # Azure OpenAI Configuration
 def get_azure_config():
     """Extract Azure OpenAI configuration from environment variables"""
+    # Fix: Check for both AZURE_API and AZURE_API_KEY
+    azure_api_key = os.getenv("AZURE_API_KEY") or os.getenv("AZURE_API")
     azure_base_url = os.getenv("AZURE_BASE_URL")
     
+    if not azure_base_url:
+        logger.error("AZURE_BASE_URL not found in environment")
+        return None
+    
+    if not azure_api_key:
+        logger.error("AZURE_API_KEY (or AZURE_API) not found in environment")
+        return None
+    
+    # Clean up the base URL to get the endpoint
     if "/openai/deployments/" in azure_base_url:
         azure_endpoint = azure_base_url.split("/openai/deployments/")[0]
         deployment_name = azure_base_url.split("/openai/deployments/")[1].split("/")[0]
@@ -281,39 +83,72 @@ def get_azure_config():
         azure_endpoint = azure_base_url.rstrip("/")
         deployment_name = "pharmaX"
     
-    return {
+    config = {
         "endpoint": azure_endpoint,
         "deployment": deployment_name,
-        "api_key": os.getenv("AZURE_API_KEY"),
+        "api_key": azure_api_key,
         "api_version": os.getenv("AZURE_API_VERSION", "2024-08-01-preview"),
         "model": os.getenv("AZURE_OPENAI_MODEL", "gpt-4o-mini")
     }
+    
+    logger.info(f"Azure config loaded - Endpoint: {config['endpoint']}, Deployment: {config['deployment']}")
+    return config
 
 def initialize_llm():
     """Initialize Azure OpenAI LLM"""
-    config = get_azure_config()
-    
-    llm = AzureOpenAI(
-        deployment_name=config["deployment"],
-        model=config["model"],
-        api_key=config["api_key"],
-        azure_endpoint=config["endpoint"],
-        api_version=config["api_version"],
-        temperature=0,
-        max_tokens=1000
-    )
-    
-    # Initialize embeddings
-    embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
-    
-    # Configure Settings
-    Settings.llm = llm
-    Settings.embed_model = embed_model
-    
-    return llm
+    try:
+        config = get_azure_config()
+        
+        if not config:
+            logger.error("Failed to get Azure configuration")
+            return None
+        
+        llm = AzureOpenAI(
+            deployment_name=config["deployment"],
+            model=config["model"],
+            api_key=config["api_key"],
+            azure_endpoint=config["endpoint"],
+            api_version=config["api_version"],
+            temperature=0,
+            max_tokens=1000
+        )
+        
+        # Test the LLM connection
+        try:
+            test_response = llm.complete("Say 'Hello'")
+            logger.info(f"LLM test successful: {test_response.text.strip()}")
+        except Exception as e:
+            logger.error(f"LLM test failed: {str(e)}")
+            # Try alternative initialization
+            os.environ["AZURE_OPENAI_API_KEY"] = config["api_key"]
+            os.environ["AZURE_OPENAI_ENDPOINT"] = config["endpoint"]
+            os.environ["OPENAI_API_VERSION"] = config["api_version"]
+            
+            llm = AzureOpenAI(
+                deployment_name=config["deployment"],
+                model=config["model"],
+                temperature=0,
+                max_tokens=1000
+            )
+        
+        # Initialize embeddings
+        embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        
+        # Configure Settings
+        Settings.llm = llm
+        Settings.embed_model = embed_model
+        
+        logger.info("LLM initialized successfully")
+        return llm
+    except Exception as e:
+        logger.error(f"Failed to initialize LLM: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
 
 # Initialize LLM on startup
 llm = initialize_llm()
+if not llm:
+    logger.warning("Running without LLM - natural language queries will not be available")
 
 def encrypt_password(password):
     """Encrypt password for storage"""
@@ -324,13 +159,14 @@ def decrypt_password(encrypted_password):
     return cipher.decrypt(encrypted_password.encode()).decode()
 
 def test_postgres_connection(host, port, user, password, database=None):
-    """Test PostgreSQL connection"""
+    """Test PostgreSQL connection with better error handling"""
     try:
         conn_params = {
             "host": host,
             "port": port,
             "user": user,
-            "password": password
+            "password": password,
+            "connect_timeout": 10
         }
         
         if database:
@@ -342,8 +178,18 @@ def test_postgres_connection(host, port, user, password, database=None):
         conn = psycopg2.connect(**conn_params)
         conn.close()
         return True, "Connection successful"
+    except psycopg2.OperationalError as e:
+        error_msg = str(e)
+        if "password authentication failed" in error_msg:
+            return False, "Invalid username or password"
+        elif "could not connect to server" in error_msg:
+            return False, "Cannot connect to server. Please check host and port."
+        elif "database" in error_msg and "does not exist" in error_msg:
+            return False, "Database does not exist"
+        else:
+            return False, f"Connection error: {error_msg}"
     except Exception as e:
-        return False, str(e)
+        return False, f"Unexpected error: {str(e)}"
 
 def get_databases_list(host, port, user, password):
     """Get list of all databases on the server"""
@@ -353,7 +199,8 @@ def get_databases_list(host, port, user, password):
             port=port,
             user=user,
             password=password,
-            database="postgres"  # Connect to default database
+            database="postgres",
+            connect_timeout=10
         )
         
         cursor = conn.cursor()
@@ -361,110 +208,198 @@ def get_databases_list(host, port, user, password):
             SELECT datname 
             FROM pg_database 
             WHERE datistemplate = false 
+            AND datname NOT IN ('postgres')
             ORDER BY datname;
         """)
         
         databases = [row[0] for row in cursor.fetchall()]
+        
+        # Include postgres database as well if user wants to connect to it
+        databases.insert(0, 'postgres')
         
         cursor.close()
         conn.close()
         
         return databases
     except Exception as e:
+        logger.error(f"Failed to list databases: {str(e)}")
         raise Exception(f"Failed to list databases: {str(e)}")
+
+# Add OPTIONS handler for CORS preflight
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'status': 'ok'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        return response
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         "status": "healthy",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "llm_status": "active" if llm else "not configured",
+        "active_connections": len(active_connections)
     })
 
-@app.route('/api/connectors/postgres/test', methods=['POST'])
+@app.route('/api/connectors/postgres/test', methods=['POST', 'OPTIONS'])
 def test_connection():
     """Test PostgreSQL server connection and list databases"""
-    data = request.json
-    
-    host = data.get('host')
-    port = data.get('port', 5432)
-    user = data.get('user')
-    password = data.get('password')
-    
-    if not all([host, port, user, password]):
-        return jsonify({
-            "success": False,
-            "message": "Missing required connection parameters"
-        }), 400
-    
-    # Test connection
-    success, message = test_postgres_connection(host, port, user, password)
-    
-    if not success:
-        return jsonify({
-            "success": False,
-            "message": message
-        }), 400
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
     try:
+        data = request.json
+        
+        host = data.get('host', '').strip()
+        port = data.get('port', 5432)
+        user = data.get('user', '').strip()
+        password = data.get('password', '')
+        
+        # Validate input
+        if not all([host, port, user, password]):
+            return jsonify({
+                "success": False,
+                "message": "Missing required connection parameters"
+            }), 400
+        
+        # Validate port
+        try:
+            port = int(port)
+            if port < 1 or port > 65535:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid port number"
+            }), 400
+        
+        logger.info(f"Testing connection to {host}:{port} as user {user}")
+        
+        # Test connection
+        success, message = test_postgres_connection(host, port, user, password)
+        
+        if not success:
+            logger.error(f"Connection test failed: {message}")
+            return jsonify({
+                "success": False,
+                "message": message
+            }), 400
+        
         # Get list of databases
         databases = get_databases_list(host, port, user, password)
+        
+        logger.info(f"Connection successful, found {len(databases)} databases")
         
         return jsonify({
             "success": True,
             "message": "Connection successful",
             "databases": databases
         })
+        
     except Exception as e:
+        logger.error(f"Test connection error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "message": str(e)
         }), 500
 
-@app.route('/api/connectors/postgres/connect', methods=['POST'])
+@app.route('/api/connectors/postgres/connect', methods=['POST', 'OPTIONS'])
 def connect_to_database():
     """Connect to a specific database and set up query engine"""
-    data = request.json
-    
-    connection_name = data.get('connectionName')
-    host = data.get('host')
-    port = data.get('port', 5432)
-    user = data.get('user')
-    password = data.get('password')
-    database = data.get('database')
-    ssl_mode = data.get('ssl', False)
-    
-    if not all([connection_name, host, port, user, password, database]):
-        return jsonify({
-            "success": False,
-            "message": "Missing required parameters"
-        }), 400
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
     try:
+        data = request.json
+        
+        connection_name = data.get('connectionName', '').strip()
+        host = data.get('host', '').strip()
+        port = data.get('port', 5432)
+        user = data.get('user', '').strip()
+        password = data.get('password', '')
+        database = data.get('database', '').strip()
+        ssl_mode = data.get('ssl', False)
+        
+        # Validate input
+        if not all([connection_name, host, port, user, password, database]):
+            return jsonify({
+                "success": False,
+                "message": "Missing required parameters"
+            }), 400
+        
+        # Validate port
+        try:
+            port = int(port)
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid port number"
+            }), 400
+        
+        logger.info(f"Connecting to database {database} at {host}:{port}")
+        
         # Build connection string
         password_encoded = urllib.parse.quote_plus(password)
-        ssl_param = "?sslmode=require" if ssl_mode else ""
+        ssl_param = "?sslmode=require" if ssl_mode else "?sslmode=prefer"
         connection_string = (
             f"postgresql://{user}:{password_encoded}@"
             f"{host}:{port}/{database}{ssl_param}"
         )
         
-        # Create engine
-        engine = create_engine(connection_string)
+        # Create engine with connection pool
+        engine = create_engine(
+            connection_string,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            pool_recycle=3600
+        )
         
         # Test connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         
+        # Get table information
+        inspector = inspect(engine)
+        tables = []
+        
+        for table_name in inspector.get_table_names():
+            columns = inspector.get_columns(table_name)
+            tables.append({
+                "name": table_name,
+                "columns": [
+                    {
+                        "name": col['name'],
+                        "type": str(col['type']),
+                        "nullable": col.get('nullable', True)
+                    } for col in columns
+                ],
+                "expanded": False
+            })
+        
         # Create SQL database instance
         sql_database = SQLDatabase(engine)
         
-        # Create query engine
-        query_engine = NLSQLTableQueryEngine(
-            sql_database=sql_database,
-            llm=llm,
-            verbose=True
-        )
+        query_engine = None
+        if llm:
+            try:
+                # Create query engine
+                query_engine = NLSQLTableQueryEngine(
+                    sql_database=sql_database,
+                    llm=llm,
+                    verbose=True
+                )
+                logger.info("Query engine created successfully")
+            except Exception as e:
+                logger.warning(f"Failed to create query engine: {str(e)}")
+                query_engine = None
+        else:
+            logger.warning("LLM not available, query engine not created")
         
         # Generate connection ID
         connection_id = str(uuid.uuid4())
@@ -485,9 +420,7 @@ def connect_to_database():
                 "last_used": datetime.now().isoformat()
             }
         
-        # Get table information
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
+        logger.info(f"New connection established: {connection_id} - {database}")
         
         return jsonify({
             "success": True,
@@ -496,39 +429,59 @@ def connect_to_database():
             "connectionName": connection_name,
             "database": database,
             "tables": tables,
-            "tableCount": len(tables)
+            "tableCount": len(tables),
+            "queryEngineEnabled": query_engine is not None
         })
         
     except Exception as e:
+        logger.error(f"Connect to database error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "message": f"Failed to connect: {str(e)}"
         }), 500
 
-@app.route('/api/connectors/postgres/query', methods=['POST'])
+@app.route('/api/connectors/postgres/query', methods=['POST', 'OPTIONS'])
 def query_database():
     """Execute natural language query on connected database"""
-    data = request.json
-    connection_id = data.get('connectionId')
-    query = data.get('query')
-    
-    if not connection_id or not query:
-        return jsonify({
-            "success": False,
-            "message": "Missing connectionId or query"
-        }), 400
-    
-    connection = active_connections.get(connection_id)
-    
-    if not connection:
-        return jsonify({
-            "success": False,
-            "message": "Connection not found. Please reconnect."
-        }), 404
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
     try:
+        data = request.json
+        connection_id = data.get('connectionId')
+        query = data.get('query')
+        
+        if not connection_id or not query:
+            return jsonify({
+                "success": False,
+                "message": "Missing connectionId or query"
+            }), 400
+        
+        connection = active_connections.get(connection_id)
+        
+        if not connection:
+            return jsonify({
+                "success": False,
+                "message": "Connection not found. Please reconnect."
+            }), 404
+        
         # Update last used timestamp
         connection['last_used'] = datetime.now().isoformat()
+        
+        # Check if query engine is available
+        if not connection.get('query_engine'):
+            # Fallback: try to execute as SQL if it looks like SQL
+            if any(keyword in query.upper() for keyword in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP']):
+                logger.info("No query engine available, attempting direct SQL execution")
+                return execute_sql_internal(connection_id, query)
+            
+            return jsonify({
+                "success": False,
+                "message": "Natural language query is not available. LLM not configured. Please write SQL queries directly."
+            }), 503
+        
+        logger.info(f"Executing natural language query: {query}")
         
         # Execute query using query engine
         response = connection['query_engine'].query(query)
@@ -546,74 +499,101 @@ def query_database():
         })
         
     except Exception as e:
+        logger.error(f"Query error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "message": f"Query failed: {str(e)}"
         }), 500
 
-@app.route('/api/connectors/postgres/execute', methods=['POST'])
-def execute_sql():
-    """Execute raw SQL query"""
-    data = request.json
-    connection_id = data.get('connectionId')
-    sql_query = data.get('sql')
-    
-    if not connection_id or not sql_query:
-        return jsonify({
-            "success": False,
-            "message": "Missing connectionId or SQL query"
-        }), 400
-    
+def execute_sql_internal(connection_id, sql_query):
+    """Internal function to execute SQL"""
     connection = active_connections.get(connection_id)
-    
     if not connection:
         return jsonify({
             "success": False,
             "message": "Connection not found"
         }), 404
     
-    try:
-        engine = connection['engine']
+    engine = connection['engine']
+    
+    with engine.connect() as conn:
+        result = conn.execute(text(sql_query))
         
-        with engine.connect() as conn:
-            result = conn.execute(text(sql_query))
+        if result.returns_rows:
+            rows = []
+            for row in result:
+                row_dict = {}
+                for key, value in row._mapping.items():
+                    if isinstance(value, datetime):
+                        row_dict[key] = value.isoformat()
+                    elif value is None:
+                        row_dict[key] = None
+                    else:
+                        row_dict[key] = str(value) if not isinstance(value, (str, int, float, bool)) else value
+                rows.append(row_dict)
             
-            # Handle SELECT queries
-            if result.returns_rows:
-                rows = [dict(row._mapping) for row in result]
-                return jsonify({
-                    "success": True,
-                    "rows": rows,
-                    "rowCount": len(rows),
-                    "database": connection['database']
-                })
-            else:
-                # Handle INSERT, UPDATE, DELETE
-                return jsonify({
-                    "success": True,
-                    "rowCount": result.rowcount,
-                    "message": f"Query executed successfully. {result.rowcount} rows affected.",
-                    "database": connection['database']
-                })
-                
+            return jsonify({
+                "success": True,
+                "result": f"Query returned {len(rows)} rows",
+                "rows": rows,
+                "rowCount": len(rows),
+                "database": connection['database']
+            })
+        else:
+            conn.commit()
+            return jsonify({
+                "success": True,
+                "result": f"Query executed successfully. {result.rowcount} rows affected.",
+                "rowCount": result.rowcount,
+                "database": connection['database']
+            })
+
+@app.route('/api/connectors/postgres/execute', methods=['POST', 'OPTIONS'])
+def execute_sql():
+    """Execute raw SQL query"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
+    
+    try:
+        data = request.json
+        connection_id = data.get('connectionId')
+        sql_query = data.get('sql')
+        
+        if not connection_id or not sql_query:
+            return jsonify({
+                "success": False,
+                "message": "Missing connectionId or SQL query"
+            }), 400
+        
+        return execute_sql_internal(connection_id, sql_query)
+        
     except Exception as e:
+        logger.error(f"SQL execution error: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "message": f"SQL execution failed: {str(e)}"
         }), 500
 
-@app.route('/api/connectors/postgres/tables/<connection_id>', methods=['GET'])
+@app.route('/api/connectors/postgres/tables/<connection_id>', methods=['GET', 'OPTIONS'])
 def get_tables(connection_id):
     """Get list of tables in the connected database"""
-    connection = active_connections.get(connection_id)
-    
-    if not connection:
-        return jsonify({
-            "success": False,
-            "message": "Connection not found"
-        }), 404
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
     try:
+        connection = active_connections.get(connection_id)
+        
+        if not connection:
+            return jsonify({
+                "success": False,
+                "message": "Connection not found"
+            }), 404
+        
+        # Update last used timestamp
+        connection['last_used'] = datetime.now().isoformat()
+        
         engine = connection['engine']
         inspector = inspect(engine)
         
@@ -626,9 +606,10 @@ def get_tables(connection_id):
                     {
                         "name": col['name'],
                         "type": str(col['type']),
-                        "nullable": col['nullable']
+                        "nullable": col.get('nullable', True)
                     } for col in columns
-                ]
+                ],
+                "expanded": False
             })
         
         return jsonify({
@@ -638,31 +619,41 @@ def get_tables(connection_id):
         })
         
     except Exception as e:
+        logger.error(f"Get tables error: {str(e)}")
         return jsonify({
             "success": False,
             "message": f"Failed to get tables: {str(e)}"
         }), 500
 
-@app.route('/api/connectors/postgres/status/<connection_id>', methods=['GET'])
+@app.route('/api/connectors/postgres/status/<connection_id>', methods=['GET', 'OPTIONS'])
 def get_connection_status(connection_id):
     """Get connection status"""
-    connection = active_connections.get(connection_id)
-    
-    if not connection:
-        return jsonify({
-            "success": False,
-            "message": "Connection not found"
-        }), 404
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
     try:
+        connection = active_connections.get(connection_id)
+        
+        if not connection:
+            return jsonify({
+                "success": False,
+                "status": "disconnected",
+                "message": "Connection not found"
+            }), 404
+        
         # Test if connection is still active
-        engine = connection['engine']
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        try:
+            engine = connection['engine']
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            status = "active"
+        except Exception:
+            status = "disconnected"
         
         return jsonify({
             "success": True,
-            "status": "active",
+            "status": status,
             "connectionName": connection['name'],
             "database": connection['database'],
             "createdAt": connection['created_at'],
@@ -670,97 +661,146 @@ def get_connection_status(connection_id):
         })
         
     except Exception as e:
-        return jsonify({
-            "success": True,
-            "status": "disconnected",
-            "error": str(e)
-        })
-
-@app.route('/api/connectors/postgres/disconnect', methods=['POST'])
-def disconnect():
-    """Disconnect and cleanup connection"""
-    data = request.json
-    connection_id = data.get('connectionId')
-    
-    if not connection_id:
+        logger.error(f"Status check error: {str(e)}")
         return jsonify({
             "success": False,
-            "message": "Missing connectionId"
-        }), 400
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+@app.route('/api/connectors/postgres/disconnect', methods=['POST', 'OPTIONS'])
+def disconnect():
+    """Disconnect and cleanup connection"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
-    with connection_lock:
-        connection = active_connections.get(connection_id)
+    try:
+        data = request.json
+        connection_id = data.get('connectionId')
         
-        if not connection:
+        if not connection_id:
             return jsonify({
                 "success": False,
-                "message": "Connection not found"
-            }), 404
+                "message": "Missing connectionId"
+            }), 400
         
-        try:
+        with connection_lock:
+            connection = active_connections.get(connection_id)
+            
+            if not connection:
+                return jsonify({
+                    "success": False,
+                    "message": "Connection not found"
+                }), 404
+            
             # Close engine
-            connection['engine'].dispose()
+            try:
+                connection['engine'].dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {str(e)}")
             
             # Remove from active connections
             del active_connections[connection_id]
+            
+            logger.info(f"Connection disconnected: {connection_id}")
             
             return jsonify({
                 "success": True,
                 "message": "Disconnected successfully"
             })
             
-        except Exception as e:
-            return jsonify({
-                "success": False,
-                "message": f"Failed to disconnect: {str(e)}"
-            }), 500
+    except Exception as e:
+        logger.error(f"Disconnect error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Failed to disconnect: {str(e)}"
+        }), 500
 
-@app.route('/api/connectors/postgres/connections', methods=['GET'])
+@app.route('/api/connectors/postgres/connections', methods=['GET', 'OPTIONS'])
 def list_connections():
     """List all active connections"""
-    connections = []
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
     
-    for conn_id, conn in active_connections.items():
-        connections.append({
-            "id": conn_id,
-            "name": conn['name'],
-            "database": conn['database'],
-            "host": conn['host'],
-            "createdAt": conn['created_at'],
-            "lastUsed": conn['last_used']
+    try:
+        connections = []
+        
+        for conn_id, conn in active_connections.items():
+            connections.append({
+                "id": conn_id,
+                "name": conn['name'],
+                "database": conn['database'],
+                "host": conn['host'],
+                "createdAt": conn['created_at'],
+                "lastUsed": conn['last_used']
+            })
+        
+        return jsonify({
+            "success": True,
+            "connections": connections,
+            "count": len(connections)
         })
-    
-    return jsonify({
-        "success": True,
-        "connections": connections
-    })
+    except Exception as e:
+        logger.error(f"List connections error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
 
 # Cleanup inactive connections periodically
 def cleanup_inactive_connections():
     """Remove inactive connections after 30 minutes"""
     while True:
-        time.sleep(300)  # Check every 5 minutes
-        
-        with connection_lock:
-            current_time = datetime.now()
-            to_remove = []
+        try:
+            time.sleep(300)  # Check every 5 minutes
             
-            for conn_id, conn in active_connections.items():
-                last_used = datetime.fromisoformat(conn['last_used'])
-                if (current_time - last_used).seconds > 1800:  # 30 minutes
-                    try:
-                        conn['engine'].dispose()
-                        to_remove.append(conn_id)
-                    except:
-                        pass
-            
-            for conn_id in to_remove:
-                del active_connections[conn_id]
-                print(f"Cleaned up inactive connection: {conn_id}")
+            with connection_lock:
+                current_time = datetime.now()
+                to_remove = []
+                
+                for conn_id, conn in active_connections.items():
+                    last_used = datetime.fromisoformat(conn['last_used'])
+                    if (current_time - last_used) > timedelta(minutes=30):
+                        try:
+                            conn['engine'].dispose()
+                            to_remove.append(conn_id)
+                            logger.info(f"Cleaning up inactive connection: {conn_id}")
+                        except Exception as e:
+                            logger.warning(f"Error cleaning up connection {conn_id}: {str(e)}")
+                
+                for conn_id in to_remove:
+                    del active_connections[conn_id]
+                    
+        except Exception as e:
+            logger.error(f"Cleanup thread error: {str(e)}")
 
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_inactive_connections, daemon=True)
 cleanup_thread.start()
 
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        "success": False,
+        "message": "Endpoint not found"
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {str(error)}")
+    return jsonify({
+        "success": False,
+        "message": "Internal server error"
+    }), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    print("\n" + "="*50)
+    print("PostgreSQL Connector Server Starting")
+    print("="*50)
+    print(f"LLM Status: {'Configured ✓' if llm else 'Not configured ✗'}")
+    print(f"CORS: Enabled for all origins (development mode)")
+    print(f"Server: http://localhost:5000")
+    print("="*50 + "\n")
+    
+    app.run(debug=True, port=5000, threaded=True, host='127.0.0.1')

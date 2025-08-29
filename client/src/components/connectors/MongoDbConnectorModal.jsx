@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { X, AlertCircle, ExternalLink, Loader2 } from 'lucide-react';
-import axios from 'axios';
 
 const MongoDbConnectorModal = ({ isOpen, onClose, onSuccess, connector }) => {
   const [formData, setFormData] = useState({
@@ -46,21 +45,29 @@ const MongoDbConnectorModal = ({ isOpen, onClose, onSuccess, connector }) => {
     setTestStatus(null);
 
     try {
-      const response = await axios.post('/api/connectors/mongodb/test', {
-        connectionString: formData.connectionString,
-        database: formData.database,
-        collection: formData.collection
+      const response = await fetch('/api/connectors/mongodb/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionString: formData.connectionString,
+          database: formData.database,
+          collection: formData.collection
+        })
       });
 
-      if (response.data.success) {
+      const data = await response.json();
+
+      if (data.success) {
         setTestStatus({ type: 'success', message: 'Connection successful!' });
       } else {
-        setTestStatus({ type: 'error', message: response.data.message || 'Connection failed' });
+        setTestStatus({ type: 'error', message: data.message || 'Connection failed' });
       }
     } catch (error) {
       setTestStatus({ 
         type: 'error', 
-        message: error.response?.data?.message || 'Failed to test connection' 
+        message: 'Failed to test connection' 
       });
     } finally {
       setIsLoading(false);
@@ -73,25 +80,33 @@ const MongoDbConnectorModal = ({ isOpen, onClose, onSuccess, connector }) => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post('/api/connectors/mongodb/connect', {
-        connectionName: formData.connectionName,
-        connectionString: formData.connectionString,
-        database: formData.database,
-        collection: formData.collection
+      const response = await fetch('/api/connectors/mongodb/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connectionName: formData.connectionName,
+          connectionString: formData.connectionString,
+          database: formData.database,
+          collection: formData.collection
+        })
       });
 
-      if (response.data.success) {
+      const data = await response.json();
+
+      if (data.success) {
         onSuccess({
           connectionName: formData.connectionName,
-          connectionId: response.data.connectionId
+          connectionId: data.connectionId
         });
       } else {
-        setTestStatus({ type: 'error', message: response.data.message || 'Connection failed' });
+        setTestStatus({ type: 'error', message: data.message || 'Connection failed' });
       }
     } catch (error) {
       setTestStatus({ 
         type: 'error', 
-        message: error.response?.data?.message || 'Failed to create connection' 
+        message: 'Failed to create connection' 
       });
     } finally {
       setIsLoading(false);
