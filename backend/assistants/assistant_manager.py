@@ -274,6 +274,7 @@ MANDATORY REQUIREMENTS:
 VISUALIZATION REQUIREMENTS (MANDATORY):
 - ALWAYS create at least one chart for every analysis
 - Use Bar charts for comparisons, categories, rankings
+- Dont generate the same graphs multiple times. 
 - Use Line charts for trends, time series, forecasting  
 - Use Pie charts for revenue/profit breakdowns by category/SKU
 - Save all plots using plt.savefig() and plt.show()
