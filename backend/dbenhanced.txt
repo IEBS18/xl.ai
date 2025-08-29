@@ -1,0 +1,159 @@
+# Database Context Enhancement Implementation
+
+## Overview
+Enhanced the query router to provide database context-aware routing for better conversational interactions with database sessions.
+
+## Problem Statement
+When users connect to a database and ask conversational queries like "Hi" or "Explain the data", the system only has schema context but lacks meaningful data context, resulting in generic responses.
+
+## Solution
+Implemented context-aware routing that dynamically enriches database queries with relevant context based on query type and data source.
+
+## Implementation Details
+
+### 1. DatabaseContextHandler Class
+Added to query_router.py with methods for different query categories:
+
+```python
+class DatabaseContextHandler:
+    """
+    Handles database-specific context enrichment for query routing.
+    Provides contextual information based on query type and database state.
+    """
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+    
+    def get_context_for_query(self, query: str, category: QueryCategory, context: Dict) -> Dict:
+        """Get relevant database context based on query category."""
+        
+        if category == QueryCategory.CONVERSATIONAL:
+            return self._get_conversational_context()
+        elif category == QueryCategory.SIMPLE_CALCULATION:
+            return self._get_calculation_context()
+        elif category == QueryCategory.DATA_ANALYSIS:
+            return self._get_analysis_context()
+        elif category == QueryCategory.REPORT:
+            return self._get_report_context()
+        else:
+            return {}
+    
+    def _get_conversational_context(self) -> Dict:
+        """Context for greetings and general conversation about data."""
+        return {
+            'data_overview': 'Available database tables with sample data',
+            'recent_insights': 'Recent analysis results or patterns',
+            'suggested_questions': 'Common questions users ask about this data',
+            'context_type': 'conversational_database'
+        }
+    
+    def _get_calculation_context(self) -> Dict:
+        """Context for simple calculations and direct questions."""
+        return {
+            'key_metrics': 'Important numerical columns and their ranges',
+            'aggregation_hints': 'Suggested aggregations based on data types',
+            'context_type': 'calculation_database'
+        }
+    
+    def _get_analysis_context(self) -> Dict:
+        """Context for complex data analysis queries."""
+        return {
+            'data_relationships': 'Foreign key relationships between tables',
+            'analysis_opportunities': 'Potential analysis paths based on data',
+            'context_type': 'analysis_database'
+        }
+    
+    def _get_report_context(self) -> Dict:
+        """Context for report generation queries."""
+        return {
+            'report_structure': 'Suggested report sections based on available data',
+            'business_metrics': 'Key business metrics that can be calculated',
+            'context_type': 'report_database'
+        }
+```
+
+### 2. RuleBasedQueryRouter Enhancement
+Enhanced the main router with database context integration:
+
+#### Modified route_query method:
+```python
+# NEW: Enrich context for database queries
+if self._needs_database_context(category_enum, context):
+    logging.info(f"🗄️ Enriching query with database context for category: {category_text}")
+    enriched_context = self._enrich_with_database_context(
+        user_query, category_enum, context
+    )
+    if enriched_context:
+        context.update(enriched_context)
+        logging.info(f"✅ Database context added: {len(enriched_context)} keys")
+```
+
+#### Added helper methods:
+```python
+def _needs_database_context(self, category_enum: QueryCategory, context: Dict[str, Any]) -> bool:
+    """Check if the query needs database context enrichment."""
+    if not context:
+        return False
+        
+    data_source_type = context.get('data_source_type', 'files')
+    
+    # Only for database sessions
+    if data_source_type != 'database':
+        return False
+    
+    # Categories that benefit from database context
+    context_categories = {
+        QueryCategory.CONVERSATIONAL,
+        QueryCategory.SIMPLE_CALCULATION,
+        QueryCategory.DATA_ANALYSIS,
+        QueryCategory.REPORT
+    }
+    
+    return category_enum in context_categories
+
+def _enrich_with_database_context(self, user_query: str, category_enum: QueryCategory, 
+                                context: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich context with database-specific information for better query understanding."""
+    try:
+        enriched_context = self._db_context_handler.get_context_for_query(
+            user_query, category_enum, context
+        )
+        
+        if enriched_context:
+            logging.info(f"🗄️ Database context enriched with {len(enriched_context)} keys")
+            return enriched_context
+        else:
+            logging.info("🗄️ No additional database context available")
+            return {}
+            
+    except Exception as e:
+        logging.error(f"❌ Database context enrichment failed: {e}")
+        return {}
+```
+
+## Flow Diagram
+```
+User Query → OpenAI Classification → Check if Database Context Needed →
+Enrich Context with DB Info → Route to Appropriate Assistant → Enhanced Response
+```
+
+## Benefits
+1. **Contextual Responses**: Conversational queries now have meaningful database context
+2. **Dynamic Context**: Context is tailored to query type (conversational, calculation, analysis, report)
+3. **Graceful Fallback**: System continues to work even if context enrichment fails
+4. **Backwards Compatibility**: File-based sessions continue to work unchanged
+
+## Usage Examples
+- **Before**: "Hi" → Generic greeting response
+- **After**: "Hi" → Greeting + overview of available database tables and suggested questions
+
+- **Before**: "Explain the data" → Generic explanation about data analysis
+- **After**: "Explain the data" → Specific explanation of the database tables, relationships, and key insights
+
+## Files Modified
+- `backend/assistants/query_router.py`: Added DatabaseContextHandler and enhanced routing logic
+
+## Next Steps
+- Test the implementation with actual database sessions
+- Fine-tune context enrichment based on user feedback
+- Add more sophisticated context generation (actual data samples, recent query results)

@@ -1,0 +1,210 @@
+# Bug Analysis and Fix Plan
+
+## Bug 1: Processing Status Persistence After File Upload
+**Issue**: `isFileProcessing` shows "processing" even when `assistant_upload_status` is "completed" after page refresh/direct navigation to `/chat/session-id`
+
+**Root Cause**: Race condition between initial state loading and WebSocket event handling
+
+**Affected Files**:
+- `src/hooks/useMesssages.js:167-168` - WebSocket event handling
+- `src/hooks/useSessionFileUpload.js:32-53` - Session validation logic
+- `src/components/ChatSession.jsx:235-242` - State initialization
+- `src/components/InputArea.jsx:15, 39-44` - Processing state display
+
+**Solution**:
+1. **Fix State Synchronization** in `useMessages.js:167-168`:
+   - Add additional logging to track when `assistant_upload_complete` events are received
+   - Ensure the state update is properly propagated to all components
+
+2. **Enhanced Session Validation** in `useSessionFileUpload.js:32-53`:
+   - Add more robust state checks and ensure the `setFileProcessingState(false)` call is properly executed
+   - Add a small delay to ensure state propagation
+
+3. **Add State Recovery Logic** in `ChatSession.jsx:235-242`:
+   - Force a state check after component mount when `fileUploaded` is true
+   - Periodically validate processing state until it matches server status
+
+## Bug 2: Multiple File Preview Issue
+**Issue**: `InputArea.jsx` only shows single file preview instead of multiple files when multiple files are uploaded
+
+**Root Cause**: The file preview UI in `InputArea.jsx` is hardcoded to show `fileInfo.filename` instead of using `fileInfo.files` array
+
+**Affected Files**:
+- `src/components/InputArea.jsx:102-139` - File preview display logic
+- `src/hooks/useSessionFileUpload.js:126-130` - Multiple file data structure
+
+**Working Reference**: 
+- `src/components/FileInfo.jsx:68-102` - Already implements correct multiple file UI
+
+**Solution**:
+1. **Update InputArea.jsx file preview section (lines 102-139)**:
+   - Replace single file display with logic similar to `FileInfo.jsx:68-102`
+   - Show multiple file names with truncation (show first 2-3 files + "X more files")
+   - Handle file removal for individual files vs. all files
+
+2. **Enhance File Preview Handler**:
+   - Update click handlers to support previewing individual files from the multiple file list
+   - Add file selection interface if needed
+
+## Implementation Steps
+
+### Phase 1: Fix Bug 1 (Processing Status)
+1. **Modify `useSessionFileUpload.js`**:
+   - Add retry logic for state synchronization
+   - Add setTimeout to ensure state propagation
+   - Enhanced logging for debugging
+
+2. **Add state recovery in `ChatSession.jsx`**:
+   - Force state validation after component mount
+   - Add periodic state checks until synchronized
+
+3. **Enhance logging in `useMessages.js`**:
+   - Better tracking of assistant_upload_complete events
+   - Debug state transitions
+
+### Phase 2: Fix Bug 2 (Multiple File Preview)
+1. **Update `InputArea.jsx` file preview UI**:
+   - Implement multiple file display logic from `FileInfo.jsx`
+   - Add file count display ("3 files uploaded")
+   - Show first 2-3 filenames with "X more" truncation
+
+2. **Update file removal logic**:
+   - Handle individual file removal vs. removing all files
+   - Update UI state accordingly
+
+3. **Enhance file preview handlers**:
+   - Support individual file preview selection
+   - Update click handlers for multiple file scenarios
+
+### Phase 3: Testing
+1. **Test direct navigation scenarios**:
+   - Direct navigation to `/chat/session-id` with completed uploads
+   - Page refresh with files already uploaded
+   - State persistence across browser refresh
+
+2. **Test multiple file scenarios**:
+   - Upload multiple files and verify preview display
+   - Test file removal with multiple files
+   - Test individual file preview functionality
+
+3. **Test state synchronization**:
+   - Verify processing status updates correctly
+   - Test WebSocket event handling
+   - Verify state recovery mechanisms
+
+## Expected Outcomes
+- **Bug 1**: Users will see correct processing status immediately upon navigation to chat sessions
+- **Bug 2**: Users will see all uploaded files in the input area with proper preview options
+- **Overall**: Improved user experience with reliable file upload state management
+
+## Backend Analysis - Multiple File Support
+
+### ✅ **GOOD NEWS: Backend Already Supports Multiple Files!**
+
+**Backend API Structure (`/session/<session_id>/info`):**
+```javascript
+// Response structure from app.py lines ~615-630
+file_info = {
+    'filename': session_summary.get('filename'),        // Primary file name
+    'shape': session_summary.get('shape'),              // Combined shape info
+    'columns': session_summary.get('columns'),          // Combined columns
+    'files': current_session['files'],                  // ✅ ARRAY OF ALL FILES
+    'totalFiles': len(current_session['files']),        // ✅ COUNT
+    'isMultipleFiles': len(current_session['files']) > 1, // ✅ BOOLEAN FLAG
+    // ... other fields
+}
+```
+
+**Individual File Structure in `files` array:**
+```javascript
+// Each file in current_session['files'] contains:
+{
+    'filename': 'file1.csv',
+    'shape': [100, 5],
+    'columns': ['col1', 'col2', ...],
+    'assistant_file_id': 'file_id_123',
+    'assistant_upload_status': 'completed|pending|failed', // ✅ PROCESSING STATUS
+    'upload_time': '2024-01-01T10:00:00',
+    // ... other metadata
+}
+```
+
+### **Root Cause Analysis Updated**
+
+**Bug 1: Processing Status** - Same as before, no backend changes needed
+
+**Bug 2: Multiple File Preview** - **Frontend Issue Only!**
+- ✅ Backend correctly returns `fileInfo.files` array with all uploaded files
+- ✅ Backend provides `fileInfo.totalFiles` and `fileInfo.isMultipleFiles` 
+- ✅ Each file has individual `assistant_upload_status` for granular processing state
+- ❌ Frontend `InputArea.jsx` ignores the `files` array and only shows `fileInfo.filename`
+
+### **Enhanced Solution for Bug 2**
+
+The backend is already perfect! We just need to update the frontend to use the data that's already being provided:
+
+1. **Use `fileInfo.files` instead of `fileInfo.filename`** in `InputArea.jsx:102-139`
+2. **Display multiple file names** like `FileInfo.jsx:86-102` does
+3. **Show individual file processing status** using each file's `assistant_upload_status`
+4. **Handle individual file removal** by updating the files array
+
+## Files to Modify
+1. `src/hooks/useSessionFileUpload.js` - State synchronization fixes
+2. `src/components/ChatSession.jsx` - State recovery logic  
+3. `src/hooks/useMesssages.js` - Enhanced event handling
+4. `src/components/InputArea.jsx` - Multiple file preview UI (use existing backend data)
+
+## Backend Status: ✅ NO CHANGES NEEDED
+The backend `/session/<session_id>/info` endpoint already provides all necessary data for multiple file support. The issue is purely in the frontend not consuming the provided data structure.
+
+## FilePreviewModal Analysis
+
+### **Data Flow Traceback:**
+1. `ChatSession.jsx` ← `fileInfo` from `useSessionFileUpload` hook  
+2. `ChatInterface.jsx` ← `fileInfo` prop from ChatSession
+3. `InputArea.jsx` ← `fileInfo` prop from ChatInterface
+4. `FilePreviewModal` ← `fileInfo` prop from ChatInterface
+
+### **Modal Design Issue:**
+- ✅ **FilePreviewModal supports multiple sheets** (Excel multi-sheet files)
+- ❌ **FilePreviewModal doesn't support multiple files** (multiple CSV/Excel files)
+- The modal expects `fileInfo.sheets[]` but gets `fileInfo.files[]`
+
+### **Current Modal Logic (FilePreviewModal.jsx:48-56):**
+```javascript
+const sheets = fileInfo.sheets || [{ 
+  name: fileInfo.filename || 'Sheet1', 
+  preview: fileInfo.preview,
+  data: fileInfo.data,
+  shape: fileInfo.shape,
+  columns: fileInfo.columns
+}]
+```
+
+### **✅ BETTER SOLUTION: Individual File Preview**
+
+**Key Insight**: `FilePreviewModal` already works perfectly for single files! We should:
+1. **Show multiple files** in `InputArea.jsx` 
+2. **Pass individual file objects** to the modal when clicked
+3. **Keep modal simple** - no need for complex multi-file handling
+
+### **Individual File Structure from Backend:**
+```javascript
+// Each file in fileInfo.files[] has:
+{
+  'index': 0,
+  'filename': 'file1.csv', 
+  'assistant_upload_status': 'completed|pending|failed',
+  // Missing: preview, data, shape, columns (needed for modal)
+}
+```
+
+### **Implementation Options:**
+**Option A**: Add individual file preview endpoint `/session/{id}/file/{index}/preview`
+**Option B**: Backend includes preview data in all `fileInfo.files[]` objects
+
+### **New Implementation Plan:**
+1. **InputArea.jsx**: Show list of files with click handlers
+2. **ChatInterface.jsx**: Handle individual file preview requests  
+3. **FilePreviewModal**: Receives individual file object (no changes needed)
+4. **Backend**: Add file preview data to individual file objects OR create preview endpoint
