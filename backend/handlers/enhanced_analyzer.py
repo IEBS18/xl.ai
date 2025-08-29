@@ -1939,7 +1939,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                                         'data': blob_url,
                                         'path': temp_path,
                                         'url': blob_url,
-                                        'thisis': 3,
+                                        'thisis': 2,
                                         'chart_type': 'database_generated',
                                         'source': 'assistant_matplotlib'
                                     })
@@ -4137,14 +4137,14 @@ Please provide a concise summary following your format guidelines that highlight
                 html_report = report_result.get("html_report", "")
                 
                 # Stream the HTML report to frontend (your existing frontend structure)
-                self.emit_stream('report', {
-                    'type': 'comprehensive_html_report',
-                    'html': html_report,  # Complete HTML document
-                    'images': image_sas_urls,
-                    'sections_generated': report_result.get("sections_generated", 0),
-                    'generated_by': 'structured_report_generator',
-                    'report_metadata': report_result.get("report_metadata", {})
-                })
+                # self.emit_stream('report', {
+                #     'type': 'comprehensive_html_report',
+                #     'html': html_report,  # Complete HTML document
+                #     'images': image_sas_urls,
+                #     'sections_generated': report_result.get("sections_generated", 0),
+                #     'generated_by': 'structured_report_generator',
+                #     'report_metadata': report_result.get("report_metadata", {})
+                # })
                 
                 print("✅ Successfully generated comprehensive structured HTML report")
                 
@@ -4708,6 +4708,7 @@ Please provide a concise summary following your format guidelines that highlight
                 # For images, also emit to frontend immediately and save session metadata
                 if category == 'images':
                     self._emit_image_to_frontend(local_path, blob_url)
+                     ## emmitting images twice toh stopped shit. 
                     # self.emit_stream('status', f"💾 Saved image to session: {filename}")
                     
                     # Save session metadata to blob storage after adding each image
