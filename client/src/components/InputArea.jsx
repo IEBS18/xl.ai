@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, Paperclip, Loader2, X, FileText, Files } from "lucide-react"
+import { Send, Paperclip, Loader2, X, FileText, Files, Database } from "lucide-react"
 import { useTheme } from "@/context/ThemeProvider"
 
 const InputArea = ({
@@ -13,6 +13,7 @@ const InputArea = ({
   onShowFilePreview,
   onRemoveFile,
   isFileProcessing = false, // New prop for file processing state
+  dataSourceType = 'file', // New prop for data source type
 }) => {
   const [showAllFiles, setShowAllFiles] = useState(false)
   const [inputMessage, setInputMessage] = useState("")
@@ -25,9 +26,10 @@ const InputArea = ({
       isFileProcessing,
       fileInfo: fileInfo ? { filename: fileInfo.filename } : null,
       isConnected,
-      isAnalyzing
+      isAnalyzing,
+      dataSourceType
     })
-  }, [isFileProcessing, fileInfo, isConnected, isAnalyzing])
+  }, [isFileProcessing, fileInfo, isConnected, isAnalyzing, dataSourceType])
 
   const handleSendMessage = () => {
     console.log('🚀 Send button clicked:', {
@@ -101,10 +103,29 @@ const InputArea = ({
       <div className="max-w-4xl mx-auto px-4 py-2">
         <div className={`${themeClasses.glass} rounded-3xl shadow-lg`}>
           <div className="flex flex-col">
-            {fileInfo && (
+            {(fileInfo || dataSourceType === 'database') && (
               <div className="px-6 pt-4 pb-2">
-                {/* Multiple Files Display */}
-                {fileInfo.files && fileInfo.files.length > 1 ? (
+                {/* Database Connection Indicator - Only show for database sessions */}
+                {dataSourceType === 'database' && (
+                  <div className={`inline-flex items-center space-x-2 px-3 py-1.5 rounded-full shadow-sm border ${
+                    isDark 
+                      ? 'bg-green-900/20 border-green-700/30' 
+                      : 'bg-green-50 border-green-200'
+                  }`}>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <Database size={14} className={`flex-shrink-0 ${
+                      isDark ? 'text-green-400' : 'text-green-600'
+                    }`} />
+                    <span className={`text-sm font-medium ${
+                      isDark ? 'text-green-300' : 'text-green-700'
+                    }`}>
+                      Database Connected
+                    </span>
+                  </div>
+                )}
+                
+                {/* Multiple Files Display - Only show for file sessions or when user adds files to database session */}
+                {dataSourceType !== 'database' && fileInfo && fileInfo.files && fileInfo.files.length > 1 ? (
                   <div className="space-y-2">
                     {/* Header showing total count */}
                     <div className="flex items-center space-x-2">
@@ -158,8 +179,8 @@ const InputArea = ({
                       )}
                     </div>
                   </div>
-                ) : (
-                  /* Single File Display (fallback) */
+                ) : dataSourceType !== 'database' && fileInfo ? (
+                  /* Single File Display (fallback) - Only show for file sessions */
                   <button
                     onClick={() => handleFilePreview()}
                     disabled={isFileProcessing}
@@ -194,7 +215,7 @@ const InputArea = ({
                       <X size={12} />
                     </button>
                   </button>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -215,15 +236,15 @@ const InputArea = ({
                       ? "Connecting to server..."
                       : isFileProcessing
                         ? "⏳ Processing file... Please wait"
-                      : fileInfo
+                      : fileInfo || dataSourceType === 'database'
                         ? "Ask a follow-up..."
                         : "Upload a file or describe what you'd like to analyze..."
                   }
                   disabled={isAnalyzing || !isConnected || isFileProcessing}
-                  className={`w-full px-6 ${fileInfo ? "py-2 pb-4" : "py-4"} bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none ${
+                  className={`w-full px-6 ${fileInfo || dataSourceType === 'database' ? "py-2 pb-4" : "py-4"} bg-transparent ${themeClasses.text} placeholder-gray-500 focus:outline-none text-base transition-all duration-200 resize-none ${
                     isFileProcessing ? 'opacity-60 cursor-not-allowed' : ''
                   }`}
-                  style={{ minHeight: fileInfo ? "40px" : "56px", maxHeight: "200px" }}
+                  style={{ minHeight: fileInfo || dataSourceType === 'database' ? "40px" : "56px", maxHeight: "200px" }}
                   rows={1}
                 />
                 

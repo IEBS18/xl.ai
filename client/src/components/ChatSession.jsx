@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
 import { useTheme } from "../context/ThemeProvider"
 import { useAuth } from "../context/AuthProvider"
 import { useSocket } from "../hooks/useSocket"
@@ -14,6 +14,15 @@ import AuthModal from "./AuthModal"
 const ChatSession = () => {
   const { sessionId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const dataSourceType = searchParams.get('type') || 'file'
+  
+  // Debug logging
+  console.log('🔍 ChatSession Debug:', {
+    sessionId,
+    dataSourceType,
+    urlParams: Object.fromEntries(searchParams.entries())
+  })
   const { themeClasses } = useTheme()
   const { isAuthenticated, isLoading } = useAuth()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -580,6 +589,7 @@ const ChatSession = () => {
                 onSendMessage={handleSendMessage}
                 sessionId={sessionId}
                 currentQueryCategory={currentQueryCategory}
+                dataSourceType={dataSourceType}
                 // File processing props
                 isFileProcessing={isFileProcessing}
                 setFileProcessingState={setFileProcessingState}

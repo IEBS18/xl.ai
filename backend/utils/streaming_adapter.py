@@ -187,12 +187,12 @@ class StreamingAdapter:
             img_base64 = base64.b64encode(file_data.content).decode('utf-8')
             
             # Stream the image
-            self._emit_stream('image', {
-                'file_id': file_id,
-                'data': f"data:image/png;base64,{img_base64}",
-                'filename': f"assistant_generated_{file_id}.png",
-                'type': 'assistant_generated'
-            }, session_id)
+            # self._emit_stream('image', {
+            #     'file_id': file_id,
+            #     'data': f"data:image/png;base64,{img_base64}",
+            #     'filename': f"assistant_generated_{file_id}.png",
+            #     'type': 'assistant_generated'
+            # }, session_id)
             
             # Store for later processing
             self.downloaded_files[file_id] = file_data.content

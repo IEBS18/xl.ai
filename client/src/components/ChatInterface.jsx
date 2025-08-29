@@ -48,6 +48,7 @@ const ChatInterface = ({
   onUpdateMessage,
   sessionId,
   currentQueryCategory,
+  dataSourceType, // New prop for data source type
   isFileProcessing, // New prop for file processing state
   setFileProcessingState // New prop to control file processing state
 }) => {
@@ -394,7 +395,7 @@ const ChatInterface = ({
           {uploadProgress > 0 && <UploadProgress progress={uploadProgress} />}
 
           {/* Input Area - Always visible at bottom with enhanced file processing */}
-          {fileUploaded && (
+          {(fileUploaded || dataSourceType === 'database') && (
             <InputArea
               isConnected={isConnected}
               isAnalyzing={isAnalyzing}
@@ -404,6 +405,7 @@ const ChatInterface = ({
               onShowFilePreview={handleShowFilePreview}
               onRemoveFile={handleRemoveFile}
               isFileProcessing={isFileProcessing} // Pass the processing state
+              dataSourceType={dataSourceType} // Pass the data source type
             />
           )}
         </div>

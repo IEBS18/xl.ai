@@ -1939,7 +1939,7 @@ class EnhancedStreamingAnalyzer(StreamingAnalyzer):
                                         'data': blob_url,
                                         'path': temp_path,
                                         'url': blob_url,
-                                        'thisis': 3,
+                                        'thisis': 2,
                                         'chart_type': 'database_generated',
                                         'source': 'assistant_matplotlib'
                                     })
@@ -4707,7 +4707,8 @@ Please provide a concise summary following your format guidelines that highlight
                 
                 # For images, also emit to frontend immediately and save session metadata
                 if category == 'images':
-                    # self._emit_image_to_frontend(local_path, blob_url)
+                    self._emit_image_to_frontend(local_path, blob_url)
+                     ## emmitting images twice toh stopped shit. 
                     # self.emit_stream('status', f"💾 Saved image to session: {filename}")
                     
                     # Save session metadata to blob storage after adding each image

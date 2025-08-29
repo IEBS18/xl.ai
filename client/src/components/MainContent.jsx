@@ -136,7 +136,7 @@ const MainContent = () => {
   }
 
   const handleDatabaseConnectionSuccess = (sessionId) => {
-    navigate(`/chat/${sessionId}`)
+    navigate(`/chat/${sessionId}?type=database`)
   }
 
   return (
