@@ -742,7 +742,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, onDatabaseConne
                   Upload Files
                 </div>
                 <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'} truncate`}>
-                  CSV, Excel, JSON
+                  CSV, Excel
                 </div>
               </div>
             </button>
