@@ -545,7 +545,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, onDatabaseConne
                           ? "Sign in to upload files and analyze data..."
                           : uploadProgress > 0
                           ? `Uploading... ${uploadProgress}%`
-                          : "Upload a file(s) or connect a database to analyze..."
+                          : "Upload file(s) or connect database to analyze..."
                       }
                       disabled={!isConnected || uploadProgress > 0}
                       className={`w-full px-6 py-4 ${isDark 
@@ -653,7 +653,7 @@ const HeroSection = ({ isConnected, onSendMessage, onFileUpload, onDatabaseConne
                       className={`font-medium text-base ${themeClasses.textSecondary}`}
                       style={{ fontFamily: "SF Pro Text, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
                     >
-                      Query your File(s) or connected databases and analyze data seamlessly
+                      Query your file(s) or connect database and analyze data seamlessly
                     </p>
                     <div className="flex items-center justify-center space-x-8 text-sm">
                       <span className="flex items-center space-x-2 group cursor-default">
